@@ -1,8 +1,10 @@
-# 三板通信协议草案
+# 三板通信协议
 
 ## 目标
 
-协议先冻结消息语义，再根据最终引脚选择 UART、USB-UART或有线以太网。控制量不使用ASCII日志传输；日志和控制通道必须分离。
+协议先冻结消息语义，再根据最终引脚选择 CAN、USB CDC 或有线以太网。控制量不使用ASCII日志传输；日志和控制通道必须分离。
+
+树莓派到 EdgeTalk 的钢球视觉包已经冻结为固定 64 字节的 [VISION_MEASUREMENT_V1](VISION_MEASUREMENT_V1.md)。该帧使用 CRC32C 和 `u32` 序号，替代下述通用草案的 CRC16/`u16` 序号；通用包头仍供 MSPM0 等尚未冻结的消息参考。
 
 ## 通用包头
 
@@ -26,7 +28,7 @@
 | 类型 | 方向 | 频率 | 最小内容 |
 |---|---|---:|---|
 | `CHASSIS_STATE` | MSPM0 -> EdgeTalk | 200 Hz | `ax, ay, pitch, yaw_rate, wheel_l, wheel_r, status` |
-| `BALL_MEASUREMENT` | 树莓派 -> EdgeTalk | 60 Hz | `position, confidence, valid_flags, exposure_us` |
+| `BALL_MEASUREMENT` | 树莓派 -> EdgeTalk | 120 Hz | 固定64字节；圆心、半径、米制位置、质量、ROI、曝光和采集时间 |
 | `BALL_TARGET` | 裁判/人机接口 -> EdgeTalk | 事件触发 | 目标位置、命令序号、有效期 |
 | `CONTROL_HEALTH` | EdgeTalk -> MSPM0/显示 | 20~50 Hz | tracking、视觉龄期、IMU龄期、饱和、故障、降速请求 |
 | `TIME_SYNC_REQ/RSP` | EdgeTalk <-> 各板 | 2~10 Hz | 四时间戳握手或往返时延样本 |
@@ -44,6 +46,8 @@
 ## 带宽估算
 
 假设 `CHASSIS_STATE` 总长32字节，200 Hz在8N1 UART上约需64 kbit/s；`115200`虽能承载平均流量，但在重发、时钟误差和调试流量下余量偏小，因此首选 `460800` 或 `921600 bit/s`。控制UART禁止混入 `printf`。
+
+视觉帧 64 字节，在 120 Hz 为 `7.68 kB/s`，在 240 Hz 验收档为 `15.36 kB/s`；当前 High-Speed USB CDC 有充分带宽余量。只传视觉测量，不传灰度 ROI 或完整图像。
 
 ## 待引脚确认后补充
 
