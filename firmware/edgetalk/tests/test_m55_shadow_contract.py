@@ -8,7 +8,7 @@ M55_ADAPTER = (
 )
 M55_SCONSCRIPT = ROOT / "firmware" / "edgetalk" / "SConscript.m55"
 M55_UI = ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_lvgl_ui.c"
-M55_IPC = ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_m55_ipc.c"
+M55_IPC = ROOT / "firmware" / "edgetalk" / "src" / "hball_m55_ipc.c"
 
 
 def test_m55_runs_200hz_lqg_without_can_or_actuator_output():
