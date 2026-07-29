@@ -39,3 +39,15 @@ def test_m33_input_hub_uses_mutex_and_200_hz_read_only_snapshots():
     assert "hball_sensor_fusion_snapshot(" in source
     assert "ACTUATOR_TX=0" in source
     assert "ifx_can_direct_send" not in source
+
+
+def test_m33_is_the_only_initializer_and_publishes_sensor_slot_at_200_hz():
+    source = INPUTS.read_text(encoding="utf-8")
+
+    assert '#include "hball_dualcore_platform.h"' in source
+    assert "hball_ipc_region_reset(" in source
+    assert "hball_ipc_sensor_publish(" in source
+    assert "hball_ipc_platform_region()->sensor" in source
+    assert "hball_ipc_platform_cache_ops()" in source
+    assert "hball_ipc_control_publish(" not in source
+    assert "HBALL_M33_SNAPSHOT_PERIOD_MS 5U" in source

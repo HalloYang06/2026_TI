@@ -1,4 +1,5 @@
 #include "hball_m33_inputs.h"
+#include "hball_dualcore_platform.h"
 
 #include <finsh.h>
 #include <rtthread.h>
@@ -12,6 +13,9 @@ static rt_mutex_t g_hball_input_mutex = RT_NULL;
 static rt_thread_t g_hball_snapshot_worker = RT_NULL;
 static rt_uint32_t g_hball_snapshot_total = 0U;
 static rt_uint32_t g_hball_lock_failure_total = 0U;
+static rt_uint32_t g_hball_ipc_publish_total = 0U;
+static rt_uint32_t g_hball_ipc_publish_failure_total = 0U;
+static hball_ipc_result_t g_hball_ipc_last_result = HBALL_IPC_HEADER;
 
 static rt_bool_t hball_m33_inputs_lock(void)
 {
@@ -92,8 +96,11 @@ static void hball_m33_inputs_print_status(void)
         return;
     }
     rt_kprintf(
-        "[hball-inputs] snapshots=%lu seq=%lu valid=0x%08lx vision_seq=%lu vision_age=%lu imu_age=%lu motor_age=%lu ACTUATOR_TX=0\n",
+        "[hball-inputs] snapshots=%lu ipc=%lu/%lu/%d seq=%lu valid=0x%08lx vision_seq=%lu vision_age=%lu imu_age=%lu motor_age=%lu ACTUATOR_TX=0\n",
         (unsigned long)g_hball_snapshot_total,
+        (unsigned long)g_hball_ipc_publish_total,
+        (unsigned long)g_hball_ipc_publish_failure_total,
+        (int)g_hball_ipc_last_result,
         (unsigned long)snapshot.sequence,
         (unsigned long)snapshot.valid_flags,
         (unsigned long)snapshot.vision_sequence,
@@ -111,14 +118,34 @@ static void hball_m33_snapshot_worker_entry(void *parameter)
     while (1)
     {
         const rt_uint32_t now_ms = (rt_uint32_t)rt_tick_get_millisecond();
+        hball_sensor_snapshot_t snapshot;
+        rt_bool_t snapshot_ready = RT_FALSE;
 
         if (hball_m33_inputs_lock())
         {
             hball_sensor_fusion_snapshot(
-                &g_hball_sensor_fusion, now_ms, &g_hball_latest_snapshot
+                &g_hball_sensor_fusion, now_ms, &snapshot
             );
+            g_hball_latest_snapshot = snapshot;
             g_hball_snapshot_total++;
+            snapshot_ready = RT_TRUE;
             hball_m33_inputs_unlock();
+        }
+        if (snapshot_ready)
+        {
+            g_hball_ipc_last_result = hball_ipc_sensor_publish(
+                &hball_ipc_platform_region()->sensor,
+                &snapshot,
+                hball_ipc_platform_cache_ops()
+            );
+            if (g_hball_ipc_last_result == HBALL_IPC_OK)
+            {
+                g_hball_ipc_publish_total++;
+            }
+            else
+            {
+                g_hball_ipc_publish_failure_total++;
+            }
         }
         if ((rt_uint32_t)(now_ms - last_log_ms) >= HBALL_M33_INPUT_LOG_PERIOD_MS)
         {
@@ -139,6 +166,9 @@ static int hball_m33_inputs_init(void)
 {
     hball_sensor_fusion_init(&g_hball_sensor_fusion);
     rt_memset(&g_hball_latest_snapshot, 0, sizeof(g_hball_latest_snapshot));
+    hball_ipc_region_reset(
+        hball_ipc_platform_region(), hball_ipc_platform_cache_ops()
+    );
     g_hball_input_mutex = rt_mutex_create("hball_in", RT_IPC_FLAG_PRIO);
     if (g_hball_input_mutex == RT_NULL)
     {
