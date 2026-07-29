@@ -10,7 +10,7 @@
 |---|---|---:|
 | 天猛星 MSPM0G3507 | 红外循迹、底盘速度/差速环、IMU UART DMA采集、底盘状态发布 | 1 kHz / 500 Hz / 200 Hz |
 | 树莓派 | 灰度ROI、轮廓筛选、钢球定位、比赛视频显示与存储 | 120 Hz |
-| Infineon EdgeTalk | 全部滚球控制算法、球状态观测、摆杆角度内环、无刷驱动接口 | 200 Hz / 1 kHz / 20 kHz FOC |
+| Infineon EdgeTalk | M33通信/安全门、M55滚球观测与LQG、RS00受限目标接口 | 200 Hz LQG / 1 kHz安全门 / 200 Hz目标 |
 
 F407 和 NanoPi M5 暂不进入正式链路，分别保留作 MCU 与视觉计算备选。滚球主算法为“非线性可测扰动前馈 + 延迟鲁棒 LQG”，当前增益为 `K=[14.56338, 3.31547, 0.58093]`。
 
@@ -18,8 +18,8 @@ F407 和 NanoPi M5 暂不进入正式链路，分别保留作 MCU 与视觉计�
 flowchart LR
     M["MSPM0G3507<br/>IMU、红外、底盘"] -->|"200 Hz 时间戳状态包"| E["EdgeTalk<br/>200 Hz LQG"]
     P["树莓派<br/>120 Hz 钢球视觉"] -->|"64 B位置测量、置信度、采集时刻"| E
-    E -->|"1 kHz 摆杆目标/角度环"| B["5号无刷电机与编码器"]
-    B -->|"角度、速度、故障状态"| E
+    E -->|"1 kHz安全门<br/>200 Hz CSP目标，当前TX关闭"| B["5号RS00<br/>内部位置环/FOC"]
+    B -->|"250~500 Hz角度、速度、故障"| E
     E -->|"降级/限速状态"| M
 ```
 
@@ -35,6 +35,7 @@ flowchart LR
 - `docs/architecture/system-overview.md`：三板结构、闭环量、频率和降级策略。
 - `docs/hardware/measured-parameters.md`：钢球等实物参数、计算值和待测不确定度。
 - `docs/decisions/ADR-001-h-ball-control-architecture.md`：方案和备选算法决策。
+- `docs/decisions/ADR-004-edgetalk-runtime-and-stream-boundaries.md`：当前树莓派/USB/CAN、双核运行时、CSP电机模式和安全边界。
 - `docs/reference/infineon-edgetalk-motor5.md`：从参考仓库提取的 EdgeTalk、5号电机、编译与烧录经验。
 - `experiments/h_ball_control_sim/`：LQG模型、多速率仿真、72组压力测试和输出图表。
 - `firmware/edgetalk/`、`firmware/mspm0/`、`vision/raspberrypi/`：待引脚和硬件版本确认后落地的子系统边界。
