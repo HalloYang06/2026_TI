@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-M33 已有两个显式构建模式：默认的只读 CAN 台架，以及 `HBALL_USB_ONLY=1` 的 USB CDC 联调镜像。USB-only 模式只编入 H-ball 的 `main.c`、USB CDC、视觉协议和文本探针，不编入 H-ball CAN 适配器；P16.5 蓝灯每 500 ms 翻转，用来区分“未启动”和“USB 未枚举”。
+M33 有三个显式构建模式：默认只读 CAN 台架、`HBALL_USB_ONLY=1` 的 USB CDC 联调镜像，以及 `HBALL_INTEGRATED_SHADOW=1` 的 USB+CAN+200 Hz传感器快照镜像。集成模式仍不连接M55 IPC和任何执行器发送；P16.5蓝灯每500 ms翻转，用来区分“未启动”和“USB未枚举”。
 
 当前实现已按 Infineon 官方 PSoC Edge CDC echo 启动顺序切换到 BSP 自带 emUSB 2.1.0.3859，并完成 M33 编译、Secure+NS 合并、烧录、逐字节校验和树莓派双向压力测试。P16.5 蓝灯正常闪烁，FinSH 为 `state=0x1e configured=1 conn=1 cfg=1 actuator_tx=0`；树莓派枚举为 `058b:0282`、`cdc_acm`、High-Speed 480 Mbps，并生成 `/dev/ttyACM0` 和稳定的 `/dev/serial/by-id/...HBALL-PROBE-if00`。二进制接收每次最多读取官方 HS Bulk 的 512 字节，再交给跨读取流解析器，不把一次 CDC Receive 当成一帧。
 
@@ -17,6 +17,20 @@ M33 已有两个显式构建模式：默认的只读 CAN 台架，以及 `HBALL_
 - CDC 初始化顺序固定为 `USBD_Init()`、`hball_usb_add_cdc()`、`USBD_SetDeviceInfo()`、`USBD_Start()`，端点参数跟随 Infineon 官方 HS CDC 示例。
 - SCons 的原始 `rtthread.hex` 只有 Non-secure XIP 段，不能直接烧录；必须按 BSP 的 `boot_with_extended_boot_scons.json` relocate 后与签名 Secure HEX 合并，再生成 XIP 校验镜像。
 - 自动构建和测试不连接电机、不发送 CAN、不启动运动。实机烧录前必须断开底盘/电机动力，轮子或执行器卸载，仅使用调试器/USB 供电，并保留拔线断电接管。
+
+## 集成 shadow 构建
+
+集成模式需要同时开启 `BSP_USING_USB`、`RT_USING_CAN`、`BSP_USING_CAN`和`BSP_USING_CANFD0`，并执行：
+
+```powershell
+$env:HBALL_USB_ONLY='0'
+$env:HBALL_INTEGRATED_SHADOW='1'
+scons -j12
+```
+
+M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为200 Hz快照。USB和CAN线程通过RT-Thread优先级继承mutex更新单写数据层；每类数据独立计算age和valid。当前快照保留视觉板原始`capture_time_us`，但在时钟同步实现前只把`vision_receive_age_ms`用于链路诊断，不能冒充真实采集age。
+
+本机集成ARM构建已通过：`text=210100 data=15656 bss=244256`。只有人工执行的`hball_probe5`允许发送无运动Get_ID；自动探针默认关闭，`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`保持硬约束。
 
 验证命令：
 

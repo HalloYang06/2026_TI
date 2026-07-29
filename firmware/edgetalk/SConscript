@@ -13,6 +13,7 @@ usb_paths = [
 ]
 usb_depend = ['BSP_USING_USB']
 usb_only = os.environ.get('HBALL_USB_ONLY', '0') == '1'
+integrated_shadow = os.environ.get('HBALL_INTEGRATED_SHADOW', '0') == '1'
 
 if usb_only:
     usb_only_src = [
@@ -27,6 +28,29 @@ if usb_only:
         depend=usb_depend,
         CPPPATH=usb_paths,
         CPPDEFINES=['HBALL_USB_ONLY=1'],
+    )
+elif integrated_shadow:
+    integrated_src = [
+        os.path.join(cwd, 'src', 'hball_can.c'),
+        os.path.join(cwd, 'src', 'hball_sensor_fusion.c'),
+        os.path.join(cwd, 'src', 'hball_usb_probe.c'),
+        os.path.join(cwd, 'src', 'hball_vision_protocol.c'),
+        os.path.join(cwd, 'rtthread', 'hball_bench_app.c'),
+        os.path.join(cwd, 'rtthread', 'hball_m33_inputs.c'),
+        os.path.join(cwd, 'rtthread', 'hball_usb_cdc.c'),
+        os.path.join(cwd, 'rtthread', 'main.c'),
+    ]
+    group = DefineGroup(
+        'HBallEdgeTalkIntegratedShadow',
+        integrated_src,
+        depend=usb_depend,
+        CPPPATH=usb_paths + [
+            os.path.join(project_root, 'libraries', 'HAL_Drivers'),
+        ],
+        CPPDEFINES=[
+            'HBALL_INTEGRATED_SHADOW=1',
+            'HBALL_BENCH_AUTO_PROBE5=0',
+        ],
     )
 else:
     base_src = [

@@ -7,6 +7,9 @@
 #include "USB.h"
 #include "USB_CDC.h"
 #include "hball_vision_protocol.h"
+#if HBALL_INTEGRATED_SHADOW
+#include "hball_m33_inputs.h"
+#endif
 
 #define HBALL_USB_THREAD_STACK_SIZE 4096U
 #define HBALL_USB_THREAD_PRIORITY 20U
@@ -246,6 +249,11 @@ static void hball_usb_accept_vision(
     g_hball_usb_stats.last_vision_confidence = measurement->confidence;
     g_hball_usb_stats.last_vision_rx_ms =
         (rt_uint32_t)rt_tick_get_millisecond();
+#if HBALL_INTEGRATED_SHADOW
+    (void)hball_m33_inputs_publish_vision(
+        measurement, g_hball_usb_stats.last_vision_rx_ms
+    );
+#endif
 }
 
 static void hball_usb_session(void)

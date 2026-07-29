@@ -84,7 +84,9 @@ def test_usb_only_build_is_explicit_and_excludes_can_sources():
     assert "hball_usb_probe.c" in sconscript
     assert "hball_usb_cdc.c" in sconscript
 
-    usb_only_branch = sconscript.split("if usb_only:", 1)[1].split("else:", 1)[0]
+    usb_only_branch = sconscript.split("if usb_only:", 1)[1].split(
+        "elif integrated_shadow:", 1
+    )[0]
     assert "hball_can.c" not in usb_only_branch
     assert "hball_bench_app.c" not in usb_only_branch
     assert "HBALL_USB_ONLY=1" in usb_only_branch
