@@ -10,6 +10,12 @@ Updated: 2026-07-29
 
 已完成题目校核、三板控制边界、非线性前馈 + 增广 LQG 数学模型、延迟/离群视觉观测器、5 帧球速估计、摩擦与多速率仿真，以及 72 组分级压力测试。已将成果整理到目标仓库 `HalloYang06/2026_TI` 的 `prep/2026` 分支；全部内容仍是未接硬件的实验原型，保留在 `experiments/`。
 
+远程状态：
+
+- `f9c4e02 feat(sim): add H-problem LQG stress model`
+- `97c7e1e docs(arch): define H-problem three-board baseline`
+- `origin/prep/2026` 已推送并设为本地上游；未创建或填充 `main`。
+
 最终候选架构：
 
 - 天猛星 MSPM0G3507：红外循迹、底盘速度环、IMU UART DMA、200 Hz 状态发布。
@@ -23,6 +29,7 @@ Updated: 2026-07-29
 - 观测状态：`[球位置, 球速度, 等效扰动偏置]`。
 - LQR：`Q=diag(1200,25,2)`、`R=5`、`Ts=5 ms`、标称执行器时常 `25 ms`。
 - 增益：`K=[14.56338, 3.31547, 0.58093]`。
+- 钢球按实心球纯滚动处理：`J=2/5*m*R^2`，等效滚动系数为 `5/7`，已包含平动和转动惯性；打滑、自转独立状态和钢球对摆杆的反作用力矩仍待实物辨识。
 - 可测扰动：纵向/横向加速度、俯仰、偏航角速度和位置相关离心项做非线性前馈。
 - 视觉：60 Hz、采集时间戳延迟补偿、5 帧二次最小二乘球速、4σ 创新门限、连续拒帧协方差膨胀恢复。
 - 约束：摆角 `+-4 deg`，目标角变化率 `80 deg/s`。
@@ -31,6 +38,8 @@ Updated: 2026-07-29
 
 - `python -m pytest -q experiments\h_ball_control_sim\tests`：`29 passed`。
 - `python -m compileall -q experiments\h_ball_control_sim`：通过。
+- `python experiments\h_ball_control_sim\run_lqr_study.py`：重新生成基准、消融和题目功能项结果。
+- `python experiments\h_ball_control_sim\run_stress_campaign.py`：重新生成72组CSV和图表，结果与文档一致。
 - 静止 `0 -> +5 cm -> -5 cm`：持续进入 `+-1 cm` 带的时刻为 `0.492 s` 和总时刻 `3.070 s`。
 - 运动中保持任意 `+5 cm`：峰值误差 `1.60 mm`。
 - 前馈消融：RMS 从 `0.883 mm` 降到 `0.371 mm`。
