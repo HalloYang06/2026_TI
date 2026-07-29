@@ -12,6 +12,8 @@ Updated: 2026-07-30
 
 当前分支为`prep/2026`，未创建或填充`main`。所有自动测试保持`MOTOR_COMMAND_TX=0`、`ACTUATOR_TX=0`，M55只发布`SHADOW_ONLY`；本轮未烧录任何镜像、未使能电机、未启动车辆运动。
 
+Git同步状态：已将远端3个MSPM0循迹提交作为基底无冲突rebase，本地提交和`92 passed`回归均完成；截至本记录更新时，到`github.com:443`的网络连接连续失败，普通`git push origin prep/2026`尚未完成。禁止force push；网络恢复后直接重试该命令即可。
+
 ## 分层数据路径
 
 ```text
