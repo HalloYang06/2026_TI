@@ -85,10 +85,103 @@ static void test_invalid_or_wrong_host_frames_are_not_feedback(void)
     assert(monitor.rx_invalid == 1U);
 }
 
+static void test_mspm0_imu_frames_decode_fixed_point_si_units(void)
+{
+    hball_msp_monitor_t monitor;
+    hball_can_frame_t accel = {
+        HBALL_MSP_CAN_ID_ACCEL, 0U, 0U, 8U,
+        {0x34U, 0x12U, 0xe8U, 0x03U, 0x06U, 0xffU, 0x4fU, 0x26U}
+    };
+    hball_can_frame_t gyro = {
+        HBALL_MSP_CAN_ID_GYRO, 0U, 0U, 8U,
+        {0x34U, 0x12U, 0x9cU, 0xffU, 0xc8U, 0x00U, 0xd4U, 0xfeU}
+    };
+    hball_can_frame_t attitude = {
+        HBALL_MSP_CAN_ID_ATTITUDE, 0U, 0U, 8U,
+        {0x78U, 0x56U, 0x0aU, 0x00U, 0xecU, 0xffU, 0x2cU, 0x01U}
+    };
+
+    hball_msp_monitor_init(&monitor);
+    assert(hball_msp_monitor_accept(&monitor, &accel, 100U)
+        == HBALL_MSP_EVENT_ACCEL);
+    assert(hball_msp_monitor_accept(&monitor, &gyro, 101U)
+        == HBALL_MSP_EVENT_GYRO);
+    assert(hball_msp_monitor_accept(&monitor, &attitude, 102U)
+        == HBALL_MSP_EVENT_ATTITUDE);
+    assert(monitor.accel_sequence == 0x1234U);
+    assert(monitor.gyro_sequence == 0x1234U);
+    assert(monitor.attitude_sequence == 0x5678U);
+    assert(fabsf(monitor.accel_mps2[0] - 1.0F) < 1.0e-6F);
+    assert(fabsf(monitor.accel_mps2[1] - (-0.25F)) < 1.0e-6F);
+    assert(fabsf(monitor.accel_mps2[2] - 9.807F) < 1.0e-6F);
+    assert(fabsf(monitor.gyro_rad_s[0] - (-0.1F)) < 1.0e-6F);
+    assert(fabsf(monitor.gyro_rad_s[1] - 0.2F) < 1.0e-6F);
+    assert(fabsf(monitor.gyro_rad_s[2] - (-0.3F)) < 1.0e-6F);
+    assert(fabsf(monitor.attitude_rad[0] - 0.01F) < 1.0e-6F);
+    assert(fabsf(monitor.attitude_rad[1] - (-0.02F)) < 1.0e-6F);
+    assert(fabsf(monitor.attitude_rad[2] - 0.3F) < 1.0e-6F);
+    assert(hball_msp_monitor_imu_fresh(&monitor, 119U, 20U));
+    assert(!hball_msp_monitor_imu_fresh(&monitor, 123U, 20U));
+}
+
+static void test_mspm0_heartbeat_and_wheel_frames_decode_without_motion_output(void)
+{
+    hball_msp_monitor_t monitor;
+    hball_can_frame_t heartbeat = {
+        HBALL_MSP_CAN_ID_HEARTBEAT, 0U, 0U, 8U,
+        {0x02U, 0x00U, 0x05U, 0x00U, 0x78U, 0x56U, 0x34U, 0x12U}
+    };
+    hball_can_frame_t wheel = {
+        HBALL_MSP_CAN_ID_WHEEL, 0U, 0U, 8U,
+        {0x09U, 0x00U, 0x64U, 0x00U, 0x9cU, 0xffU, 0x00U, 0x00U}
+    };
+
+    hball_msp_monitor_init(&monitor);
+    assert(hball_msp_monitor_accept(&monitor, &heartbeat, 50U)
+        == HBALL_MSP_EVENT_HEARTBEAT);
+    assert(hball_msp_monitor_accept(&monitor, &wheel, 55U)
+        == HBALL_MSP_EVENT_WHEEL);
+    assert(monitor.heartbeat_sequence == 2U);
+    assert(monitor.status_flags == 5U);
+    assert(monitor.uptime_ms == UINT32_C(0x12345678));
+    assert(monitor.wheel_sequence == 9U);
+    assert(fabsf(monitor.wheel_left_mps - 0.1F) < 1.0e-6F);
+    assert(fabsf(monitor.wheel_right_mps - (-0.1F)) < 1.0e-6F);
+    assert(fabsf(monitor.body_speed_mps) < 1.0e-6F);
+    assert(hball_msp_monitor_heartbeat_fresh(&monitor, 149U, 100U));
+    assert(!hball_msp_monitor_heartbeat_fresh(&monitor, 151U, 100U));
+}
+
+static void test_mspm0_rejects_extended_remote_or_wrong_length_frames(void)
+{
+    hball_msp_monitor_t monitor;
+    hball_can_frame_t frame = {
+        HBALL_MSP_CAN_ID_ACCEL, 1U, 0U, 8U, {0U}
+    };
+
+    hball_msp_monitor_init(&monitor);
+    assert(hball_msp_monitor_accept(&monitor, &frame, 1U)
+        == HBALL_MSP_EVENT_IGNORED);
+    frame.is_extended = 0U;
+    frame.is_remote = 1U;
+    assert(hball_msp_monitor_accept(&monitor, &frame, 2U)
+        == HBALL_MSP_EVENT_INVALID);
+    frame.is_remote = 0U;
+    frame.dlc = 7U;
+    assert(hball_msp_monitor_accept(&monitor, &frame, 3U)
+        == HBALL_MSP_EVENT_INVALID);
+    assert(monitor.rx_total == 3U);
+    assert(monitor.rx_invalid == 2U);
+    assert(monitor.rx_ignored == 1U);
+}
+
 int main(void)
 {
     test_get_id_frame_and_probe_reply();
     test_feedback_decode_and_freshness();
     test_invalid_or_wrong_host_frames_are_not_feedback();
+    test_mspm0_imu_frames_decode_fixed_point_si_units();
+    test_mspm0_heartbeat_and_wheel_frames_decode_without_motion_output();
+    test_mspm0_rejects_extended_remote_or_wrong_length_frames();
     return 0;
 }

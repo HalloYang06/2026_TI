@@ -6,6 +6,8 @@
 
 树莓派到 EdgeTalk 的钢球视觉包已经冻结为固定 64 字节的 [VISION_MEASUREMENT_V1](VISION_MEASUREMENT_V1.md)。该帧使用 CRC32C 和 `u32` 序号，替代下述通用草案的 CRC16/`u16` 序号；通用包头仍供 MSPM0 等尚未冻结的消息参考。
 
+MSPM0 到 EdgeTalk 的五类只读 CAN 遥测已冻结为 [MSPM0_CAN_TELEMETRY_V1](MSPM0_CAN_TELEMETRY_V1.md)，使用 11 位标准帧和明确的毫单位定点数。M33到MSPM0的运动命令仍未冻结、未启用。
+
 ## 通用包头
 
 第一版建议采用小端定长头：

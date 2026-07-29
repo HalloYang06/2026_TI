@@ -8,6 +8,26 @@ static uint16_t hball_u16_from_be(const uint8_t *data)
     return (uint16_t)(((uint16_t)data[0] << 8) | (uint16_t)data[1]);
 }
 
+static uint16_t hball_u16_from_le(const uint8_t *data)
+{
+    return (uint16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8U));
+}
+
+static uint32_t hball_u32_from_le(const uint8_t *data)
+{
+    return (uint32_t)data[0]
+        | ((uint32_t)data[1] << 8U)
+        | ((uint32_t)data[2] << 16U)
+        | ((uint32_t)data[3] << 24U);
+}
+
+static float hball_i16_milli_to_float(const uint8_t *data)
+{
+    const int16_t value = (int16_t)hball_u16_from_le(data);
+
+    return (float)value * 0.001F;
+}
+
 static float hball_uint16_to_float(uint16_t value, float minimum, float maximum)
 {
     return (float)value * (maximum - minimum) / 65535.0F + minimum;
@@ -185,4 +205,163 @@ bool hball_motor_monitor_feedback_fresh(
     return (monitor != NULL)
         && monitor->feedback_valid
         && ((uint32_t)(now_ms - monitor->last_feedback_ms) <= timeout_ms);
+}
+
+void hball_msp_monitor_init(hball_msp_monitor_t *monitor)
+{
+    if (monitor != NULL)
+    {
+        memset(monitor, 0, sizeof(*monitor));
+    }
+}
+
+static hball_msp_event_t hball_msp_decode_heartbeat(
+    hball_msp_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint32_t now_ms
+)
+{
+    monitor->heartbeat_sequence = hball_u16_from_le(frame->data);
+    monitor->status_flags = hball_u16_from_le(frame->data + 2U);
+    monitor->uptime_ms = hball_u32_from_le(frame->data + 4U);
+    monitor->last_heartbeat_ms = now_ms;
+    monitor->heartbeat_valid = true;
+    return HBALL_MSP_EVENT_HEARTBEAT;
+}
+
+static hball_msp_event_t hball_msp_decode_vector(
+    hball_msp_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint32_t now_ms,
+    bool is_accel
+)
+{
+    float *values = is_accel ? monitor->accel_mps2 : monitor->gyro_rad_s;
+
+    values[0] = hball_i16_milli_to_float(frame->data + 2U);
+    values[1] = hball_i16_milli_to_float(frame->data + 4U);
+    values[2] = hball_i16_milli_to_float(frame->data + 6U);
+    if (is_accel)
+    {
+        monitor->accel_sequence = hball_u16_from_le(frame->data);
+        monitor->last_accel_ms = now_ms;
+        monitor->accel_valid = true;
+        return HBALL_MSP_EVENT_ACCEL;
+    }
+    monitor->gyro_sequence = hball_u16_from_le(frame->data);
+    monitor->last_gyro_ms = now_ms;
+    monitor->gyro_valid = true;
+    return HBALL_MSP_EVENT_GYRO;
+}
+
+static hball_msp_event_t hball_msp_decode_wheel(
+    hball_msp_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint32_t now_ms
+)
+{
+    monitor->wheel_sequence = hball_u16_from_le(frame->data);
+    monitor->wheel_left_mps = hball_i16_milli_to_float(frame->data + 2U);
+    monitor->wheel_right_mps = hball_i16_milli_to_float(frame->data + 4U);
+    monitor->body_speed_mps = hball_i16_milli_to_float(frame->data + 6U);
+    monitor->last_wheel_ms = now_ms;
+    monitor->wheel_valid = true;
+    return HBALL_MSP_EVENT_WHEEL;
+}
+
+static hball_msp_event_t hball_msp_decode_attitude(
+    hball_msp_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint32_t now_ms
+)
+{
+    monitor->attitude_sequence = hball_u16_from_le(frame->data);
+    monitor->attitude_rad[0] = hball_i16_milli_to_float(frame->data + 2U);
+    monitor->attitude_rad[1] = hball_i16_milli_to_float(frame->data + 4U);
+    monitor->attitude_rad[2] = hball_i16_milli_to_float(frame->data + 6U);
+    monitor->last_attitude_ms = now_ms;
+    monitor->attitude_valid = true;
+    return HBALL_MSP_EVENT_ATTITUDE;
+}
+
+hball_msp_event_t hball_msp_monitor_accept(
+    hball_msp_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint32_t now_ms
+)
+{
+    hball_msp_event_t event;
+    const bool known_id = (frame != NULL)
+        && ((frame->id == HBALL_MSP_CAN_ID_HEARTBEAT)
+            || (frame->id == HBALL_MSP_CAN_ID_ACCEL)
+            || (frame->id == HBALL_MSP_CAN_ID_GYRO)
+            || (frame->id == HBALL_MSP_CAN_ID_WHEEL)
+            || (frame->id == HBALL_MSP_CAN_ID_ATTITUDE));
+
+    if ((monitor == NULL) || (frame == NULL))
+    {
+        return HBALL_MSP_EVENT_INVALID;
+    }
+    monitor->rx_total++;
+    if (frame->is_extended != 0U)
+    {
+        monitor->rx_ignored++;
+        return HBALL_MSP_EVENT_IGNORED;
+    }
+    if (!known_id)
+    {
+        monitor->rx_ignored++;
+        return HBALL_MSP_EVENT_IGNORED;
+    }
+    if ((frame->is_remote != 0U) || (frame->dlc != 8U))
+    {
+        monitor->rx_invalid++;
+        return HBALL_MSP_EVENT_INVALID;
+    }
+
+    switch (frame->id)
+    {
+    case HBALL_MSP_CAN_ID_HEARTBEAT:
+        event = hball_msp_decode_heartbeat(monitor, frame, now_ms);
+        break;
+    case HBALL_MSP_CAN_ID_ACCEL:
+        event = hball_msp_decode_vector(monitor, frame, now_ms, true);
+        break;
+    case HBALL_MSP_CAN_ID_GYRO:
+        event = hball_msp_decode_vector(monitor, frame, now_ms, false);
+        break;
+    case HBALL_MSP_CAN_ID_WHEEL:
+        event = hball_msp_decode_wheel(monitor, frame, now_ms);
+        break;
+    default:
+        event = hball_msp_decode_attitude(monitor, frame, now_ms);
+        break;
+    }
+    return event;
+}
+
+bool hball_msp_monitor_imu_fresh(
+    const hball_msp_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+)
+{
+    return (monitor != NULL)
+        && monitor->accel_valid
+        && monitor->gyro_valid
+        && monitor->attitude_valid
+        && ((uint32_t)(now_ms - monitor->last_accel_ms) <= timeout_ms)
+        && ((uint32_t)(now_ms - monitor->last_gyro_ms) <= timeout_ms)
+        && ((uint32_t)(now_ms - monitor->last_attitude_ms) <= timeout_ms);
+}
+
+bool hball_msp_monitor_heartbeat_fresh(
+    const hball_msp_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+)
+{
+    return (monitor != NULL)
+        && monitor->heartbeat_valid
+        && ((uint32_t)(now_ms - monitor->last_heartbeat_ms) <= timeout_ms);
 }
