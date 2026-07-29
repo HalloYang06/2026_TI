@@ -32,12 +32,14 @@ if usb_only:
 elif integrated_shadow:
     integrated_src = [
         os.path.join(cwd, 'src', 'hball_can.c'),
+        os.path.join(cwd, 'src', 'hball_control_guard.c'),
         os.path.join(cwd, 'src', 'hball_dualcore_ipc.c'),
         os.path.join(cwd, 'src', 'hball_dualcore_platform.c'),
         os.path.join(cwd, 'src', 'hball_sensor_fusion.c'),
         os.path.join(cwd, 'src', 'hball_usb_probe.c'),
         os.path.join(cwd, 'src', 'hball_vision_protocol.c'),
         os.path.join(cwd, 'rtthread', 'hball_bench_app.c'),
+        os.path.join(cwd, 'rtthread', 'hball_m33_control_guard.c'),
         os.path.join(cwd, 'rtthread', 'hball_m33_inputs.c'),
         os.path.join(cwd, 'rtthread', 'hball_usb_cdc.c'),
         os.path.join(cwd, 'rtthread', 'main.c'),

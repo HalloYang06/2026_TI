@@ -6,6 +6,13 @@ SCONSCRIPT = ROOT / "firmware" / "edgetalk" / "SConscript"
 USB = ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_usb_cdc.c"
 CAN = ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_bench_app.c"
 INPUTS = ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_m33_inputs.c"
+GUARD = (
+    ROOT
+    / "firmware"
+    / "edgetalk"
+    / "rtthread"
+    / "hball_m33_control_guard.c"
+)
 
 
 def test_integrated_mode_builds_usb_can_and_sensor_hub_without_actuator_tx():
@@ -51,3 +58,23 @@ def test_m33_is_the_only_initializer_and_publishes_sensor_slot_at_200_hz():
     assert "hball_ipc_platform_cache_ops()" in source
     assert "hball_ipc_control_publish(" not in source
     assert "HBALL_M33_SNAPSHOT_PERIOD_MS 5U" in source
+
+
+def test_m33_observes_m55_shadow_at_1khz_without_any_actuator_path():
+    source = GUARD.read_text(encoding="utf-8")
+    sconscript = SCONSCRIPT.read_text(encoding="utf-8")
+
+    assert "hball_control_guard.c" in sconscript
+    assert "hball_m33_control_guard.c" in sconscript
+    assert "#define HBALL_M33_GUARD_PERIOD_MS 1U" in source
+    assert "rt_thread_delay_until(" in source
+    assert "hball_ipc_control_read(" in source
+    assert "hball_control_guard_observe(" in source
+    assert "hball_control_guard_is_fresh(" in source
+    assert "ACTUATOR_TX=0" in source
+    for forbidden in [
+        "ifx_can_direct_send",
+        "Cy_CANFD_UpdateAndTransmitMsgBuffer",
+        "rt_device_write",
+    ]:
+        assert forbidden not in source
