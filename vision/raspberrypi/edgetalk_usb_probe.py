@@ -98,6 +98,13 @@ def _wait_for_ready(serial_port, timeout_s: float) -> tuple[int, int]:
     raise TimeoutError("no HBALL_USB_READY heartbeat received")
 
 
+def _synchronize_link(serial_port, timeout_s: float) -> tuple[int, int]:
+    serial_port.reset_input_buffer()
+    serial_port.write(b"\n")
+    serial_port.flush()
+    return _wait_for_ready(serial_port, timeout_s)
+
+
 def run_probe(port: str, duration_s: float, rate_hz: float, timeout_s: float) -> dict[str, object]:
     try:
         import serial
@@ -116,8 +123,7 @@ def run_probe(port: str, duration_s: float, rate_hz: float, timeout_s: float) ->
         timeout=min(0.02, timeout_s),
         write_timeout=1.0,
     ) as device:
-        device.reset_input_buffer()
-        ready_sequence, ready_uptime_ms = _wait_for_ready(device, 5.0)
+        ready_sequence, ready_uptime_ms = _synchronize_link(device, 5.0)
         deadline = time.monotonic() + duration_s
         sequence = 0
 

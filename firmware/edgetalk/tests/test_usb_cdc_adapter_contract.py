@@ -40,6 +40,28 @@ def test_scons_only_builds_usb_adapter_when_emusb_is_enabled():
     assert "CherryUSB" not in sconscript
 
 
+def test_host_to_device_out_uses_official_ready_then_blocking_receive_order():
+    source = ADAPTER.read_text(encoding="utf-8")
+    receive = source[
+        source.index("static int hball_usb_receive(") :
+        source.index("static void hball_usb_session(")
+    ]
+
+    assert "USBD_CDC_Receive(" in receive
+    assert "(unsigned)capacity, 0" in receive
+    assert "USBD_CDC_GetNumBytesInBuffer" not in receive
+    assert "HBALL_USB_RX_TIMEOUT_MS" not in source
+    session = source[
+        source.index("static void hball_usb_session(") :
+        source.index("static void hball_usb_thread_entry(")
+    ]
+    assert session.index("hball_usb_format_ready(") < session.index(
+        "hball_usb_receive("
+    )
+    assert "hball_usb_rx_thread_entry" not in source
+    assert '"hball_rx"' not in source
+
+
 def test_usb_only_build_is_explicit_and_excludes_can_sources():
     sconscript = SCONSCRIPT.read_text(encoding="utf-8")
 

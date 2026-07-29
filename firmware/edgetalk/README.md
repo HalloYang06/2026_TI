@@ -4,9 +4,9 @@
 
 M33 已有两个显式构建模式：默认的只读 CAN 台架，以及 `HBALL_USB_ONLY=1` 的 USB CDC 联调镜像。USB-only 模式只编入 H-ball 的 `main.c`、`hball_usb_cdc.c` 和 `hball_usb_probe.c`，不编入 H-ball CAN 适配器；P16.5 蓝灯每 500 ms 翻转，用来区分“未启动”和“USB 未枚举”。
 
-当前实现已按 Infineon 官方 PSoC Edge CDC echo 启动顺序切换到 BSP 自带 emUSB 2.1.0.3859，并完成 M33 编译、Secure+NS 合并、烧录和逐字节校验。P16.5 蓝灯正常闪烁，Non-secure reset handler 可达；FinSH 显示 `state=0x11 configured=0 conn=1 cfg=0 actuator_tx=0`，即 emUSB 已 `ATTACHED|SUSPENDED`、尚未被树莓派配置。树莓派仍无 `lsusb` 插拔记录和 `/dev/ttyACM*`，所以 USB 通信尚未打通。
+当前实现已按 Infineon 官方 PSoC Edge CDC echo 启动顺序切换到 BSP 自带 emUSB 2.1.0.3859，并完成 M33 编译、Secure+NS 合并、烧录、逐字节校验和树莓派双向压力测试。P16.5 蓝灯正常闪烁，FinSH 为 `state=0x1e configured=1 conn=1 cfg=1 actuator_tx=0`；树莓派枚举为 `058b:0282`、`cdc_acm`、High-Speed 480 Mbps，并生成 `/dev/ttyACM0` 和稳定的 `/dev/serial/by-id/...HBALL-PROBE-if00`。
 
-当前实验主机是树莓派，目标链路为 `USB Host -> EdgeTalk USB Device -> /dev/ttyACM*`。协议探针周期发送 `HBALL_USB_READY`，接收 `PING <seq> <payload>` 后回复 `PONG`；该文本探针只用于打通链路，正式视觉控制包仍按 ADR-002 的二进制帧设计。
+当前实验主机是树莓派，目标链路为 `USB Host -> EdgeTalk USB Device -> /dev/ttyACM*`。emUSB 接收必须像官方示例一样直接阻塞调用 `USBD_CDC_Receive(..., 0)`，不能先查 `USBD_CDC_GetNumBytesInBuffer()`；后者会造成 OUT 端点从未提交接收请求。设备在进入阻塞接收前发送 `HBALL_USB_READY`，接收 `PING <seq> <payload>` 后回复 `PONG`。主机打开串口并切换 raw 模式后先发送一个换行分隔符，再等待新 READY，以清除 Linux TTY 初始回显残片。该文本探针只用于打通链路，正式视觉控制包仍按后续二进制协议设计。
 
 ## USB-only 构建约束
 
@@ -24,7 +24,7 @@ M33 已有两个显式构建模式：默认的只读 CAN 台架，以及 `HBALL_
 python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q
 ```
 
-当前主仓库结果以本次提交的测试输出为准；临时 BSP emUSB 静态契约为 `6 passed`，M33 构建大小为 `text=190096 data=15616 bss=244300`。
+当前主仓库 USB 相关测试为 `10 passed`；临时 BSP emUSB 静态契约为 `6 passed`。最终 M33 构建大小为 `text=192804 data=14884 bss=245025`。
 
 ## 已验证的构建与烧录流程
 
@@ -38,16 +38,17 @@ python tools/test_pse84_official_emusb_cdc_static.py
 
 `SConstruct` 使用 `config/boot_with_extended_boot_scons.json` 将 NS HEX 从 XIP 别名 relocate 到 raw flash 地址，并与 `tools/edgeprotecttools/cm33_s_signed_fw/proj_cm33_s_signed.hex` 合并为 `build/rtthread.hex`。烧录前必须先由 OpenOCD `flash banks` 确认 `cat1d.cm33.smif1_ns` 位于 `0x60000000`，再执行写入、raw verify、XIP verify，不能只看进程退出码。
 
-本次已验证产物：raw combined SHA-256 `6FF1D97D0A833B490BD0D33FF5E615D6C66ED98522668940C49C5D13C379ACAB`；XIP verify `65EF82513764233A98BF10184F13298E61A9ED3840B2AE621A3AFD532CFA3364`；NS `453A13997A17E347EA5D5025170E247F4E35D4C79C69FEE991389E6922B2ED71`。实测写入并校验 raw `315392` bytes、XIP `308168` bytes、NS `205712` bytes。
+最终已验证产物：raw combined SHA-256 `D5C8FB63A28A5405088AE803A080AF483BB23B3A87A94B190ABE55B2011D1A80`；XIP verify `BFE5092E229F9D9A2D4582FB0BE118B0B05F50948154E214FADEF76FE932774B`；NS `982AC90DCA53AAF21A2E0BBC5052778440AFFDBF092956DF55D028670A8E2434`。实测写入并校验 raw `315392` bytes、XIP `310144` bytes、NS `207688` bytes。
 
-## 下一台电脑的首轮检查
+## 树莓派实测与复现
 
-已确认使用的数据线可传输数据，不再把线材本身列为首要嫌疑。保持电机动力断开、轮子/执行器卸载、仅调试器/USB 供电和可拔线急停，按以下顺序继续：
+已确认使用的数据线可传输数据。保持电机动力断开、轮子/执行器卸载、仅调试器/USB 供电和可拔线急停，按以下顺序复现：
 
 1. 确认树莓派使用具备 Host 功能的 USB-A 口，EdgeTalk 使用板上标“USB”的 Device Type-C 口。
-2. 同时观察树莓派 `sudo dmesg -w`、`watch -n 0.5 lsusb` 和 EdgeTalk `hball_usb_status`。
-3. 复测 EdgeTalk 官方 `P17.4 VBUS_DETECT`；本次配置为输入后读低，DWC2 `DCTL=0` 且从未收到主机 USB reset，重点检查板级 VBUS 检测/供电路径与端口角色。
-4. 只有出现 `/dev/ttyACM*` 后才运行 `python3 vision/raspberrypi/edgetalk_usb_probe.py --duration 60 --rate 20`；未枚举时不要叠加 CAN 或控制算法。
+2. 同时观察树莓派 `sudo dmesg -w`、`lsusb -t` 和 EdgeTalk `hball_usb_status`，验收 `configured=1` 与 `cdc_acm`。
+3. 运行 `python3 vision/raspberrypi/edgetalk_usb_probe.py --duration 30 --rate 100 --timeout 0.10`。本次实测 `2960/2960`、零超时，平均 RTT `1.60 ms`、P95 `2.14 ms`。
+4. 连续 5 次关闭/重开串口均通过，共 `597/597`；最终可复现镜像再次以 100 Hz 验证 `987/987`，平均 RTT `1.53 ms`、P95 `2.08 ms`。
+5. 每次打开串口会发送一个空行做同步，因此 `invalid_rx` 会增加 1；正式 PING/PONG 的失败判据仍是 `timeout/unexpected/tx_fail/rx_fail` 非零。
 
 官方依据：
 

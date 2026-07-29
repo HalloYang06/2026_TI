@@ -10,7 +10,7 @@ Updated: 2026-07-30
 
 已完成题目校核、三板控制边界、非线性前馈 + 增广 LQG 数学模型、延迟/离群视觉观测器、5 帧球速估计、摩擦与多速率仿真，以及 72 组分级压力测试。已将成果整理到目标仓库 `HalloYang06/2026_TI` 的 `prep/2026` 分支；数值模型保留在 `experiments/`，固件适配保留在 `firmware/`，所有硬件路径在重复台架验证前仍按实验原型管理。
 
-EdgeTalk USB CDC 已新增 `HBALL_USB_ONLY=1`、P16.5 心跳和树莓派 PING/PONG 探针，并按 Infineon 官方 CDC echo 切换到 emUSB 2.1.0.3859。M33 编译、Secure+NS 合并、烧录、raw/XIP/NS 校验和 Non-secure 启动均成功，蓝灯正常闪烁。当前 FinSH 为 `state=0x11 configured=0 conn=1 cfg=0 actuator_tx=0`，即仅 `ATTACHED|SUSPENDED`；树莓派无 `lsusb` 设备、无 `/dev/ttyACM*`、无 USB reset 证据，不能记为已打通。
+EdgeTalk USB CDC 已正式打通。M33 使用 emUSB 2.1.0.3859 与 `HBALL_USB_ONLY=1`；树莓派以 High-Speed 480 Mbps 枚举 `058b:0282`，`cdc_acm` 生成 `/dev/ttyACM0` 和稳定 by-id 路径。最终 FinSH 为 `state=0x1e configured=1 conn=1 cfg=1 actuator_tx=0`。双向 PING/PONG 已通过 30 秒 100 Hz 压测和 5 次关闭/重开验证，当前可进入 USB 二进制视觉协议和 CAN 只读联调。
 
 基线提交：
 
@@ -73,7 +73,8 @@ EdgeTalk USB CDC 已新增 `HBALL_USB_ONLY=1`、P16.5 心跳和树莓派 PING/PO
 - PSE84 临时构建树位于仓库 `tmp/` 且带既有启动诊断改动，不是可提交产品 BSP；可复用源保留在 `firmware/edgetalk/`。
 - menuconfig 截图里的通用 `Using USB -> Using USB host/device` 对应 RT-Thread 旧 USB 栈，不是 emUSB；两项保持关闭，只开启板级 `BSP_USING_USB`。
 - SCons 根目录 `rtthread.hex` 只有 NS XIP 段，禁止直接烧录；必须使用合并后的 Secure+NS raw 镜像。
-- 用户已确认数据线具备数据能力；`P17.4 VBUS_DETECT` 当前读低，DWC2 `DCTL=0` 且没有主机 reset，下一台电脑应优先核对树莓派 Host 端口、EdgeTalk Device 端口和板级 VBUS 检测/供电路径。
+- emUSB OUT 必须直接阻塞调用 `USBD_CDC_Receive(..., 0)`；先查询 `USBD_CDC_GetNumBytesInBuffer()` 会导致 OUT 端点未 arm。不要用两个线程并发阻塞访问同一 emUSB 句柄。
+- 树莓派探针打开 raw 串口后先发送空行做帧同步，因此 `invalid_rx` 每次打开会增加 1；这不是正式 PING 丢包。验收应看 `timeout/unexpected/tx_fail/rx_fail`。
 
 ## 下一步
 
@@ -84,13 +85,15 @@ EdgeTalk USB CDC 已新增 `HBALL_USB_ONLY=1`、P16.5 心跳和树莓派 PING/PO
 3. 设计只读回放工具，用记录的视觉/IMU日志驱动 EdgeTalk 算法，禁止在自动测试中解锁电机。
 4. 台架标定相机 P95 延迟/噪声、执行器时常/延迟/增益/死区、摆杆水平零点和摩擦，再回填仿真。
 5. 实物测试必须车轮架空、底盘动力断开或限流、硬件急停、操作员保留断电接管。
-6. USB 联调按 P16.5 心跳、FinSH `hball_usb_status`、树莓派 `dmesg/lsusb`、`/dev/ttyACM*`、`HBALL_USB_READY`、`PING/PONG` 顺序验收；任何一层失败即停线定位，不继续叠加 CAN 或算法。
+6. USB 基础链路已通过；下一步先定义带版本、序号、采集时间戳、长度与 CRC 的二进制视觉帧，在 60 Hz 输入和 200 Hz EdgeTalk 消费条件下做只读延迟/丢包压测，再接 CAN。
 
 ## 本次 USB 续接验证
 
-- M33：`text=190096 data=15616 bss=244300`；临时 BSP emUSB 静态契约 `6 passed`。
-- raw combined SHA-256：`6FF1D97D0A833B490BD0D33FF5E615D6C66ED98522668940C49C5D13C379ACAB`。
-- XIP verify SHA-256：`65EF82513764233A98BF10184F13298E61A9ED3840B2AE621A3AFD532CFA3364`。
-- NS SHA-256：`453A13997A17E347EA5D5025170E247F4E35D4C79C69FEE991389E6922B2ED71`。
-- 实测校验：raw `315392` bytes、XIP `308168` bytes、NS `205712` bytes，已到达 Non-secure reset handler。
+- M33：`text=192804 data=14884 bss=245025`；主仓库 USB 测试 `10 passed`，临时 BSP emUSB 静态契约 `6 passed`。
+- raw combined SHA-256：`D5C8FB63A28A5405088AE803A080AF483BB23B3A87A94B190ABE55B2011D1A80`。
+- XIP verify SHA-256：`BFE5092E229F9D9A2D4582FB0BE118B0B05F50948154E214FADEF76FE932774B`。
+- NS SHA-256：`982AC90DCA53AAF21A2E0BBC5052778440AFFDBF092956DF55D028670A8E2434`。
+- 实测校验：raw `315392` bytes、XIP `310144` bytes、NS `207688` bytes，已到达 Non-secure reset handler。
+- 30 秒 100 Hz：`2960/2960`、零超时、平均 RTT `1.60 ms`、P95 `2.14 ms`。
+- 5 次关闭/重开：全部通过，共 `597/597`；最终可复现镜像复测 `987/987`、P95 `2.08 ms`。
 - 安全状态：电机动力断开，未执行自主运动，USB 诊断永久保持 `actuator_tx=0`。

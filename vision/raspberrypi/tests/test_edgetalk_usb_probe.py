@@ -45,3 +45,33 @@ def test_payload_contract_blocks_newlines_and_oversize_data():
             pass
         else:
             raise AssertionError("unsafe probe payload was accepted")
+
+
+def test_link_sync_sends_separator_before_waiting_for_fresh_ready():
+    probe = load_probe_module()
+
+    class FakeSerial:
+        def __init__(self):
+            self.writes = []
+            self.flushed = 0
+            self.lines = [b"HBALL_USB_READY 0.1.0 7 1234\n"]
+
+        def reset_input_buffer(self):
+            self.lines = [b"HBALL_USB_READY 0.1.0 7 1234\n"]
+
+        def write(self, data):
+            self.writes.append(data)
+            return len(data)
+
+        def flush(self):
+            self.flushed += 1
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else b""
+
+    serial_port = FakeSerial()
+    ready = probe._synchronize_link(serial_port, 0.1)
+
+    assert serial_port.writes == [b"\n"]
+    assert serial_port.flushed == 1
+    assert ready == (7, 1234)

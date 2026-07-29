@@ -185,22 +185,10 @@ static void hball_usb_process_line(const char *line, rt_size_t length)
 
 static int hball_usb_receive(rt_uint8_t *chunk, rt_size_t capacity)
 {
-    int buffered;
-    unsigned requested;
-
-    buffered = USBD_CDC_GetNumBytesInBuffer(g_hball_usb_cdc_handle);
-    if (buffered <= 0)
-    {
-        return buffered;
-    }
-
-    requested = (unsigned)buffered;
-    if (requested > (unsigned)capacity)
-    {
-        requested = (unsigned)capacity;
-    }
     return USBD_CDC_Receive(
-        g_hball_usb_cdc_handle, chunk, requested, 0
+        g_hball_usb_cdc_handle,
+        chunk,
+        (unsigned)capacity, 0
     );
 }
 
@@ -269,10 +257,6 @@ static void hball_usb_session(void)
                 hball_usb_process_line(line, line_length);
                 line_length = 0U;
             }
-        }
-        if (received == 0)
-        {
-            rt_thread_mdelay(HBALL_USB_POLL_MS);
         }
     }
 }
