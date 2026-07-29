@@ -46,15 +46,15 @@ M33是USB、CAN、输入有效性和最终安全门的唯一所有者；M55不�
 
 最近关键提交：
 
-- `6c51ab3 docs(edgetalk): record CM55 build evidence`
-- `718d8e9 docs(arch): freeze EdgeTalk runtime and CSP boundaries`
-- `2efdbea fix(edgetalk): satisfy CM55 FreeRTOS build contract`
-- `90bc299 test(control): trace CAN snapshots into LQG`
-- `086af5c perf(vision): bound USB writes and report link speed`
-- `7abf674 feat(can): gate MSPM0 samples by sequence and health`
-- `59a1c86 feat(edgetalk): run M55 shadow on official FreeRTOS`
-- `bee5aea docs(vision): freeze 120 Hz measurement boundary`
-- `e98f546 feat(telemetry): measure USB and CAN stream rates`
+- `e8226c7 docs(edgetalk): record CM55 build evidence`
+- `fb9ad82 docs(arch): freeze EdgeTalk runtime and CSP boundaries`
+- `6d1cd4d fix(edgetalk): satisfy CM55 FreeRTOS build contract`
+- `733feb6 test(control): trace CAN snapshots into LQG`
+- `f4b01f6 perf(vision): bound USB writes and report link speed`
+- `6cd3fad feat(can): gate MSPM0 samples by sequence and health`
+- `ce7f097 feat(edgetalk): run M55 shadow on official FreeRTOS`
+- `df47a7c docs(vision): freeze 120 Hz measurement boundary`
+- `6c3feb6 feat(telemetry): measure USB and CAN stream rates`
 
 CAN到算法的主机端到端测试会构造MSPM0/RS00帧，经CAN解码、健康/freshness门、统一快照进入LQG。偏航角速度会改变shadow目标；撤掉心跳`IMU_VALID`后，算法仍保持有限数值，但`safety_eligible=false`。
 
