@@ -410,13 +410,16 @@ static void hball_usb_status(void)
     );
     const rt_uint32_t vision_bytes_s =
         (vision_rate_x10 * HBALL_VISION_FRAME_SIZE) / 10U;
+    int usb_speed;
 
     (void)hball_usb_poll_state();
+    usb_speed = USBD_GetSpeed();
     rt_kprintf(
-        "[hball-usb] version=%s state=0x%02lx configured=%d conn=%lu cfg=%lu disc=%lu open=%lu\n",
+        "[hball-usb] version=%s state=0x%02lx configured=%d usb_speed=%d conn=%lu cfg=%lu disc=%lu open=%lu\n",
         HBALL_USB_PROBE_VERSION,
         (unsigned long)g_hball_usb_stats.state,
         (int)g_hball_usb_stats.configured,
+        usb_speed,
         (unsigned long)g_hball_usb_stats.connected_total,
         (unsigned long)g_hball_usb_stats.configured_total,
         (unsigned long)g_hball_usb_stats.disconnected_total,

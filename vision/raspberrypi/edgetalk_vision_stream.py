@@ -21,6 +21,9 @@ from vision_measurement_protocol import (
 )
 
 
+VISION_WRITE_TIMEOUT_S = 0.020
+
+
 def build_synthetic_measurement(sequence: int, capture_time_us: int) -> VisionMeasurement:
     phase = (sequence % 120) / 120.0 * 2.0 * math.pi
     position_m = 0.04 * math.sin(phase)
@@ -152,7 +155,10 @@ def main() -> int:
     try:
         port = find_serial_port(arguments.port)
         with serial.Serial(
-            port=port, baudrate=115200, timeout=0.0, write_timeout=1.0
+            port=port,
+            baudrate=115200,
+            timeout=0.0,
+            write_timeout=VISION_WRITE_TIMEOUT_S,
         ) as device:
             device.reset_input_buffer()
             result = run_stream(device, arguments.duration, arguments.rate)

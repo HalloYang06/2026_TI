@@ -90,3 +90,10 @@ def test_stream_rejects_non_positive_duration_or_rate():
             pass
         else:
             raise AssertionError("invalid stream timing was accepted")
+
+
+def test_real_serial_stream_uses_bounded_20ms_write_timeout():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+
+    assert "VISION_WRITE_TIMEOUT_S = 0.020" in source
+    assert "write_timeout=VISION_WRITE_TIMEOUT_S" in source
