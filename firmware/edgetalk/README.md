@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-M33 有三个显式构建模式：默认只读 CAN 台架、`HBALL_USB_ONLY=1` 的 USB CDC 联调镜像，以及 `HBALL_INTEGRATED_SHADOW=1` 的 USB+CAN+200 Hz传感器快照镜像。集成模式仍不连接M55 IPC和任何执行器发送；P16.5蓝灯每500 ms翻转，用来区分“未启动”和“USB未枚举”。
+M33 有三个显式构建模式：默认只读 CAN 台架、`HBALL_USB_ONLY=1` 的 USB CDC 联调镜像，以及 `HBALL_INTEGRATED_SHADOW=1` 的 USB+CAN+200 Hz传感器快照镜像。集成模式会发布M33->M55共享快照并读取M55 `SHADOW_ONLY`结果，但不包含任何执行器发送；P16.5蓝灯每500 ms翻转，用来区分“未启动”和“USB未枚举”。
 
 当前实现已按 Infineon 官方 PSoC Edge CDC echo 启动顺序切换到 BSP 自带 emUSB 2.1.0.3859，并完成 M33 编译、Secure+NS 合并、烧录、逐字节校验和树莓派双向压力测试。P16.5 蓝灯正常闪烁，FinSH 为 `state=0x1e configured=1 conn=1 cfg=1 actuator_tx=0`；树莓派枚举为 `058b:0282`、`cdc_acm`、High-Speed 480 Mbps，并生成 `/dev/ttyACM0` 和稳定的 `/dev/serial/by-id/...HBALL-PROBE-if00`。二进制接收每次最多读取官方 HS Bulk 的 512 字节，再交给跨读取流解析器，不把一次 CDC Receive 当成一帧。
 
@@ -28,15 +28,17 @@ $env:HBALL_INTEGRATED_SHADOW='1'
 scons -j12
 ```
 
-M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为200 Hz快照。USB和CAN线程通过RT-Thread优先级继承mutex更新单写数据层；每类数据独立计算age和valid。当前快照保留视觉板原始`capture_time_us`，但在时钟同步实现前只把`vision_receive_age_ms`用于链路诊断，不能冒充真实采集age。
+M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为200 Hz快照。USB和CAN线程通过RT-Thread优先级继承mutex更新单写数据层；每类数据独立计算age和valid。MSPM0各数据流现在独立检查16位序号：重复/乱序帧不刷新时间戳，跳号和重启可诊断，心跳未置`IMU_VALID`时不发布有效IMU。当前快照保留视觉板原始`capture_time_us`，但在时钟同步实现前只把`vision_receive_age_ms`用于链路诊断，不能冒充真实采集age。
 
-本机集成ARM构建已通过：`text=210100 data=15656 bss=244256`。只有人工执行的`hball_probe5`允许发送无运动Get_ID；自动探针默认关闭，`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`保持硬约束。
+本机集成ARM构建已通过：`text=216884 data=14932 bss=245233`。只有人工执行的`hball_probe5`允许发送无运动Get_ID；自动探针默认关闭，`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`保持硬约束。
 
 ## M55算法与LVGL shadow构建
 
-M55使用独立的`SConscript.m55`，只编入双核IPC、LQG、多速率控制管线、H题LVGL页面和M55入口，不链接M33 CAN监视器或机械臂应用。控制线程使用绝对周期唤醒，以5 ms周期读取M33传感器槽、运行200 Hz预测/更新并写回带`SHADOW_ONLY`的控制槽；LVGL以100 ms周期显示球位置/速度、IMU加速度、转弯角速度、电机角度、LQG shadow目标和视觉age。`ACTUATOR_TX=0`，M55没有CAN或执行器发送。
+正式M55运行时改用Infineon官方FreeRTOS `release-v10.6.202`，固定提交`8a19c8db81becf1e981a5f94630952160fddf8c5`和`COMPONENT_CM55/TOOLCHAIN_GCC_ARM` port。`freertos/Makefile.hball.mk`只编入双核IPC、LQG、多速率控制管线、FreeRTOS任务和M55入口，不链接M33 CAN监视器或机械臂应用。控制任务使用`vTaskDelayUntil`绝对周期唤醒，以5 ms周期读取M33传感器槽、运行200 Hz预测/更新并写回带`SHADOW_ONLY`的控制槽；100 ms钩子向板级LVGL适配层提供球位置/速度、IMU加速度、转弯角速度、电机角度、LQG shadow目标和视觉age。`ACTUATOR_TX=0`，M55没有CAN或执行器发送。
 
-临时M55 BSP曾完成全量GCC 13.3链接并得到`text=478232 data=2936 bss=4394376`，但复核ELF属性后确认该临时工程实际使用`-mcpu=cortex-m7`并生成ARMv7E-M镜像；这只能证明H题应用源码可链接，不能作为Cortex-M55可烧录证据。正式部署必须改用厂商Cortex-M55启动、异常/FPU上下文和cache配置，核验最终ELF为ARMv8.1-M且链接地址位于M55区域。临时BSP和裁剪配置不进入Git；真实M55构建完成前不能烧录该镜像，也不能把shadow目标接到电机。
+`SConscript.m55`保留用于既有RT-Thread适配器的源码契约检查，不再作为正式M55部署依据。2026-07-30已在Infineon官方多核示例的临时工程中完成180/180源文件编译和单核链接，得到664,588字节ELF，SHA-256为`005A5BB383F6D6C57BC4FCF34E6D56B43D82B3CE0F5992B6A651529CCF96DD73`。ELF为ARMv8.1-M Mainline、hard-float，实际编译参数为`-mcpu=cortex-m55+nomve`，证明正式FreeRTOS/H-ball源码能在真CM55工具链链接；当前明确未启用MVE。
+
+这个ELF仍不是可部署镜像。官方示例的新内存设计把`.hball_ipc_shared`放在`0x262FC000`，而当前已验证M33 RT-Thread镜像将同一段放在`0x261C0000`；两核地址不一致，不能启动IPC。多核后处理还因缺少匹配的`proj_cm33_ns.hex`而返回失败。下一步必须用当前M33的同一份Device Configurator内存设计重新生成CM55链接图，使两边都得到`start=0x261C0000/end=0x261C0100`，再生成完整多核包。完成前禁止烧录M55，也禁止把shadow目标接到电机。
 
 验证命令：
 
@@ -44,7 +46,7 @@ M55使用独立的`SConscript.m55`，只编入双核IPC、LQG、多速率控制�
 python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q
 ```
 
-当前主仓库同时覆盖文本探针、64字节视觉帧、CRC32C、坏帧重同步和USB拆/粘包。二进制版本的本机 ARM 构建已通过，大小为 `text=191408 data=15616 bss=244300`；烧录与240 Hz实物接收计数仍需单独验证。
+当前主仓库同时覆盖文本探针、64字节视觉帧、CRC32C、坏帧重同步、USB拆/粘包，以及CAN帧经统一快照进入LQG shadow的端到端主机测试。集成M33 ARM构建已通过，大小为`text=216884 data=14932 bss=245233`；真实240 Hz二进制接收计数仍需单独验证。
 
 ## 已验证的构建与烧录流程
 
@@ -86,9 +88,10 @@ python3 vision/raspberrypi/edgetalk_vision_stream.py --duration 30 --rate 240
 ## 计划职责
 
 - 200 Hz：读取带采集时间戳的 MSPM0状态和树莓派视觉测量，运行非线性预测、Kalman更新、5帧球速估计与LQR。
-- 1 kHz：摆杆角度/速度内环、目标角 `+-4 deg` 限幅、`80 deg/s` 斜率限制和执行器抗饱和。
-- 电机接口：读取角度、速度、温度、故障、电流/限幅状态；发送经过安全门批准的目标。
-- 20 kHz FOC：仅在确认 EdgeTalk 直接驱动三相桥时实现。若RS00内部驱动器已闭合FOC，则使用其协议接口，不在M33重复闭环。
+- 1 kHz：M33检查M55 shadow的freshness、有限值、`+-4 deg`限幅、`80 deg/s`斜率限制和故障状态；当前只观察，不发送。
+- 200 Hz电机目标：正式方案采用RS00 CSP位置模式，写入经安全门批准的`loc_ref`并配置保守`limit_spd/limit_cur`；当前`ACTUATOR_TX=0`，发送适配器尚未实现。
+- 250~500 Hz电机反馈：读取角度、速度、温度、故障和跟随误差；具体周期以台架实测为准。
+- 位置环与FOC：留在RS00内部驱动器，频率在取得厂家资料或实测前不假定，M33不重复实现三相电流环。MIT位置-速度阻抗模式仅作为CSP带宽不足时的备选。
 - 安全状态机：视觉/IMU/编码器超时、电机故障、母线压降、通信CRC/序号异常和人工急停。
 
 ## 实现顺序
