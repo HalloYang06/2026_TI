@@ -8,6 +8,7 @@ M55_ADAPTER = (
 )
 M55_SCONSCRIPT = ROOT / "firmware" / "edgetalk" / "SConscript.m55"
 M55_UI = ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_lvgl_ui.c"
+M55_IPC = ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_m55_ipc.c"
 
 
 def test_m55_runs_200hz_lqg_without_can_or_actuator_output():
@@ -21,6 +22,8 @@ def test_m55_runs_200hz_lqg_without_can_or_actuator_output():
     assert "rt_thread_mdelay(HBALL_M55_PERIOD_MS)" not in source
     assert "hball_m55_read_sensor_snapshot" in source
     assert "hball_control_pipeline_step" in source
+    assert "hball_m55_publish_control_shadow" in source
+    assert "HBALL_IPC_CONTROL_FLAG_SHADOW_ONLY" in source
     assert "safety_eligible" in source
     assert "ifx_can" not in source
     assert "rt_device_write" not in source
@@ -32,11 +35,24 @@ def test_m55_build_does_not_link_the_m33_can_monitor():
 
     assert "hball_lqg.c" in sconscript
     assert "hball_control_pipeline.c" in sconscript
-    assert "hball_m55_input_stub.c" in sconscript
+    assert "hball_m55_ipc.c" in sconscript
+    assert "hball_m55_input_stub.c" not in sconscript
     assert "hball_m55_shadow_app.c" in sconscript
     assert "hball_lvgl_ui.c" in sconscript
     assert "hball_can.c" not in sconscript
     assert "hball_bench_app.c" not in sconscript
+
+
+def test_m55_ipc_reads_only_sensor_and_publishes_only_shadow_control():
+    source = M55_IPC.read_text(encoding="utf-8")
+
+    assert "hball_ipc_sensor_read(" in source
+    assert "hball_ipc_control_publish(" in source
+    assert "hball_ipc_platform_region()->sensor" in source
+    assert "hball_ipc_platform_region()->control" in source
+    assert "hball_ipc_region_reset(" not in source
+    assert "ifx_can" not in source
+    assert "rt_device_write" not in source
 
 
 def test_lvgl_page_is_h_problem_specific_and_has_no_rehab_arm_surface():

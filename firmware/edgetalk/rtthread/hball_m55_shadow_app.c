@@ -1,5 +1,5 @@
 #include "hball_control_pipeline.h"
-#include "hball_m55_input.h"
+#include "hball_m55_ipc.h"
 #include "hball_m55_ui.h"
 
 #include <finsh.h>
@@ -54,12 +54,20 @@ void hball_m55_get_ui_snapshot(hball_m55_ui_snapshot_t *snapshot)
 
 static void hball_m55_print_status(void)
 {
+    hball_m55_ipc_diag_t ipc;
+
+    hball_m55_ipc_get_diag(&ipc);
     rt_kprintf(
-        "[hball-m55] version=%s rate_hz=200 steps=%lu input=%lu misses=%lu mode=%u eligible=%d cmd_urad=%ld ball_um=%ld vel_um_s=%ld ACTUATOR_TX=0\n",
+        "[hball-m55] version=%s rate_hz=200 steps=%lu input=%lu misses=%lu ipc_rx=%lu/%lu/%lu ipc_tx=%lu/%lu mode=%u eligible=%d cmd_urad=%ld ball_um=%ld vel_um_s=%ld ACTUATOR_TX=0\n",
         HBALL_M55_VERSION,
         (unsigned long)g_hball_m55_steps,
         (unsigned long)g_hball_m55_input_updates,
         (unsigned long)g_hball_m55_deadline_misses,
+        (unsigned long)ipc.sensor_read_total,
+        (unsigned long)ipc.sensor_busy_total,
+        (unsigned long)ipc.sensor_failure_total,
+        (unsigned long)ipc.control_publish_total,
+        (unsigned long)ipc.control_failure_total,
         (unsigned)g_hball_m55_output.mode,
         (int)g_hball_m55_output.safety_eligible,
         (long)(g_hball_m55_output.shadow_command_rad * 1000000.0F),
@@ -149,6 +157,30 @@ static void hball_m55_worker_entry(void *parameter)
             &g_hball_m55_output
         );
         g_hball_m55_steps++;
+        {
+            hball_control_shadow_t shadow;
+
+            rt_memset(&shadow, 0, sizeof(shadow));
+            shadow.source_sensor_sequence = g_hball_m55_snapshot.sequence;
+            shadow.controller_steps = g_hball_m55_steps;
+            shadow.deadline_misses = g_hball_m55_deadline_misses;
+            shadow.produced_time_ms =
+                (rt_uint32_t)rt_tick_get_millisecond();
+            shadow.mode = (uint16_t)g_hball_m55_output.mode;
+            shadow.flags = HBALL_IPC_CONTROL_FLAG_SHADOW_ONLY;
+            if (g_hball_m55_output.safety_eligible)
+            {
+                shadow.flags |= HBALL_IPC_CONTROL_FLAG_SAFETY_ELIGIBLE;
+            }
+            shadow.target_angle_rad = g_hball_m55_output.shadow_command_rad;
+            shadow.estimated_position_m =
+                g_hball_m55_output.estimated_position_m;
+            shadow.estimated_velocity_mps =
+                g_hball_m55_output.estimated_velocity_mps;
+            shadow.estimated_disturbance_mps2 =
+                g_hball_m55_output.estimated_disturbance_mps2;
+            (void)hball_m55_publish_control_shadow(&shadow);
+        }
 
         now_ms = (rt_uint32_t)rt_tick_get_millisecond();
         if ((rt_uint32_t)(now_ms - last_log_ms) >= HBALL_M55_LOG_PERIOD_MS)
