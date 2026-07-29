@@ -11,7 +11,7 @@ EdgeTalk M33独占USB、CAN和最终安全门，M55只运行200 Hz状态估计/L
 
 ## 内存一致性
 
-共享区和两个槽都按32字节cache line对齐，槽长也是32字节的整数倍。每个槽偏移0的`seqlock`不参与CRC：
+共享区固定链接在双核共享SRAM `0x261C0000..0x261C00FF`，M33和M55工程都必须采用`firmware/edgetalk/linker/hball_dualcore_section.ld.inc`，并核验链接符号一致。共享区和两个槽都按32字节cache line对齐，槽长也是32字节的整数倍。每个槽偏移0的`seqlock`不参与CRC：
 
 1. 写端把`seqlock`改为奇数，执行内存屏障并clean首个cache line；
 2. 写端更新偏移4之后的帧、CRC和保留区，执行屏障并clean整个槽；

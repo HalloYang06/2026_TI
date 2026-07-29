@@ -7,6 +7,8 @@ lvgl_root = os.path.join(
     project_root, 'libraries', 'components', 'lvgl_9.2.0'
 )
 src = [
+    os.path.join(cwd, 'src', 'hball_dualcore_ipc.c'),
+    os.path.join(cwd, 'src', 'hball_dualcore_platform.c'),
     os.path.join(cwd, 'src', 'hball_lqg.c'),
     os.path.join(cwd, 'src', 'hball_control_pipeline.c'),
     os.path.join(cwd, 'rtthread', 'hball_m55_input_stub.c'),
