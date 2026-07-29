@@ -33,6 +33,7 @@ flowchart LR
 ## 仓库导航
 
 - `docs/architecture/system-overview.md`：三板结构、闭环量、频率和降级策略。
+- `docs/hardware/measured-parameters.md`：钢球等实物参数、计算值和待测不确定度。
 - `docs/decisions/ADR-001-h-ball-control-architecture.md`：方案和备选算法决策。
 - `docs/reference/infineon-edgetalk-motor5.md`：从参考仓库提取的 EdgeTalk、5号电机、编译与烧录经验。
 - `experiments/h_ball_control_sim/`：LQG模型、多速率仿真、72组压力测试和输出图表。

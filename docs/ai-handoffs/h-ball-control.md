@@ -10,11 +10,11 @@ Updated: 2026-07-29
 
 已完成题目校核、三板控制边界、非线性前馈 + 增广 LQG 数学模型、延迟/离群视觉观测器、5 帧球速估计、摩擦与多速率仿真，以及 72 组分级压力测试。已将成果整理到目标仓库 `HalloYang06/2026_TI` 的 `prep/2026` 分支；全部内容仍是未接硬件的实验原型，保留在 `experiments/`。
 
-远程状态：
+基线提交：
 
 - `f9c4e02 feat(sim): add H-problem LQG stress model`
 - `97c7e1e docs(arch): define H-problem three-board baseline`
-- `origin/prep/2026` 已推送并设为本地上游；未创建或填充 `main`。
+- `origin/prep/2026` 已推送并设为本地上游；后续参数记录继续提交到该分支，未创建或填充 `main`。
 
 最终候选架构：
 
@@ -30,6 +30,7 @@ Updated: 2026-07-29
 - LQR：`Q=diag(1200,25,2)`、`R=5`、`Ts=5 ms`、标称执行器时常 `25 ms`。
 - 增益：`K=[14.56338, 3.31547, 0.58093]`。
 - 钢球按实心球纯滚动处理：`J=2/5*m*R^2`，等效滚动系数为 `5/7`，已包含平动和转动惯性；打滑、自转独立状态和钢球对摆杆的反作用力矩仍待实物辨识。
+- 钢球质量已实测为 `4.11 g`；直径暂按题目约 `10 mm`，暂定 `J=4.11e-8 kg*m^2`，只因质量更新无需重算LQR。
 - 可测扰动：纵向/横向加速度、俯仰、偏航角速度和位置相关离心项做非线性前馈。
 - 视觉：60 Hz、采集时间戳延迟补偿、5 帧二次最小二乘球速、4σ 创新门限、连续拒帧协方差膨胀恢复。
 - 约束：摆角 `+-4 deg`，目标角变化率 `80 deg/s`。
@@ -49,6 +50,7 @@ Updated: 2026-07-29
 
 - `docs/architecture/system-overview.md`：三板闭环、频率、传感器与降级策略。
 - `docs/reference/infineon-edgetalk-motor5.md`：参考仓库中EdgeTalk、5号电机、构建与烧录流程的提取记录。
+- `docs/hardware/measured-parameters.md`：实测质量、暂定转动惯量、摆杆负载和下一步测量。
 - `experiments/h_ball_control_sim/LQR_MODEL.md`：模型、参数、频率和实物门槛。
 - `docs/decisions/ADR-001-h-ball-control-architecture.md`：三板与算法决策。
 - `experiments/h_ball_control_sim/hballsim/controllers.py`：LQR、观测器和球速估计。
