@@ -2,13 +2,15 @@
 
 AI identity: Codex
 
-Role: H题三板架构、LQG算法与压力仿真
+Role: H-ball EdgeTalk USB/CAN bring-up
 
-Updated: 2026-07-29
+Updated: 2026-07-30
 
 ## 当前状态
 
-已完成题目校核、三板控制边界、非线性前馈 + 增广 LQG 数学模型、延迟/离群视觉观测器、5 帧球速估计、摩擦与多速率仿真，以及 72 组分级压力测试。已将成果整理到目标仓库 `HalloYang06/2026_TI` 的 `prep/2026` 分支；全部内容仍是未接硬件的实验原型，保留在 `experiments/`。
+已完成题目校核、三板控制边界、非线性前馈 + 增广 LQG 数学模型、延迟/离群视觉观测器、5 帧球速估计、摩擦与多速率仿真，以及 72 组分级压力测试。已将成果整理到目标仓库 `HalloYang06/2026_TI` 的 `prep/2026` 分支；数值模型保留在 `experiments/`，固件适配保留在 `firmware/`，所有硬件路径在重复台架验证前仍按实验原型管理。
+
+EdgeTalk USB CDC 已新增 `HBALL_USB_ONLY=1`、P16.5 心跳和树莓派 PING/PONG 探针，并按 Infineon 官方 CDC echo 切换到 emUSB 2.1.0.3859。M33 编译、Secure+NS 合并、烧录、raw/XIP/NS 校验和 Non-secure 启动均成功，蓝灯正常闪烁。当前 FinSH 为 `state=0x11 configured=0 conn=1 cfg=0 actuator_tx=0`，即仅 `ATTACHED|SUSPENDED`；树莓派无 `lsusb` 设备、无 `/dev/ttyACM*`、无 USB reset 证据，不能记为已打通。
 
 基线提交：
 
@@ -68,6 +70,10 @@ Updated: 2026-07-29
 - 尚未获得 IMU 型号、摄像头/镜头、无刷编码器分辨率、摆杆传动比、EdgeTalk 固件版本和具体引脚。
 - 当前 Git 分支为 `prep/2026`；不得创建、填充或合并到 `main`，直到仓库所有者明确批准稳定基线。
 - `PSOC_E84_robot` 仅为参考仓库；不能复制其医疗机械臂零点、方向、限位、关节映射或安全权限结构。
+- PSE84 临时构建树位于仓库 `tmp/` 且带既有启动诊断改动，不是可提交产品 BSP；可复用源保留在 `firmware/edgetalk/`。
+- menuconfig 截图里的通用 `Using USB -> Using USB host/device` 对应 RT-Thread 旧 USB 栈，不是 emUSB；两项保持关闭，只开启板级 `BSP_USING_USB`。
+- SCons 根目录 `rtthread.hex` 只有 NS XIP 段，禁止直接烧录；必须使用合并后的 Secure+NS raw 镜像。
+- 用户已确认数据线具备数据能力；`P17.4 VBUS_DETECT` 当前读低，DWC2 `DCTL=0` 且没有主机 reset，下一台电脑应优先核对树莓派 Host 端口、EdgeTalk Device 端口和板级 VBUS 检测/供电路径。
 
 ## 下一步
 
@@ -78,3 +84,13 @@ Updated: 2026-07-29
 3. 设计只读回放工具，用记录的视觉/IMU日志驱动 EdgeTalk 算法，禁止在自动测试中解锁电机。
 4. 台架标定相机 P95 延迟/噪声、执行器时常/延迟/增益/死区、摆杆水平零点和摩擦，再回填仿真。
 5. 实物测试必须车轮架空、底盘动力断开或限流、硬件急停、操作员保留断电接管。
+6. USB 联调按 P16.5 心跳、FinSH `hball_usb_status`、树莓派 `dmesg/lsusb`、`/dev/ttyACM*`、`HBALL_USB_READY`、`PING/PONG` 顺序验收；任何一层失败即停线定位，不继续叠加 CAN 或算法。
+
+## 本次 USB 续接验证
+
+- M33：`text=190096 data=15616 bss=244300`；临时 BSP emUSB 静态契约 `6 passed`。
+- raw combined SHA-256：`6FF1D97D0A833B490BD0D33FF5E615D6C66ED98522668940C49C5D13C379ACAB`。
+- XIP verify SHA-256：`65EF82513764233A98BF10184F13298E61A9ED3840B2AE621A3AFD532CFA3364`。
+- NS SHA-256：`453A13997A17E347EA5D5025170E247F4E35D4C79C69FEE991389E6922B2ED71`。
+- 实测校验：raw `315392` bytes、XIP `308168` bytes、NS `205712` bytes，已到达 Non-secure reset handler。
+- 安全状态：电机动力断开，未执行自主运动，USB 诊断永久保持 `actuator_tx=0`。

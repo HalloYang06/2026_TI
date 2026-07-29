@@ -1,0 +1,61 @@
+from building import *
+import os
+
+cwd = GetCurrentDir()
+project_root = os.path.abspath(os.path.join(cwd, '..', '..'))
+usb_root = os.path.join(
+    project_root, 'libraries', 'components', 'emusb-device'
+)
+usb_paths = [
+    os.path.join(cwd, 'include'),
+    os.path.join(usb_root, 'USBD'),
+    os.path.join(usb_root, 'USBD', 'COMPONENT_PSE84'),
+]
+usb_depend = ['BSP_USING_USB']
+usb_only = os.environ.get('HBALL_USB_ONLY', '0') == '1'
+
+if usb_only:
+    usb_only_src = [
+        os.path.join(cwd, 'rtthread', 'main.c'),
+        os.path.join(cwd, 'src', 'hball_usb_probe.c'),
+        os.path.join(cwd, 'rtthread', 'hball_usb_cdc.c'),
+    ]
+    group = DefineGroup(
+        'HBallEdgeTalkUsbOnly',
+        usb_only_src,
+        depend=usb_depend,
+        CPPPATH=usb_paths,
+        CPPDEFINES=['HBALL_USB_ONLY=1'],
+    )
+else:
+    base_src = [
+        os.path.join(cwd, 'src', 'hball_can.c'),
+        os.path.join(cwd, 'rtthread', 'hball_bench_app.c'),
+        os.path.join(cwd, 'rtthread', 'main.c'),
+    ]
+    cppdefines = []
+    if os.environ.get('HBALL_BENCH_AUTO_PROBE5', '0') == '1':
+        cppdefines.append('HBALL_BENCH_AUTO_PROBE5=1')
+
+    group = DefineGroup(
+        'HBallEdgeTalkBench',
+        base_src,
+        depend=[''],
+        CPPPATH=[
+            os.path.join(cwd, 'include'),
+            os.path.join(project_root, 'libraries', 'HAL_Drivers'),
+        ],
+        CPPDEFINES=cppdefines,
+    )
+    usb_src = [
+        os.path.join(cwd, 'src', 'hball_usb_probe.c'),
+        os.path.join(cwd, 'rtthread', 'hball_usb_cdc.c'),
+    ]
+    usb_group = DefineGroup(
+        'HBallEdgeTalkUsbProbe',
+        usb_src,
+        depend=usb_depend,
+        CPPPATH=usb_paths,
+    )
+    group = group + usb_group
+Return('group')
