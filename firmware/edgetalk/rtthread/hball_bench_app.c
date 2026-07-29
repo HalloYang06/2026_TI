@@ -1,4 +1,5 @@
 #include "hball_can.h"
+#include "hball_rate_meter.h"
 #if HBALL_INTEGRATED_SHADOW
 #include "hball_m33_inputs.h"
 #endif
@@ -28,6 +29,7 @@ static rt_uint32_t g_hball_raw_rx_total = 0U;
 static rt_uint32_t g_hball_tx_total = 0U;
 static rt_uint32_t g_hball_tx_success = 0U;
 static rt_uint32_t g_hball_tx_failure = 0U;
+static hball_rate_meter_t g_hball_can_rx_rate;
 
 static rt_uint32_t hball_now_ms(void)
 {
@@ -69,6 +71,7 @@ static void hball_poll_can(void)
         g_hball_last_rx = frame;
         g_hball_last_rx_valid = RT_TRUE;
         g_hball_raw_rx_total++;
+        hball_rate_meter_accept(&g_hball_can_rx_rate, hball_now_ms());
         if (frame.is_extended != 0U)
         {
             const hball_can_event_t event = hball_motor_monitor_accept(
@@ -221,17 +224,21 @@ static void hball_status(void)
     ifx_can_direct_diag_t diagnostic;
     rt_err_t result;
     rt_uint8_t index;
+    const rt_uint32_t can_rate_x10 = hball_rate_meter_hz_x10(
+        &g_hball_can_rx_rate, hball_now_ms()
+    );
 
     rt_memset(&diagnostic, 0, sizeof(diagnostic));
     result = ifx_can_direct_get_diag(&diagnostic);
     rt_kprintf(
-        "[hball-m33] status version=%s read_only=1 can_ready=%d tx=%lu/%lu/%lu raw_rx=%lu\n",
+        "[hball-m33] status version=%s read_only=1 can_ready=%d tx=%lu/%lu/%lu raw_rx=%lu can_rate_x10=%lu\n",
         HBALL_BENCH_VERSION,
         (int)g_hball_can_ready,
         (unsigned long)g_hball_tx_total,
         (unsigned long)g_hball_tx_success,
         (unsigned long)g_hball_tx_failure,
-        (unsigned long)g_hball_raw_rx_total
+        (unsigned long)g_hball_raw_rx_total,
+        (unsigned long)can_rate_x10
     );
     rt_kprintf(
         "[hball-m33] probe pending=%d valid=%d uid=%08lx%08lx motor_rx=%lu invalid=%lu ignored=%lu\n",
@@ -310,6 +317,7 @@ static int hball_bench_start(void)
 {
     hball_motor_monitor_init(&g_hball_motor, HBALL_RS00_MOTOR_ID);
     hball_msp_monitor_init(&g_hball_msp);
+    hball_rate_meter_init(&g_hball_can_rx_rate);
     rt_kprintf(
         "[hball-m33] SAFETY CAN-only: no enable, zero, position, speed or torque TX\n"
     );

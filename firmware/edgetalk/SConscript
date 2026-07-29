@@ -19,6 +19,7 @@ if usb_only:
     usb_only_src = [
         os.path.join(cwd, 'rtthread', 'main.c'),
         os.path.join(cwd, 'src', 'hball_usb_probe.c'),
+        os.path.join(cwd, 'src', 'hball_rate_meter.c'),
         os.path.join(cwd, 'src', 'hball_vision_protocol.c'),
         os.path.join(cwd, 'rtthread', 'hball_usb_cdc.c'),
     ]
@@ -35,6 +36,7 @@ elif integrated_shadow:
         os.path.join(cwd, 'src', 'hball_control_guard.c'),
         os.path.join(cwd, 'src', 'hball_dualcore_ipc.c'),
         os.path.join(cwd, 'src', 'hball_dualcore_platform.c'),
+        os.path.join(cwd, 'src', 'hball_rate_meter.c'),
         os.path.join(cwd, 'src', 'hball_sensor_fusion.c'),
         os.path.join(cwd, 'src', 'hball_usb_probe.c'),
         os.path.join(cwd, 'src', 'hball_vision_protocol.c'),
@@ -59,6 +61,7 @@ elif integrated_shadow:
 else:
     base_src = [
         os.path.join(cwd, 'src', 'hball_can.c'),
+        os.path.join(cwd, 'src', 'hball_rate_meter.c'),
         os.path.join(cwd, 'rtthread', 'hball_bench_app.c'),
         os.path.join(cwd, 'rtthread', 'main.c'),
     ]

@@ -51,6 +51,16 @@ def _percentile_95(values: list[float]) -> float | None:
     return ordered[max(0, ((len(ordered) * 95 + 99) // 100) - 1)]
 
 
+def rate_passes(result: dict[str, int | float | None], minimum_rate_hz: float) -> bool:
+    achieved = result.get("achieved_rate_hz")
+    misses = result.get("deadline_misses")
+    return (
+        isinstance(achieved, (int, float))
+        and achieved >= minimum_rate_hz
+        and misses == 0
+    )
+
+
 def run_stream(
     serial_port,
     duration_s: float,
@@ -71,6 +81,7 @@ def run_stream(
     deadline_misses = 0
     schedule_lag_ms: list[float] = []
     write_time_ms: list[float] = []
+    write_finished = started_at
 
     while slot < slot_count:
         scheduled_at = started_at + slot * period_s
@@ -97,10 +108,14 @@ def run_stream(
             slot += 1
 
     serial_port.flush()
+    elapsed_s = max(duration_s, write_finished - started_at)
+    achieved_rate_hz = tx_frames / elapsed_s
     return {
         "tx_frames": tx_frames,
         "tx_bytes": tx_frames * 64,
         "deadline_misses": deadline_misses,
+        "achieved_rate_hz": achieved_rate_hz,
+        "payload_rate_bytes_s": achieved_rate_hz * 64.0,
         "mean_schedule_lag_ms": (
             sum(schedule_lag_ms) / len(schedule_lag_ms) if schedule_lag_ms else None
         ),
@@ -114,9 +129,19 @@ def main() -> int:
     parser.add_argument("--port", help="CDC port; auto-detects /dev/ttyACM* by default")
     parser.add_argument("--duration", type=float, default=30.0)
     parser.add_argument("--rate", type=float, default=240.0)
+    parser.add_argument(
+        "--min-rate",
+        type=float,
+        help="minimum achieved frame rate; defaults to 99%% of --rate",
+    )
     arguments = parser.parse_args()
     if arguments.duration <= 0.0 or arguments.rate <= 0.0:
         parser.error("duration and rate must be positive")
+    minimum_rate_hz = (
+        arguments.min_rate if arguments.min_rate is not None else arguments.rate * 0.99
+    )
+    if minimum_rate_hz <= 0.0:
+        parser.error("min-rate must be positive")
 
     try:
         import serial
@@ -136,8 +161,19 @@ def main() -> int:
         return 2
 
     print(f"port={port}")
+    print("payload=BALL_MEASUREMENT_V1 frame_bytes=64 image_bytes=0")
     print(" ".join(f"{key}={value}" for key, value in result.items()))
-    print("HOST_PASS; confirm exact vision_rx and CRC counters with hball_usb_status")
+    if not rate_passes(result, minimum_rate_hz):
+        print(
+            f"HOST_FAIL: min_rate_hz={minimum_rate_hz}; "
+            "confirm CPU scheduling and USB backpressure",
+            file=sys.stderr,
+        )
+        return 2
+    print(
+        f"HOST_PASS min_rate_hz={minimum_rate_hz}; "
+        "confirm M33 vision_rate_x10 and CRC counters with hball_usb_status"
+    )
     return 0
 
 

@@ -20,6 +20,8 @@ def test_rtthread_adapter_exposes_only_read_only_shell_commands():
     assert "control_motor_" not in source
     assert "Cy_CANFD_UpdateAndTransmitMsgBuffer" not in source
     assert "hball_lqg_command" not in source
+    assert "hball_rate_meter_accept(" in source
+    assert "can_rate_x10=" in source
 
 
 def test_bench_auto_probe_is_explicit_build_opt_in():
@@ -31,3 +33,4 @@ def test_bench_auto_probe_is_explicit_build_opt_in():
     assert "os.environ.get('HBALL_BENCH_AUTO_PROBE5', '0')" in sconscript
     assert "hball_lqg.c" not in sconscript
     assert "hball_runtime.c" not in sconscript
+    assert "hball_rate_meter.c" in sconscript

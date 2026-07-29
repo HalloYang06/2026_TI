@@ -61,7 +61,23 @@ def test_200_hz_synthetic_stream_writes_monotonic_valid_64_byte_frames():
     assert result["tx_frames"] == 10
     assert result["tx_bytes"] == 640
     assert result["deadline_misses"] == 0
+    assert result["achieved_rate_hz"] == 200.0
+    assert result["payload_rate_bytes_s"] == 12800.0
     assert serial_port.flushed == 1
+
+
+def test_stream_rate_verdict_requires_requested_minimum():
+    stream = load_stream_module()
+
+    assert stream.rate_passes(
+        {"achieved_rate_hz": 239.5, "deadline_misses": 0}, 230.0
+    )
+    assert not stream.rate_passes(
+        {"achieved_rate_hz": 119.9, "deadline_misses": 0}, 120.0
+    )
+    assert not stream.rate_passes(
+        {"achieved_rate_hz": 240.0, "deadline_misses": 1}, 120.0
+    )
 
 
 def test_stream_rejects_non_positive_duration_or_rate():

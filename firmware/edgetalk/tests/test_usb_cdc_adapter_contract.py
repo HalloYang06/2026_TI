@@ -38,6 +38,9 @@ def test_usb_cdc_receives_512_byte_chunks_and_parses_read_only_vision_frames():
     assert "hball_vision_stream_push(" in source
     assert "vision_rx=" in source
     assert "vision_crc=" in source
+    assert "hball_rate_meter_accept(" in source
+    assert "vision_rate_x10=" in source
+    assert "vision_bytes_s=" in source
     assert "actuator_tx=0" in source
     assert "hball_can_send" not in source
 

@@ -6,6 +6,7 @@
 
 #include "USB.h"
 #include "USB_CDC.h"
+#include "hball_rate_meter.h"
 #include "hball_vision_protocol.h"
 #if HBALL_INTEGRATED_SHADOW
 #include "hball_m33_inputs.h"
@@ -66,6 +67,7 @@ static const USB_DEVICE_INFO g_hball_usb_device_info = {
 static USB_CDC_HANDLE g_hball_usb_cdc_handle = -1;
 static hball_usb_stats_t g_hball_usb_stats;
 static hball_vision_stream_t g_hball_vision_stream;
+static hball_rate_meter_t g_hball_vision_rate;
 static rt_thread_t g_hball_usb_thread = RT_NULL;
 
 /*
@@ -214,6 +216,7 @@ static void hball_usb_accept_vision(
 )
 {
     rt_uint32_t sequence_delta;
+    rt_uint32_t receive_ms;
 
     RT_UNUSED(context);
     g_hball_usb_stats.binary_mode = RT_TRUE;
@@ -239,6 +242,8 @@ static void hball_usb_accept_vision(
 
     g_hball_usb_stats.vision_sequence_initialized = RT_TRUE;
     g_hball_usb_stats.vision_rx_total++;
+    receive_ms = (rt_uint32_t)rt_tick_get_millisecond();
+    hball_rate_meter_accept(&g_hball_vision_rate, receive_ms);
     if ((measurement->flags & HBALL_VISION_FLAG_POSITION_VALID) != 0U)
     {
         g_hball_usb_stats.vision_position_valid_total++;
@@ -247,8 +252,7 @@ static void hball_usb_accept_vision(
     g_hball_usb_stats.last_vision_flags = measurement->flags;
     g_hball_usb_stats.last_vision_position_m = measurement->ball_position_m;
     g_hball_usb_stats.last_vision_confidence = measurement->confidence;
-    g_hball_usb_stats.last_vision_rx_ms =
-        (rt_uint32_t)rt_tick_get_millisecond();
+    g_hball_usb_stats.last_vision_rx_ms = receive_ms;
 #if HBALL_INTEGRATED_SHADOW
     (void)hball_m33_inputs_publish_vision(
         measurement, g_hball_usb_stats.last_vision_rx_ms
@@ -267,6 +271,7 @@ static void hball_usb_session(void)
         (rt_uint32_t)rt_tick_get_millisecond() - HBALL_USB_READY_PERIOD_MS;
 
     g_hball_vision_stream.length = 0U;
+    hball_rate_meter_init(&g_hball_vision_rate);
     g_hball_usb_stats.binary_mode = RT_FALSE;
     g_hball_usb_stats.vision_sequence_initialized = RT_FALSE;
 
@@ -400,6 +405,11 @@ static void hball_usb_status(void)
         (long)(g_hball_usb_stats.last_vision_position_m * 1000000.0F);
     const long confidence_permille =
         (long)(g_hball_usb_stats.last_vision_confidence * 1000.0F);
+    const rt_uint32_t vision_rate_x10 = hball_rate_meter_hz_x10(
+        &g_hball_vision_rate, now_ms
+    );
+    const rt_uint32_t vision_bytes_s =
+        (vision_rate_x10 * HBALL_VISION_FRAME_SIZE) / 10U;
 
     (void)hball_usb_poll_state();
     rt_kprintf(
@@ -442,6 +452,12 @@ static void hball_usb_status(void)
         (unsigned long)vision_age_ms,
         position_um,
         confidence_permille
+    );
+    rt_kprintf(
+        "[hball-usb] vision_rate_x10=%lu vision_bytes_s=%lu frame_bytes=%u target_hz=120 accept_hz=240\n",
+        (unsigned long)vision_rate_x10,
+        (unsigned long)vision_bytes_s,
+        (unsigned int)HBALL_VISION_FRAME_SIZE
     );
 }
 MSH_CMD_EXPORT(hball_usb_status, show read-only H-ball USB CDC diagnostics);
