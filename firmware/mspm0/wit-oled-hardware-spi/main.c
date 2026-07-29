@@ -1727,7 +1727,7 @@ static void lap_test(void)
                 if (finish_candidate_start_ms == 0U) {
                     finish_candidate_start_ms = tick_ms;
                 } else if ((uint32_t)(tick_ms - finish_candidate_start_ms) >=
-                           ((selected_task == CAR_TASK_LAP_STOP) ? 10U : 20U)) {
+                           20U) {
                     finish_stop_confirmed = 1U;
                 }
             } else {
