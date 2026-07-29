@@ -20,4 +20,4 @@ SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_dualcore_platform.c
 SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_lqg.c
 SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_m55_ipc.c
 
-LDLIBS+=m
+LDLIBS+=-lm

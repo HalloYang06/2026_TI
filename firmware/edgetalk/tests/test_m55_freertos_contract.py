@@ -11,6 +11,8 @@ TASK = FREERTOS / "hball_m55_shadow_task.c"
 MAKE_FRAGMENT = FREERTOS / "Makefile.hball.mk"
 CONFIG = FREERTOS / "FreeRTOSConfig.h"
 DEPENDENCY = FREERTOS / "deps" / "freertos.mtb"
+CMSIS_DEPENDENCY = FREERTOS / "deps" / "cmsis.mtb"
+ASYNC_TRANSFER_DEPENDENCY = FREERTOS / "deps" / "async-transfer.mtb"
 
 
 def test_m55_freertos_task_runs_200hz_shadow_and_10hz_ui_without_actuators():
@@ -47,6 +49,10 @@ def test_m55_modustoolbox_fragment_pins_real_cm55_freertos_port():
     make = MAKE_FRAGMENT.read_text(encoding="utf-8")
     config = CONFIG.read_text(encoding="utf-8")
     dependency = DEPENDENCY.read_text(encoding="utf-8").strip()
+    cmsis_dependency = CMSIS_DEPENDENCY.read_text(encoding="utf-8").strip()
+    async_transfer_dependency = ASYNC_TRANSFER_DEPENDENCY.read_text(
+        encoding="utf-8"
+    ).strip()
 
     assert "CORE=CM55" in make
     assert "CORE_NAME=CM55_0" in make
@@ -58,6 +64,7 @@ def test_m55_modustoolbox_fragment_pins_real_cm55_freertos_port():
     assert "hball_m55_ipc.c" in make
     assert "hball_bench_app.c" not in make
     assert "hball_can.c" not in make
+    assert "LDLIBS+=-lm" in make.replace(" ", "")
 
     assert "configTICK_RATE_HZ" in config and "1000" in config
     assert "INCLUDE_vTaskDelayUntil" in config
@@ -65,11 +72,22 @@ def test_m55_modustoolbox_fragment_pins_real_cm55_freertos_port():
     assert "configENABLE_MVE" in config
     assert "configENABLE_TRUSTZONE" in config
     assert "configENABLE_MPU" in config
+    assert "#define INCLUDE_xTaskGetCurrentTaskHandle 1" in config
 
     assert dependency == (
         "https://github.com/Infineon/freertos"
         "#8a19c8db81becf1e981a5f94630952160fddf8c5"
         "#$$ASSET_REPO$$/freertos/release-v10.6.202"
+    )
+    assert cmsis_dependency == (
+        "https://github.com/Infineon/cmsis"
+        "#release-v6.1.0"
+        "#$$ASSET_REPO$$/cmsis/release-v6.1.0"
+    )
+    assert async_transfer_dependency == (
+        "https://github.com/Infineon/async-transfer"
+        "#release-v1.1.1"
+        "#$$ASSET_REPO$$/async-transfer/release-v1.1.1"
     )
 
 
