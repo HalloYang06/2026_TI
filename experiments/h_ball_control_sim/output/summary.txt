@@ -1,0 +1,9 @@
+LQR gain: [14.563381099663678, 3.3154683780601513, 0.5809325298535234]
+Closed-loop poles: [(0.7974360154056834+0j), (0.9525167614280917+0.005249584825496644j), (0.9525167614280917-0.005249584825496644j)]
+baseline: SimulationMetrics(peak_abs_error_m=0.004000024250417046, rms_error_m=0.00047626395870020596, time_over_one_cm_s=0.0, max_abs_beam_angle_rad=0.039359633696951654, final_error_m=-0.000739783967947426)
+stress: SimulationMetrics(peak_abs_error_m=0.004000069085877967, rms_error_m=0.0006549457579234756, time_over_one_cm_s=0.0, max_abs_beam_angle_rad=0.043973195335126274, final_error_m=-0.0012034036396143728)
+with_feedforward: SimulationMetrics(peak_abs_error_m=0.0015098789439032983, rms_error_m=0.0003712907933487354, time_over_one_cm_s=0.0, max_abs_beam_angle_rad=0.03920202740631743, final_error_m=-0.000739783967947426)
+without_feedforward: SimulationMetrics(peak_abs_error_m=0.0034285067350114727, rms_error_m=0.0008827276504537379, time_over_one_cm_s=0.0, max_abs_beam_angle_rad=0.0400627312068535, final_error_m=-0.0010435234458241367)
+static_transfer_settling_s: +5cm=0.492, -5cm=3.0700000000000003
+Monte Carlo stress peak error (mm): worst=3.9652, p95=3.7660
+Monte Carlo stress RMS error (mm): worst=0.7157, p95=0.7123

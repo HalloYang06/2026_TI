@@ -1,0 +1,18 @@
+seed=20260729, duration=25.000s, limit=10.000mm
+first_failing_level=3.0
+level=0: pass=12/12, p95_peak=3.772mm, worst_peak=3.866mm, worst_rms=0.434mm
+level=1: pass=12/12, p95_peak=3.809mm, worst_peak=3.855mm, worst_rms=0.712mm
+level=2: pass=12/12, p95_peak=5.571mm, worst_peak=6.482mm, worst_rms=1.256mm
+level=3: pass=10/12, p95_peak=19.616mm, worst_peak=30.848mm, worst_rms=4.680mm
+level=4: pass=2/12, p95_peak=19.293mm, worst_peak=19.921mm, worst_rms=4.770mm
+level=5: pass=0/12, p95_peak=73.433mm, worst_peak=120.000mm, worst_rms=51.203mm
+worst_failure=level 5, trial 5, seed 20310764, peak 120.000mm, time 16.738s, reason vision_delay_or_dropout
+sensitivity_correlations_with_peak_error:
+  camera_noise_mm: +0.615
+  static_friction_accel: +0.602
+  longest_camera_dropout_ms: +0.572
+  imu_delay_ms: +0.565
+  state_packet_dropout_probability: +0.565
+  actuator_deadband_deg: +0.565
+  actuator_time_constant_ms: +0.565
+  actuator_command_delay_ms: +0.565

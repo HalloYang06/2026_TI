@@ -1,0 +1,4 @@
+check,value,unit,limit,passed
+plus_5cm_settling_time,0.492,s,<2.0,True
+minus_5cm_settling_time,3.0700000000000003,s,<5.0,True
+moving_arbitrary_5cm_peak_error,1.6027036711941112,mm,<=10,True

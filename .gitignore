@@ -1,0 +1,43 @@
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# C/C++ and embedded builds
+build/
+out/
+*.elf
+*.hex
+*.bin
+*.map
+
+# Logs, captures, and local datasets
+*.log
+*.bag
+*.tlog
+*.ulg
+*.mp4
+*.avi
+*.mkv
+datasets/local/
+captures/
+tmp/
+
+# Local tools and downloaded installers
+downloads/
+tools/local/
+.tools/
+
+# Secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
