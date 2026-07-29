@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#define HBALL_MSP_REBOOT_BACKSTEP_MIN_MS 250U
+
 static uint16_t hball_u16_from_be(const uint8_t *data)
 {
     return (uint16_t)(((uint16_t)data[0] << 8) | (uint16_t)data[1]);
@@ -284,6 +286,116 @@ static hball_msp_event_t hball_msp_decode_attitude(
     return HBALL_MSP_EVENT_ATTITUDE;
 }
 
+typedef enum
+{
+    HBALL_MSP_SEQUENCE_ACCEPT = 0,
+    HBALL_MSP_SEQUENCE_DUPLICATE,
+    HBALL_MSP_SEQUENCE_OUT_OF_ORDER,
+} hball_msp_sequence_result_t;
+
+static hball_msp_sequence_result_t hball_msp_check_sequence(
+    hball_msp_monitor_t *monitor,
+    uint16_t previous,
+    bool initialized,
+    uint16_t sequence
+)
+{
+    uint16_t delta;
+
+    if (!initialized)
+    {
+        return HBALL_MSP_SEQUENCE_ACCEPT;
+    }
+    delta = (uint16_t)(sequence - previous);
+    if (delta == 0U)
+    {
+        monitor->rx_duplicate++;
+        return HBALL_MSP_SEQUENCE_DUPLICATE;
+    }
+    if (delta >= UINT16_C(0x8000))
+    {
+        monitor->rx_out_of_order++;
+        return HBALL_MSP_SEQUENCE_OUT_OF_ORDER;
+    }
+    monitor->rx_gap += (uint32_t)delta - 1U;
+    return HBALL_MSP_SEQUENCE_ACCEPT;
+}
+
+static hball_msp_sequence_result_t hball_msp_check_frame_sequence(
+    hball_msp_monitor_t *monitor, const hball_can_frame_t *frame
+)
+{
+    const uint16_t sequence = hball_u16_from_le(frame->data);
+
+    switch (frame->id)
+    {
+    case HBALL_MSP_CAN_ID_HEARTBEAT:
+        return hball_msp_check_sequence(
+            monitor,
+            monitor->heartbeat_sequence,
+            monitor->heartbeat_valid,
+            sequence
+        );
+    case HBALL_MSP_CAN_ID_ACCEL:
+        return hball_msp_check_sequence(
+            monitor,
+            monitor->accel_sequence,
+            monitor->accel_valid,
+            sequence
+        );
+    case HBALL_MSP_CAN_ID_GYRO:
+        return hball_msp_check_sequence(
+            monitor,
+            monitor->gyro_sequence,
+            monitor->gyro_valid,
+            sequence
+        );
+    case HBALL_MSP_CAN_ID_WHEEL:
+        return hball_msp_check_sequence(
+            monitor,
+            monitor->wheel_sequence,
+            monitor->wheel_valid,
+            sequence
+        );
+    default:
+        return hball_msp_check_sequence(
+            monitor,
+            monitor->attitude_sequence,
+            monitor->attitude_valid,
+            sequence
+        );
+    }
+}
+
+static void hball_msp_accept_reboot_if_present(
+    hball_msp_monitor_t *monitor, const hball_can_frame_t *frame
+)
+{
+    uint32_t next_uptime_ms;
+    uint32_t backward_ms;
+
+    if ((frame->id != HBALL_MSP_CAN_ID_HEARTBEAT)
+        || !monitor->heartbeat_valid)
+    {
+        return;
+    }
+    next_uptime_ms = hball_u32_from_le(frame->data + 4U);
+    backward_ms = (uint32_t)(monitor->uptime_ms - next_uptime_ms);
+    if (((uint32_t)(next_uptime_ms - monitor->uptime_ms)
+            < UINT32_C(0x80000000))
+        || (backward_ms < HBALL_MSP_REBOOT_BACKSTEP_MIN_MS))
+    {
+        return;
+    }
+
+    monitor->heartbeat_valid = false;
+    monitor->accel_valid = false;
+    monitor->gyro_valid = false;
+    monitor->wheel_valid = false;
+    monitor->attitude_valid = false;
+    monitor->reboot_total++;
+}
+
 hball_msp_event_t hball_msp_monitor_accept(
     hball_msp_monitor_t *monitor,
     const hball_can_frame_t *frame,
@@ -291,6 +403,7 @@ hball_msp_event_t hball_msp_monitor_accept(
 )
 {
     hball_msp_event_t event;
+    hball_msp_sequence_result_t sequence_result;
     const bool known_id = (frame != NULL)
         && ((frame->id == HBALL_MSP_CAN_ID_HEARTBEAT)
             || (frame->id == HBALL_MSP_CAN_ID_ACCEL)
@@ -317,6 +430,17 @@ hball_msp_event_t hball_msp_monitor_accept(
     {
         monitor->rx_invalid++;
         return HBALL_MSP_EVENT_INVALID;
+    }
+
+    hball_msp_accept_reboot_if_present(monitor, frame);
+    sequence_result = hball_msp_check_frame_sequence(monitor, frame);
+    if (sequence_result == HBALL_MSP_SEQUENCE_DUPLICATE)
+    {
+        return HBALL_MSP_EVENT_DUPLICATE;
+    }
+    if (sequence_result == HBALL_MSP_SEQUENCE_OUT_OF_ORDER)
+    {
+        return HBALL_MSP_EVENT_OUT_OF_ORDER;
     }
 
     switch (frame->id)

@@ -114,10 +114,24 @@ static void test_invalid_vision_flags_never_enter_valid_snapshot(void)
     assert((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) == 0U);
 }
 
+static void test_mspm0_imu_health_bit_gates_fresh_samples(void)
+{
+    hball_sensor_fusion_t fusion = make_populated_fusion();
+    hball_sensor_snapshot_t snapshot;
+
+    fusion.msp.status_flags &= (uint16_t)~HBALL_MSP_STATUS_IMU_VALID;
+    hball_sensor_fusion_snapshot(&fusion, 110U, &snapshot);
+
+    assert(snapshot.imu_age_ms == 20U);
+    assert((snapshot.valid_flags & HBALL_SENSOR_VALID_HEARTBEAT) != 0U);
+    assert((snapshot.valid_flags & HBALL_SENSOR_VALID_IMU) == 0U);
+}
+
 int main(void)
 {
     test_snapshot_combines_fresh_usb_can_and_motor_sources();
     test_snapshot_expires_each_source_by_its_own_deadline();
     test_invalid_vision_flags_never_enter_valid_snapshot();
+    test_mspm0_imu_health_bit_gates_fresh_samples();
     return 0;
 }

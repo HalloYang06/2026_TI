@@ -251,10 +251,14 @@ static void hball_status(void)
         (unsigned long)g_hball_motor.rx_ignored
     );
     rt_kprintf(
-        "[hball-m33] msp_rx=%lu invalid=%lu ignored=%lu hb=%d accel=%d gyro=%d attitude=%d wheel=%d status=0x%04x\n",
+        "[hball-m33] msp_rx=%lu invalid=%lu ignored=%lu dup=%lu ooo=%lu gap=%lu reboot=%lu hb=%d accel=%d gyro=%d attitude=%d wheel=%d status=0x%04x\n",
         (unsigned long)g_hball_msp.rx_total,
         (unsigned long)g_hball_msp.rx_invalid,
         (unsigned long)g_hball_msp.rx_ignored,
+        (unsigned long)g_hball_msp.rx_duplicate,
+        (unsigned long)g_hball_msp.rx_out_of_order,
+        (unsigned long)g_hball_msp.rx_gap,
+        (unsigned long)g_hball_msp.reboot_total,
         (int)g_hball_msp.heartbeat_valid,
         (int)g_hball_msp.accel_valid,
         (int)g_hball_msp.gyro_valid,

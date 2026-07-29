@@ -114,7 +114,8 @@ void hball_sensor_fusion_snapshot(
     {
         snapshot->valid_flags |= HBALL_SENSOR_VALID_VISION;
     }
-    if (snapshot->imu_age_ms <= HBALL_SENSOR_IMU_STALE_MS)
+    if ((snapshot->imu_age_ms <= HBALL_SENSOR_IMU_STALE_MS)
+        && ((fusion->msp.status_flags & HBALL_MSP_STATUS_IMU_VALID) != 0U))
     {
         snapshot->valid_flags |= HBALL_SENSOR_VALID_IMU;
     }

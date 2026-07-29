@@ -175,6 +175,99 @@ static void test_mspm0_rejects_extended_remote_or_wrong_length_frames(void)
     assert(monitor.rx_ignored == 1U);
 }
 
+static void test_mspm0_sequence_gate_rejects_duplicate_and_out_of_order_data(void)
+{
+    hball_msp_monitor_t monitor;
+    hball_can_frame_t accel = {
+        HBALL_MSP_CAN_ID_ACCEL, 0U, 0U, 8U,
+        {0x0aU, 0x00U, 0xe8U, 0x03U, 0x00U, 0x00U, 0x00U, 0x00U}
+    };
+
+    hball_msp_monitor_init(&monitor);
+    assert(hball_msp_monitor_accept(&monitor, &accel, 100U)
+        == HBALL_MSP_EVENT_ACCEL);
+    assert(fabsf(monitor.accel_mps2[0] - 1.0F) < 1.0e-6F);
+
+    accel.data[2] = 0xd0U;
+    accel.data[3] = 0x07U;
+    assert(hball_msp_monitor_accept(&monitor, &accel, 110U)
+        == HBALL_MSP_EVENT_DUPLICATE);
+    assert(monitor.last_accel_ms == 100U);
+    assert(fabsf(monitor.accel_mps2[0] - 1.0F) < 1.0e-6F);
+
+    accel.data[0] = 0x09U;
+    accel.data[2] = 0xb8U;
+    accel.data[3] = 0x0bU;
+    assert(hball_msp_monitor_accept(&monitor, &accel, 120U)
+        == HBALL_MSP_EVENT_OUT_OF_ORDER);
+    assert(monitor.accel_sequence == 10U);
+    assert(monitor.last_accel_ms == 100U);
+    assert(fabsf(monitor.accel_mps2[0] - 1.0F) < 1.0e-6F);
+    assert(monitor.rx_duplicate == 1U);
+    assert(monitor.rx_out_of_order == 1U);
+}
+
+static void test_mspm0_sequence_gate_counts_gaps_and_accepts_wraparound(void)
+{
+    hball_msp_monitor_t monitor;
+    hball_can_frame_t gyro = {
+        HBALL_MSP_CAN_ID_GYRO, 0U, 0U, 8U,
+        {0xfeU, 0xffU, 0x00U, 0x00U, 0x00U, 0x00U, 0x64U, 0x00U}
+    };
+
+    hball_msp_monitor_init(&monitor);
+    assert(hball_msp_monitor_accept(&monitor, &gyro, 1U)
+        == HBALL_MSP_EVENT_GYRO);
+    gyro.data[0] = 0x01U;
+    gyro.data[1] = 0x00U;
+    assert(hball_msp_monitor_accept(&monitor, &gyro, 2U)
+        == HBALL_MSP_EVENT_GYRO);
+    assert(monitor.gyro_sequence == 1U);
+    assert(monitor.rx_gap == 2U);
+    assert(monitor.rx_duplicate == 0U);
+    assert(monitor.rx_out_of_order == 0U);
+}
+
+static void test_mspm0_reboot_resets_sequence_gate_without_hiding_diagnostics(void)
+{
+    hball_msp_monitor_t monitor;
+    hball_can_frame_t heartbeat = {
+        HBALL_MSP_CAN_ID_HEARTBEAT, 0U, 0U, 8U,
+        {0x64U, 0x00U, 0x02U, 0x00U, 0xa0U, 0x86U, 0x01U, 0x00U}
+    };
+    hball_can_frame_t accel = {
+        HBALL_MSP_CAN_ID_ACCEL, 0U, 0U, 8U,
+        {0xc8U, 0x00U, 0xe8U, 0x03U, 0x00U, 0x00U, 0x00U, 0x00U}
+    };
+
+    hball_msp_monitor_init(&monitor);
+    assert(hball_msp_monitor_accept(&monitor, &heartbeat, 100U)
+        == HBALL_MSP_EVENT_HEARTBEAT);
+    assert(hball_msp_monitor_accept(&monitor, &accel, 101U)
+        == HBALL_MSP_EVENT_ACCEL);
+
+    heartbeat.data[0] = 0x00U;
+    heartbeat.data[1] = 0x00U;
+    heartbeat.data[4] = 0x05U;
+    heartbeat.data[5] = 0x00U;
+    heartbeat.data[6] = 0x00U;
+    heartbeat.data[7] = 0x00U;
+    assert(hball_msp_monitor_accept(&monitor, &heartbeat, 200U)
+        == HBALL_MSP_EVENT_HEARTBEAT);
+    assert(monitor.reboot_total == 1U);
+    assert(monitor.heartbeat_valid);
+    assert(!monitor.accel_valid);
+    assert(!monitor.gyro_valid);
+    assert(!monitor.wheel_valid);
+    assert(!monitor.attitude_valid);
+
+    accel.data[0] = 0x00U;
+    accel.data[1] = 0x00U;
+    assert(hball_msp_monitor_accept(&monitor, &accel, 201U)
+        == HBALL_MSP_EVENT_ACCEL);
+    assert(monitor.accel_sequence == 0U);
+}
+
 int main(void)
 {
     test_get_id_frame_and_probe_reply();
@@ -183,5 +276,8 @@ int main(void)
     test_mspm0_imu_frames_decode_fixed_point_si_units();
     test_mspm0_heartbeat_and_wheel_frames_decode_without_motion_output();
     test_mspm0_rejects_extended_remote_or_wrong_length_frames();
+    test_mspm0_sequence_gate_rejects_duplicate_and_out_of_order_data();
+    test_mspm0_sequence_gate_counts_gaps_and_accepts_wraparound();
+    test_mspm0_reboot_resets_sequence_gate_without_hiding_diagnostics();
     return 0;
 }

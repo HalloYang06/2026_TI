@@ -87,6 +87,8 @@ typedef enum
     HBALL_MSP_EVENT_GYRO,
     HBALL_MSP_EVENT_WHEEL,
     HBALL_MSP_EVENT_ATTITUDE,
+    HBALL_MSP_EVENT_DUPLICATE,
+    HBALL_MSP_EVENT_OUT_OF_ORDER,
 } hball_msp_event_t;
 
 typedef struct
@@ -117,6 +119,10 @@ typedef struct
     uint32_t rx_total;
     uint32_t rx_invalid;
     uint32_t rx_ignored;
+    uint32_t rx_duplicate;
+    uint32_t rx_out_of_order;
+    uint32_t rx_gap;
+    uint32_t reboot_total;
 } hball_msp_monitor_t;
 
 uint32_t hball_rs00_ext_id(uint8_t comm_type, uint16_t data2, uint8_t data1);
