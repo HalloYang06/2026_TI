@@ -50,6 +50,11 @@
 #define APP_MODE_MOTOR_MAP_TEST  12U
 #define APP_MODE                 APP_MODE_LAP_TEST
 
+#define CAR_TASK_LAP_STOP        1U
+#define CAR_TASK_TIMED_RUN       2U
+#define CAR_TASK_STABLE_LAP      3U
+#define TASK_DOUBLE_CLICK_MS     350U
+
 #define SPEED_PID_DISABLED 0U
 #define SPEED_PID_ENABLED  1U
 #define GYRO_LCD_REFRESH_MS 100U
@@ -73,6 +78,7 @@ static void format_track_error(int16_t error, char text[7]);
 static void track_motor_test(void);
 static void track_ground_test(void);
 static void lap_test(void);
+static uint8_t select_car_task(void);
 static void format_lap_time(uint32_t elapsed_ms, char text[8]);
 static int16_t approach_pwm(int16_t current, int16_t target, int16_t step);
 static void speed_calibration_test(void);
@@ -864,6 +870,61 @@ static void format_lap_time(uint32_t elapsed_ms, char text[8])
     text[6] = '\0';
 }
 
+static uint8_t select_car_task(void)
+{
+    uint8_t selected_task = CAR_TASK_LAP_STOP;
+    uint32_t first_release_ms;
+
+    while (1)
+    {
+        LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
+        LCD_ShowString(4, 4, (const unsigned char *)"SELECT TASK", WHITE, BLACK, 32, 0);
+        if (selected_task == CAR_TASK_LAP_STOP) {
+            LCD_ShowString(4, 52, (const unsigned char *)"TASK1 FAST LAP", GREEN, BLACK, 32, 0);
+        } else if (selected_task == CAR_TASK_TIMED_RUN) {
+            LCD_ShowString(4, 52, (const unsigned char *)"TASK2 RUN 7.8S", CYAN, BLACK, 32, 0);
+        } else {
+            LCD_ShowString(4, 52, (const unsigned char *)"TASK3 LAP STOP", MAGENTA, BLACK, 32, 0);
+        }
+        LCD_ShowString(4, 100, (const unsigned char *)"1CLICK CHANGE", YELLOW, BLACK, 24, 0);
+        LCD_ShowString(4, 136, (const unsigned char *)"2CLICK START", YELLOW, BLACK, 24, 0);
+
+        while (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) != 0U) {
+            delay_cycles(CPUCLK_FREQ / 200U);
+        }
+        delay_cycles(CPUCLK_FREQ / 50U);
+        if (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) != 0U) {
+            continue;
+        }
+
+        while (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U) {
+            delay_cycles(CPUCLK_FREQ / 200U);
+        }
+        first_release_ms = tick_ms;
+
+        while ((uint32_t)(tick_ms - first_release_ms) < TASK_DOUBLE_CLICK_MS)
+        {
+            if (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U)
+            {
+                delay_cycles(CPUCLK_FREQ / 50U);
+                if (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U)
+                {
+                    while (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U) {
+                        delay_cycles(CPUCLK_FREQ / 200U);
+                    }
+                    return selected_task;
+                }
+            }
+            delay_cycles(CPUCLK_FREQ / 200U);
+        }
+
+        selected_task++;
+        if (selected_task > CAR_TASK_STABLE_LAP) {
+            selected_task = CAR_TASK_LAP_STOP;
+        }
+    }
+}
+
 static int16_t approach_pwm(int16_t current, int16_t target, int16_t step)
 {
     if (current < target)
@@ -1330,6 +1391,11 @@ static void speed_pi_test(void)
 static void lap_test(void)
 {
     enum { LAP_LOG_SAMPLES = 350 };
+    enum {
+        TRACK_PHASE_STRAIGHT = 0,
+        TRACK_PHASE_CURVE,
+        TRACK_PHASE_EXIT_RAMP
+    };
     static const int8_t weights[8] = {-35, -25, -15, -5, 5, 15, 25, 35};
     static uint16_t log_time_ms[LAP_LOG_SAMPLES];
     static uint8_t log_line_mask[LAP_LOG_SAMPLES];
@@ -1340,26 +1406,44 @@ static void lap_test(void)
     static int16_t log_actual_right[LAP_LOG_SAMPLES];
     static uint8_t log_duty_left[LAP_LOG_SAMPLES];
     static uint8_t log_duty_right[LAP_LOG_SAMPLES];
-    const int16_t base_speed = 44;
+    /* Task 2 needs enough margin to pass B within eight seconds. */
+    int16_t base_speed = 50;
     const int16_t min_speed = 10;
-    const int16_t max_speed = 65;
-    const int16_t recovery_inner_speed = 14;
-    const int16_t recovery_outer_speed = 52;
-    const float weighted_position_kp = 0.50f;
+    int16_t max_speed = 70;
+    int16_t recovery_inner_speed = 14;
+    int16_t recovery_outer_speed = 52;
+    float weighted_position_kp = 0.50f;
+    int16_t steering_limit = 20;
+    int16_t steering_slew_step = 2;
     const uint32_t speed_control_period_ms = 100U;
-    const uint32_t lap_timeout_ms = 35000U;
     const uint32_t lost_timeout_ms = 700U;
+    const uint32_t start_line_clear_confirm_ms = 120U;
+    uint32_t finish_line_min_run_ms = 10000U;
+    const int16_t task1_curve_speed = 55;
+    const int16_t curve_enter_error = 15;
+    const int16_t curve_exit_error = 6;
+    const uint32_t curve_enter_confirm_ms = 20U;
+    const uint32_t curve_exit_confirm_ms = 80U;
+    const uint32_t curve_exit_ramp_ms = 250U;
+    uint8_t selected_task;
+    uint8_t finish_line_enabled;
+    uint8_t finish_active_threshold = 3U;
+    uint32_t run_timeout_ms;
     uint8_t raw;
     uint8_t line_mask;
     uint8_t index;
     uint8_t active_count;
     uint8_t finish_armed = 0U;
+    uint8_t wide_finish_pattern;
     uint8_t line_was_lost = 0U;
     uint8_t line_reacquired = 0U;
     uint16_t log_index = 0U;
     int16_t weighted_sum;
     int16_t error = 0;
+    int16_t error_magnitude = 0;
+    int16_t control_base_speed;
     int8_t last_line_side = 0;
+    uint8_t track_phase = TRACK_PHASE_STRAIGHT;
     int16_t target_steering = 0;
     int16_t desired_speed_left = base_speed;
     int16_t desired_speed_right = base_speed;
@@ -1381,6 +1465,11 @@ static void lap_test(void)
     uint32_t last_speed_control_ms = 0U;
     uint32_t speed_control_elapsed_ms;
     uint32_t lost_start_ms = 0U;
+    uint32_t lost_elapsed_ms = 0U;
+    uint32_t curve_enter_start_ms = 0U;
+    uint32_t curve_exit_start_ms = 0U;
+    uint32_t curve_ramp_start_ms = 0U;
+    uint32_t start_line_clear_start_ms = 0U;
     char time_text[8];
 
     motor_init();
@@ -1389,19 +1478,36 @@ static void lap_test(void)
     DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
 
     LCD_BLK_Set();
-    LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
-    LCD_ShowString(4, 4, (const unsigned char *)"LAP TEST", WHITE, BLACK, 32, 0);
-    LCD_ShowString(4, 54, (const unsigned char *)"B21 START", CYAN, BLACK, 32, 0);
-    LCD_ShowString(4, 106, (const unsigned char *)"T:00.0", YELLOW, BLACK, 32, 0);
-
-    do
+    selected_task = select_car_task();
+    if (selected_task == CAR_TASK_LAP_STOP)
     {
-        while (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) != 0U)
-        {
-            delay_cycles(CPUCLK_FREQ / 100U);
-        }
-        delay_cycles(CPUCLK_FREQ / 100U);
-    } while (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) != 0U);
+        base_speed = 63;
+        max_speed = 80;
+        recovery_inner_speed = 24;
+        recovery_outer_speed = 52;
+        weighted_position_kp = 0.65f;
+        steering_limit = 28;
+        steering_slew_step = 5;
+        finish_line_enabled = 1U;
+        finish_line_min_run_ms = 15000U;
+        run_timeout_ms = 0U;
+    }
+    else if (selected_task == CAR_TASK_TIMED_RUN)
+    {
+        finish_line_enabled = 0U;
+        run_timeout_ms = 7800U;
+    }
+    else
+    {
+        finish_line_enabled = 1U;
+        finish_active_threshold = 4U;
+        finish_line_min_run_ms = 20000U;
+        run_timeout_ms = 0U;
+    }
+    desired_speed_left = base_speed;
+    desired_speed_right = base_speed;
+    requested_speed_left = base_speed;
+    requested_speed_right = base_speed;
 
     raw = read_track_raw();
     line_mask = (uint8_t)(~raw);
@@ -1451,20 +1557,27 @@ static void lap_test(void)
     motor_pwm_set((float)commanded_duty_left, (float)commanded_duty_right);
     run_start_ms = tick_ms;
     last_speed_control_ms = run_start_ms;
-    LCD_Fill(0, 48, 240, 100, BLACK);
-    LCD_ShowString(4, 58, (const unsigned char *)"RUN PI", GREEN, BLACK, 32, 0);
+    LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
+    if (selected_task == CAR_TASK_LAP_STOP) {
+        LCD_ShowString(4, 4, (const unsigned char *)"TASK1 RUN", GREEN, BLACK, 32, 0);
+    } else if (selected_task == CAR_TASK_TIMED_RUN) {
+        LCD_ShowString(4, 4, (const unsigned char *)"TASK2 RUN", CYAN, BLACK, 32, 0);
+    } else {
+        LCD_ShowString(4, 4, (const unsigned char *)"TASK3 RUN", MAGENTA, BLACK, 32, 0);
+    }
+    LCD_ShowString(4, 106, (const unsigned char *)"T:00.0", YELLOW, BLACK, 32, 0);
 
     while (1)
     {
         elapsed_ms = (uint32_t)(tick_ms - run_start_ms);
-        if (elapsed_ms >= lap_timeout_ms)
+        if ((run_timeout_ms != 0U) && (elapsed_ms >= run_timeout_ms))
         {
             motor_stop();
             set_motor_speed(0.0f, (uint8_t)left_motor);
             set_motor_speed(0.0f, (uint8_t)right_motor);
             DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
             LCD_Fill(0, 48, 280, 100, BLACK);
-            LCD_ShowString(4, 58, (const unsigned char *)"TIMEOUT", RED, BLACK, 32, 0);
+            LCD_ShowString(4, 58, (const unsigned char *)"TASK2 DONE", GREEN, BLACK, 32, 0);
             break;
         }
 
@@ -1482,19 +1595,53 @@ static void lap_test(void)
             }
         }
 
-        if (active_count >= 6U)
-        {
-            if ((finish_armed != 0U) && (elapsed_ms >= 1000U))
-            {
-                motor_stop();
-                set_motor_speed(0.0f, (uint8_t)left_motor);
-                set_motor_speed(0.0f, (uint8_t)right_motor);
-                DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-                LCD_Fill(0, 48, 280, 100, BLACK);
-                LCD_ShowString(4, 58, (const unsigned char *)"LAP STOP", GREEN, BLACK, 32, 0);
-                break;
-            }
+        /*
+         * Fast task 1 uses three active sensors for reliable capture. Slower
+         * task 3 uses four to reduce curve false positives. Start-line
+         * clearing and the minimum run time prevent an immediate start stop.
+         */
+        wide_finish_pattern =
+            (active_count >= finish_active_threshold) ? 1U : 0U;
 
+        /*
+         * The car starts on the same transverse line.  Arm finish detection
+         * only after a normal-width line has been observed continuously.
+         */
+        if (finish_armed == 0U)
+        {
+            if ((active_count > 0U) &&
+                (active_count <= 4U) &&
+                (wide_finish_pattern == 0U))
+            {
+                if (start_line_clear_start_ms == 0U) {
+                    start_line_clear_start_ms = tick_ms;
+                } else if ((uint32_t)(tick_ms - start_line_clear_start_ms) >=
+                           start_line_clear_confirm_ms) {
+                    finish_armed = 1U;
+                }
+            }
+            else
+            {
+                start_line_clear_start_ms = 0U;
+            }
+        }
+
+        if ((wide_finish_pattern != 0U) &&
+            (finish_line_enabled != 0U) &&
+            (finish_armed != 0U) &&
+            (elapsed_ms >= finish_line_min_run_ms))
+        {
+            motor_stop();
+            set_motor_speed(0.0f, (uint8_t)left_motor);
+            set_motor_speed(0.0f, (uint8_t)right_motor);
+            DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+            LCD_Fill(0, 48, 280, 100, BLACK);
+            LCD_ShowString(4, 58, (const unsigned char *)"LAP STOP", GREEN, BLACK, 32, 0);
+            break;
+        }
+
+        if ((wide_finish_pattern != 0U) && (finish_armed == 0U))
+        {
             /* Starting on A's transverse line: drive straight until it is cleared. */
             target_steering = 0;
             desired_speed_left = base_speed;
@@ -1511,9 +1658,25 @@ static void lap_test(void)
         else if (active_count == 0U)
         {
             line_was_lost = 1U;
+            curve_enter_start_ms = 0U;
+            curve_exit_start_ms = 0U;
+            if (selected_task == CAR_TASK_LAP_STOP) {
+                track_phase = TRACK_PHASE_CURVE;
+            }
             if (lost_start_ms == 0U) {
                 lost_start_ms = tick_ms;
-            } else if ((uint32_t)(tick_ms - lost_start_ms) >= lost_timeout_ms) {
+                lost_elapsed_ms = 0U;
+            } else {
+                lost_elapsed_ms = (uint32_t)(tick_ms - lost_start_ms);
+            }
+
+            /*
+             * Task 1 must finish the lap.  A fast curve exit can hide the
+             * line for longer than the old 700 ms limit, so keep searching
+             * instead of ending the run.  Other tasks retain the safety stop.
+             */
+            if ((selected_task != CAR_TASK_LAP_STOP) &&
+                (lost_elapsed_ms >= lost_timeout_ms)) {
                 motor_stop();
                 set_motor_speed(0.0f, (uint8_t)left_motor);
                 set_motor_speed(0.0f, (uint8_t)right_motor);
@@ -1528,7 +1691,20 @@ static void lap_test(void)
              * This recovers the brief line loss that can occur at a curve
              * entrance while still stopping on a genuine departure.
             */
-            if (last_line_side < 0) {
+            if ((selected_task == CAR_TASK_LAP_STOP) &&
+                (lost_elapsed_ms >= 300U)) {
+                /* Slow down and tighten the turn until a sensor sees the line. */
+                if (last_line_side < 0) {
+                    requested_speed_left = 8;
+                    requested_speed_right = 44;
+                } else if (last_line_side > 0) {
+                    requested_speed_left = 44;
+                    requested_speed_right = 8;
+                } else {
+                    requested_speed_left = 30;
+                    requested_speed_right = 30;
+                }
+            } else if (last_line_side < 0) {
                 requested_speed_left = recovery_inner_speed;
                 requested_speed_right = recovery_outer_speed;
             } else if (last_line_side > 0) {
@@ -1547,9 +1723,78 @@ static void lap_test(void)
                 LEFT.ErrorInt = 0.0f;
                 RIGHT.ErrorInt = 0.0f;
             }
-            finish_armed = 1U;
             lost_start_ms = 0U;
             error = weighted_sum / (int16_t)active_count;
+            error_magnitude =
+                (error < 0) ? (int16_t)(-error) : error;
+            control_base_speed = base_speed;
+
+            if (selected_task == CAR_TASK_LAP_STOP)
+            {
+                if (track_phase == TRACK_PHASE_STRAIGHT)
+                {
+                    if (error_magnitude >= curve_enter_error)
+                    {
+                        if (curve_enter_start_ms == 0U) {
+                            curve_enter_start_ms = tick_ms;
+                        } else if ((uint32_t)(tick_ms - curve_enter_start_ms) >=
+                                   curve_enter_confirm_ms) {
+                            track_phase = TRACK_PHASE_CURVE;
+                            curve_enter_start_ms = 0U;
+                            curve_exit_start_ms = 0U;
+                        }
+                    }
+                    else
+                    {
+                        curve_enter_start_ms = 0U;
+                    }
+                }
+
+                if (track_phase == TRACK_PHASE_CURVE)
+                {
+                    control_base_speed = task1_curve_speed;
+                    if (error_magnitude <= curve_exit_error)
+                    {
+                        if (curve_exit_start_ms == 0U) {
+                            curve_exit_start_ms = tick_ms;
+                        } else if ((uint32_t)(tick_ms - curve_exit_start_ms) >=
+                                   curve_exit_confirm_ms) {
+                            track_phase = TRACK_PHASE_EXIT_RAMP;
+                            curve_ramp_start_ms = tick_ms;
+                            curve_exit_start_ms = 0U;
+                        }
+                    }
+                    else
+                    {
+                        curve_exit_start_ms = 0U;
+                    }
+                }
+                else if (track_phase == TRACK_PHASE_EXIT_RAMP)
+                {
+                    uint32_t ramp_elapsed_ms =
+                        (uint32_t)(tick_ms - curve_ramp_start_ms);
+
+                    if (error_magnitude >= curve_enter_error)
+                    {
+                        track_phase = TRACK_PHASE_CURVE;
+                        control_base_speed = task1_curve_speed;
+                        curve_exit_start_ms = 0U;
+                    }
+                    else if (ramp_elapsed_ms >= curve_exit_ramp_ms)
+                    {
+                        track_phase = TRACK_PHASE_STRAIGHT;
+                        control_base_speed = base_speed;
+                    }
+                    else
+                    {
+                        control_base_speed =
+                            task1_curve_speed +
+                            (int16_t)(((int32_t)(base_speed - task1_curve_speed) *
+                                       (int32_t)ramp_elapsed_ms) /
+                                      (int32_t)curve_exit_ramp_ms);
+                    }
+                }
+            }
 
             /*
              * Weighted-position proportional steering.
@@ -1559,11 +1804,15 @@ static void lap_test(void)
              */
             target_steering =
                 (int16_t)(weighted_position_kp * (float)error);
-            if (target_steering > 20) target_steering = 20;
-            if (target_steering < -20) target_steering = -20;
+            if (target_steering > steering_limit) {
+                target_steering = steering_limit;
+            }
+            if (target_steering < -steering_limit) {
+                target_steering = (int16_t)(-steering_limit);
+            }
 
-            desired_speed_left = base_speed + target_steering;
-            desired_speed_right = base_speed - target_steering;
+            desired_speed_left = control_base_speed + target_steering;
+            desired_speed_right = control_base_speed - target_steering;
             if (desired_speed_left < min_speed) desired_speed_left = min_speed;
             if (desired_speed_left > max_speed) desired_speed_left = max_speed;
             if (desired_speed_right < min_speed) desired_speed_right = min_speed;
@@ -1571,10 +1820,10 @@ static void lap_test(void)
 
             requested_speed_left =
                 approach_pwm(requested_speed_left, desired_speed_left,
-                             (line_reacquired != 0U) ? 15 : 2);
+                             (line_reacquired != 0U) ? 15 : steering_slew_step);
             requested_speed_right =
                 approach_pwm(requested_speed_right, desired_speed_right,
-                             (line_reacquired != 0U) ? 15 : 2);
+                             (line_reacquired != 0U) ? 15 : steering_slew_step);
 
             if (error < -3) {
                 last_line_side = -1;
@@ -1633,7 +1882,9 @@ static void lap_test(void)
              */
             duty_slew_step =
                 (line_reacquired != 0U) ? 15 :
-                ((active_count == 0U) ? 6 : 3);
+                ((active_count == 0U) ? 10 :
+                 (((selected_task == CAR_TASK_LAP_STOP) &&
+                   (error_magnitude >= curve_enter_error)) ? 8 : 3));
             commanded_duty_left =
                 approach_pwm(commanded_duty_left, target_duty_left, duty_slew_step);
             commanded_duty_right =
