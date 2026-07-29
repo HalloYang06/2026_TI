@@ -32,6 +32,12 @@ M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为20
 
 本机集成ARM构建已通过：`text=210100 data=15656 bss=244256`。只有人工执行的`hball_probe5`允许发送无运动Get_ID；自动探针默认关闭，`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`保持硬约束。
 
+## M55算法与LVGL shadow构建
+
+M55使用独立的`SConscript.m55`，只编入LQG、多速率控制管线、M55输入端口、H题LVGL页面和M55入口，不链接M33 CAN监视器或机械臂应用。控制线程使用绝对周期唤醒，以5 ms周期运行200 Hz预测与更新；LVGL以100 ms周期显示球位置/速度、IMU加速度、转弯角速度、电机角度、LQG shadow目标和视觉age。当前输入端口是返回无数据的弱桩，`ACTUATOR_TX=0`，没有CAN或执行器发送。
+
+已在只包含H题`applications/hball`的临时M55 BSP中完成全量GCC 13.3链接：`text=478232 data=2936 bss=4394376`。该BSP保留FinSH、UART2、HyperRAM、LCD、触摸I2C和LVGL，关闭音频、Opus、TFLM、Wi-Fi、SDIO、文件系统及FreeRTOS包装；临时BSP和裁剪配置不进入Git。下一步由H题专用M33↔M55 IPC替换弱输入桩，完成前不能把shadow目标接到电机。
+
 验证命令：
 
 ```powershell

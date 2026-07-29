@@ -1,0 +1,30 @@
+from building import *
+import os
+
+cwd = GetCurrentDir()
+project_root = os.path.abspath(os.path.join(cwd, '..', '..'))
+lvgl_root = os.path.join(
+    project_root, 'libraries', 'components', 'lvgl_9.2.0'
+)
+src = [
+    os.path.join(cwd, 'src', 'hball_lqg.c'),
+    os.path.join(cwd, 'src', 'hball_control_pipeline.c'),
+    os.path.join(cwd, 'rtthread', 'hball_m55_input_stub.c'),
+    os.path.join(cwd, 'rtthread', 'hball_m55_shadow_app.c'),
+    os.path.join(cwd, 'rtthread', 'hball_lvgl_ui.c'),
+    os.path.join(cwd, 'rtthread', 'm55_main.c'),
+]
+
+group = DefineGroup(
+    'HBallEdgeTalkM55Shadow',
+    src,
+    depend=[''],
+    CPPPATH=[
+        os.path.join(cwd, 'include'),
+        lvgl_root,
+        os.path.join(lvgl_root, 'src'),
+        os.path.join(lvgl_root, 'env_support', 'rt-thread'),
+    ],
+    LIBS=['m'],
+)
+Return('group')
