@@ -2,7 +2,7 @@
 
 ## 用途
 
-树莓派完成灰度 ROI、阈值/形态学、轮廓筛选和圆心计算，只把测量结果发给 EdgeTalk M33。控制链不传完整图像或灰度 ROI；原始画面只在视觉板本地用于显示、录像和离线调参。
+树莓派完成灰度 ROI、阈值/形态学、轮廓筛选和圆心计算，只把测量结果发给 EdgeTalk M33。控制链不传完整图像、灰度ROI像素、二值图或轮廓点集；`roi_x/y/w/h`仅是本帧裁剪区域的元数据。原始画面只在视觉板本地用于显示、录像和离线调参。
 
 目标输入为 `120 Hz`，EdgeTalk 接收能力按不低于 `240 Hz` 验收。M55 的估计与 LQG 仍以 `200 Hz` 运行：有新视觉序号时更新观测，无新帧时只做模型预测，禁止重复融合旧测量。
 
@@ -66,6 +66,16 @@ CRC 使用 CRC-32C/Castagnoli：反射多项式 `0x82F63B78`、初值和结果�
 | 500 Hz | 32,000 B/s | 只作链路压力档，不代表相机需要500 FPS |
 
 EdgeTalk 已以 High-Speed 480 Mbps 枚举。这里的风险主要是 Linux 调度、视觉处理抖动、CDC 分包和 M33 线程阻塞，而不是 USB 理论带宽。
+
+实物验收使用树莓派脚本的`achieved_rate_hz/deadline_misses`与M33的`vision_rate_x10/vision_bytes_s`两端对拍。240 Hz档要求主机实际速率不低于237.6 Hz、零调度漏槽，且M33有效帧计数、序号和CRC无损；只有主机`write()`成功不能证明端到端通过。
+
+树莓派每得到一帧64字节测量就立即写入，不等待8帧凑满512字节。诊断/生产发送的单次写超时上限为20 ms；超时后丢弃过期测量并重连，禁止补发旧位置。M33保持官方阻塞式`USBD_CDC_Receive(..., 512, 0)`：emUSB在收到首个USB包后即可返回当前数据，参数`0`表示等待期间不设超时，并不表示必须等满512字节。
+
+## 官方USB依据与已验证边界
+
+- [Infineon PSoC Edge USB CDC echo示例](https://github.com/Infineon/mtb-example-psoc-edge-usb-device-cdc-echo/blob/42fbdaeeac61c8b9eae049855b488f0862d9385c/README.md#L88)规定High-Speed Bulk IN/OUT最大包长为512字节；[端点初始化](https://github.com/Infineon/mtb-example-psoc-edge-usb-device-cdc-echo/blob/42fbdaeeac61c8b9eae049855b488f0862d9385c/proj_cm33_ns/main.c#L99-L129)与当前M33实现一致。
+- [emUSB设备常量](https://github.com/Infineon/emusb-device/blob/c021f17494cc8f26e4c23f27949faeea278db56a/USBD/USB.h#L85-L110)定义HS Bulk为512字节、FS Bulk为64字节；设备退到Full-Speed时由栈自动采用较小包长。
+- 当前树莓派已实测枚举为High-Speed 480 Mbps，100 Hz文本探针已通过；240 Hz二进制定长帧仍标记为待实机端到端验收，配置和理论带宽不能替代计数结果。
 
 ## 视觉质量建议
 

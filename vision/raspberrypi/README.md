@@ -6,22 +6,27 @@
 
 ## 输出合同
 
-每帧只向 EdgeTalk发送控制所需的结构化结果：
+灰度ROI、阈值/形态学、轮廓提取、圆度/面积筛选和圆心拟合全部在树莓派本地完成。每帧只向 EdgeTalk发送控制所需的结构化结果：
 
 - 图像曝光/采集单调时间戳。
 - 沿25 cm凹槽坐标系的钢球位置，单位米或毫米，并声明符号方向和零点。
 - 检测置信度、有效标志、遮挡/过曝/模糊状态。
-- 可选曝光时间和处理耗时，便于拆分采集延迟与网络延迟。
+- 圆心、半径、轮廓面积和ROI坐标，供异常诊断；ROI坐标只是4个`u16`元数据，不包含像素。
+- 曝光时间和处理耗时，便于拆分采集延迟与USB延迟。
+
+不传输灰度ROI像素、二值图、轮廓点集、完整图像或比赛录像。以`320x120`灰度ROI估算，像素流在120 Hz已达`4.608 MB/s`，且会把图像拷贝和抖动引入M33；64字节测量帧只需`7.68 kB/s`。
 
 固定线协议见 [VISION_MEASUREMENT_V1](../../shared/protocol/VISION_MEASUREMENT_V1.md)。`vision_measurement_protocol.py` 提供 64 字节小端帧编码、CRC32C、解码与坏帧重同步。
 
 在断开电机/底盘动力、轮子和执行器卸载、仅调试器/USB供电且操作员可直接拔线断电的台架上，可用以下命令验证 240 Hz 字节流。它只发送合成视觉测量，不发送 CAN 或运动命令：
 
 ```bash
-python3 edgetalk_vision_stream.py --duration 30 --rate 240
+python3 edgetalk_vision_stream.py --duration 30 --rate 240 --min-rate 237.6
 ```
 
-主机结果还需和 EdgeTalk FinSH 的 `hball_usb_status` 对拍：`vision_rx`增量应等于`tx_frames`，CRC、乱序和序号空洞均应为0。
+主机必须报告`HOST_PASS`、`deadline_misses=0`和`achieved_rate_hz>=237.6`。结果还需和 EdgeTalk FinSH 的 `hball_usb_status` 对拍：`vision_rx`增量应等于`tx_frames`，`vision_rate_x10>=2376`，CRC、乱序和序号空洞均应为0。`500 Hz / 32 kB/s`仅作为USB、解析器和调度压力档，不要求相机达到500 FPS。
+
+正式发送的USB单次写超时为20 ms；发生背压时跳过已经过期的采集时隙，不把旧帧排队补发。64字节帧应逐帧立即提交，不能为追求USB包利用率等待凑满512字节。
 
 球速不由树莓派用相邻两帧直接差分后作为控制量。EdgeTalk保存5帧带时间戳位置并做二次最小二乘拟合，再由Kalman观测器融合。
 
