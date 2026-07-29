@@ -15,6 +15,14 @@
 
 固定线协议见 [VISION_MEASUREMENT_V1](../../shared/protocol/VISION_MEASUREMENT_V1.md)。`vision_measurement_protocol.py` 提供 64 字节小端帧编码、CRC32C、解码与坏帧重同步。
 
+在断开电机/底盘动力、轮子和执行器卸载、仅调试器/USB供电且操作员可直接拔线断电的台架上，可用以下命令验证 240 Hz 字节流。它只发送合成视觉测量，不发送 CAN 或运动命令：
+
+```bash
+python3 edgetalk_vision_stream.py --duration 30 --rate 240
+```
+
+主机结果还需和 EdgeTalk FinSH 的 `hball_usb_status` 对拍：`vision_rx`增量应等于`tx_frames`，CRC、乱序和序号空洞均应为0。
+
 球速不由树莓派用相邻两帧直接差分后作为控制量。EdgeTalk保存5帧带时间戳位置并做二次最小二乘拟合，再由Kalman观测器融合。
 
 ## 性能目标

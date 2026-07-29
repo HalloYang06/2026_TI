@@ -18,6 +18,7 @@ if usb_only:
     usb_only_src = [
         os.path.join(cwd, 'rtthread', 'main.c'),
         os.path.join(cwd, 'src', 'hball_usb_probe.c'),
+        os.path.join(cwd, 'src', 'hball_vision_protocol.c'),
         os.path.join(cwd, 'rtthread', 'hball_usb_cdc.c'),
     ]
     group = DefineGroup(
@@ -49,6 +50,7 @@ else:
     )
     usb_src = [
         os.path.join(cwd, 'src', 'hball_usb_probe.c'),
+        os.path.join(cwd, 'src', 'hball_vision_protocol.c'),
         os.path.join(cwd, 'rtthread', 'hball_usb_cdc.c'),
     ]
     usb_group = DefineGroup(

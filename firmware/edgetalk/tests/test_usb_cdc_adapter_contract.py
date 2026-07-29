@@ -30,11 +30,24 @@ def test_usb_cdc_uses_official_emusb_sequence_in_non_control_thread():
     assert "MOTOR_ENABLE" not in source
 
 
+def test_usb_cdc_receives_512_byte_chunks_and_parses_read_only_vision_frames():
+    source = ADAPTER.read_text(encoding="utf-8")
+
+    assert '#include "hball_vision_protocol.h"' in source
+    assert "rt_uint8_t chunk[USB_HS_BULK_MAX_PACKET_SIZE]" in source
+    assert "hball_vision_stream_push(" in source
+    assert "vision_rx=" in source
+    assert "vision_crc=" in source
+    assert "actuator_tx=0" in source
+    assert "hball_can_send" not in source
+
+
 def test_scons_only_builds_usb_adapter_when_emusb_is_enabled():
     sconscript = SCONSCRIPT.read_text(encoding="utf-8")
 
     assert "hball_usb_probe.c" in sconscript
     assert "hball_usb_cdc.c" in sconscript
+    assert "hball_vision_protocol.c" in sconscript
     assert "emusb-device" in sconscript
     assert "BSP_USING_USB" in sconscript
     assert "CherryUSB" not in sconscript

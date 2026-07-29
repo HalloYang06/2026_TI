@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-M33 已有两个显式构建模式：默认的只读 CAN 台架，以及 `HBALL_USB_ONLY=1` 的 USB CDC 联调镜像。USB-only 模式只编入 H-ball 的 `main.c`、`hball_usb_cdc.c` 和 `hball_usb_probe.c`，不编入 H-ball CAN 适配器；P16.5 蓝灯每 500 ms 翻转，用来区分“未启动”和“USB 未枚举”。
+M33 已有两个显式构建模式：默认的只读 CAN 台架，以及 `HBALL_USB_ONLY=1` 的 USB CDC 联调镜像。USB-only 模式只编入 H-ball 的 `main.c`、USB CDC、视觉协议和文本探针，不编入 H-ball CAN 适配器；P16.5 蓝灯每 500 ms 翻转，用来区分“未启动”和“USB 未枚举”。
 
-当前实现已按 Infineon 官方 PSoC Edge CDC echo 启动顺序切换到 BSP 自带 emUSB 2.1.0.3859，并完成 M33 编译、Secure+NS 合并、烧录、逐字节校验和树莓派双向压力测试。P16.5 蓝灯正常闪烁，FinSH 为 `state=0x1e configured=1 conn=1 cfg=1 actuator_tx=0`；树莓派枚举为 `058b:0282`、`cdc_acm`、High-Speed 480 Mbps，并生成 `/dev/ttyACM0` 和稳定的 `/dev/serial/by-id/...HBALL-PROBE-if00`。
+当前实现已按 Infineon 官方 PSoC Edge CDC echo 启动顺序切换到 BSP 自带 emUSB 2.1.0.3859，并完成 M33 编译、Secure+NS 合并、烧录、逐字节校验和树莓派双向压力测试。P16.5 蓝灯正常闪烁，FinSH 为 `state=0x1e configured=1 conn=1 cfg=1 actuator_tx=0`；树莓派枚举为 `058b:0282`、`cdc_acm`、High-Speed 480 Mbps，并生成 `/dev/ttyACM0` 和稳定的 `/dev/serial/by-id/...HBALL-PROBE-if00`。二进制接收每次最多读取官方 HS Bulk 的 512 字节，再交给跨读取流解析器，不把一次 CDC Receive 当成一帧。
 
 当前实验主机是树莓派，目标链路为 `USB Host -> EdgeTalk USB Device -> /dev/ttyACM*`。emUSB 接收必须像官方示例一样直接阻塞调用 `USBD_CDC_Receive(..., 0)`，不能先查 `USBD_CDC_GetNumBytesInBuffer()`；后者会造成 OUT 端点从未提交接收请求。设备在进入阻塞接收前发送 `HBALL_USB_READY`，接收 `PING <seq> <payload>` 后回复 `PONG`。主机打开串口并切换 raw 模式后先发送一个换行分隔符，再等待新 READY，以清除 Linux TTY 初始回显残片。该文本探针只用于打通链路，正式视觉控制包仍按后续二进制协议设计。
 
@@ -24,11 +24,11 @@ M33 已有两个显式构建模式：默认的只读 CAN 台架，以及 `HBALL_
 python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q
 ```
 
-当前主仓库 USB 相关测试为 `10 passed`；临时 BSP emUSB 静态契约为 `6 passed`。最终 M33 构建大小为 `text=192804 data=14884 bss=245025`。
+当前主仓库同时覆盖文本探针、64字节视觉帧、CRC32C、坏帧重同步和USB拆/粘包。二进制版本的本机 ARM 构建已通过，大小为 `text=191408 data=15616 bss=244300`；烧录与240 Hz实物接收计数仍需单独验证。
 
 ## 已验证的构建与烧录流程
 
-在 RT-Thread Studio EdgeTalk BSP 1.1.0 的 M33 工程中，将本目录的 `SConscript`、`include/hball_usb_probe.h`、`src/hball_usb_probe.c`、`rtthread/main.c` 和 `rtthread/hball_usb_cdc.c` 同步到 `applications/hball/`，并让 `applications/SConscript` 包含该目录。然后执行：
+在 RT-Thread Studio EdgeTalk BSP 1.1.0 的 M33 工程中，将本目录的 `SConscript`、`include/hball_usb_probe.h`、`include/hball_vision_protocol.h`、对应两个 `src/*.c`、`rtthread/main.c` 和 `rtthread/hball_usb_cdc.c` 同步到 `applications/hball/`，并让 `applications/SConscript` 包含该目录。然后执行：
 
 ```powershell
 $env:HBALL_USB_ONLY='1'
@@ -49,6 +49,14 @@ python tools/test_pse84_official_emusb_cdc_static.py
 3. 运行 `python3 vision/raspberrypi/edgetalk_usb_probe.py --duration 30 --rate 100 --timeout 0.10`。本次实测 `2960/2960`、零超时，平均 RTT `1.60 ms`、P95 `2.14 ms`。
 4. 连续 5 次关闭/重开串口均通过，共 `597/597`；最终可复现镜像再次以 100 Hz 验证 `987/987`，平均 RTT `1.53 ms`、P95 `2.08 ms`。
 5. 每次打开串口会发送一个空行做同步，因此 `invalid_rx` 会增加 1；正式 PING/PONG 的失败判据仍是 `timeout/unexpected/tx_fail/rx_fail` 非零。
+
+二进制视觉接收在同一安全状态下运行：
+
+```bash
+python3 vision/raspberrypi/edgetalk_vision_stream.py --duration 30 --rate 240
+```
+
+发送完成后从独立 KitProg/FinSH 串口执行 `hball_usb_status`，验收 `vision_rx` 增量等于主机 `tx_frames`，且 `vision_crc=0`、`ooo=0`、`gap=0`。主机的 `HOST_PASS` 只证明写入成功，必须结合 M33 计数才算端到端通过。
 
 官方依据：
 
