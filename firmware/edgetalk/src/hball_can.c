@@ -1,0 +1,188 @@
+#include "hball_can.h"
+
+#include <stddef.h>
+#include <string.h>
+
+static uint16_t hball_u16_from_be(const uint8_t *data)
+{
+    return (uint16_t)(((uint16_t)data[0] << 8) | (uint16_t)data[1]);
+}
+
+static float hball_uint16_to_float(uint16_t value, float minimum, float maximum)
+{
+    return (float)value * (maximum - minimum) / 65535.0F + minimum;
+}
+
+uint32_t hball_rs00_ext_id(uint8_t comm_type, uint16_t data2, uint8_t data1)
+{
+    return (((uint32_t)comm_type & 0x1FUL) << 24)
+        | (((uint32_t)data2 & 0xFFFFUL) << 8)
+        | ((uint32_t)data1 & 0xFFUL);
+}
+
+void hball_motor_monitor_init(hball_motor_monitor_t *monitor, uint8_t motor_id)
+{
+    if (monitor == NULL)
+    {
+        return;
+    }
+    memset(monitor, 0, sizeof(*monitor));
+    monitor->motor_id = motor_id;
+}
+
+bool hball_motor_monitor_make_probe(
+    hball_motor_monitor_t *monitor, hball_can_frame_t *frame
+)
+{
+    if ((monitor == NULL) || (frame == NULL) || (monitor->motor_id == 0U))
+    {
+        return false;
+    }
+
+    memset(frame, 0, sizeof(*frame));
+    frame->id = hball_rs00_ext_id(
+        HBALL_RS00_TYPE_GET_ID, HBALL_RS00_MASTER_ID, monitor->motor_id
+    );
+    frame->is_extended = 1U;
+    frame->dlc = 8U;
+    monitor->probe_pending = true;
+    monitor->probe_valid = false;
+    return true;
+}
+
+static hball_can_event_t hball_accept_probe_reply(
+    hball_motor_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint16_t data2,
+    uint32_t now_ms
+)
+{
+    uint64_t unique_id = 0U;
+    uint8_t index;
+    const uint8_t reply_id = (uint8_t)(frame->id & 0xFFU);
+    const uint8_t motor_id = (uint8_t)(data2 & 0xFFU);
+
+    if (frame->dlc != 8U)
+    {
+        return HBALL_CAN_EVENT_INVALID;
+    }
+    if ((reply_id != HBALL_RS00_GET_ID_REPLY)
+        || !monitor->probe_pending
+        || (motor_id != monitor->motor_id))
+    {
+        return HBALL_CAN_EVENT_IGNORED;
+    }
+
+    for (index = 0U; index < 8U; ++index)
+    {
+        unique_id |= (uint64_t)frame->data[index] << (8U * index);
+    }
+    monitor->unique_id = unique_id;
+    monitor->probe_valid = true;
+    monitor->probe_pending = false;
+    monitor->last_probe_ms = now_ms;
+    return HBALL_CAN_EVENT_PROBE_REPLY;
+}
+
+static hball_can_event_t hball_accept_feedback(
+    hball_motor_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint16_t data2,
+    uint32_t now_ms
+)
+{
+    const uint8_t host_id = (uint8_t)(frame->id & 0xFFU);
+    const uint8_t motor_id = (uint8_t)(data2 & 0xFFU);
+
+    if ((host_id != HBALL_RS00_MASTER_ID) || (motor_id != monitor->motor_id))
+    {
+        return HBALL_CAN_EVENT_IGNORED;
+    }
+    if (frame->dlc != 8U)
+    {
+        return HBALL_CAN_EVENT_INVALID;
+    }
+
+    monitor->feedback.motor_id = motor_id;
+    monitor->feedback.fault_summary = (uint8_t)((data2 >> 8) & 0x3FU);
+    monitor->feedback.mode_state = (uint8_t)((data2 >> 14) & 0x03U);
+    monitor->feedback.position_rad = hball_uint16_to_float(
+        hball_u16_from_be(&frame->data[0]),
+        HBALL_RS00_POSITION_MIN_RAD,
+        HBALL_RS00_POSITION_MAX_RAD
+    );
+    monitor->feedback.velocity_rad_s = hball_uint16_to_float(
+        hball_u16_from_be(&frame->data[2]),
+        HBALL_RS00_VELOCITY_MIN_RAD_S,
+        HBALL_RS00_VELOCITY_MAX_RAD_S
+    );
+    monitor->feedback.torque_nm = hball_uint16_to_float(
+        hball_u16_from_be(&frame->data[4]),
+        HBALL_RS00_TORQUE_MIN_NM,
+        HBALL_RS00_TORQUE_MAX_NM
+    );
+    monitor->feedback.temperature_c = (float)hball_u16_from_be(&frame->data[6]) / 10.0F;
+    monitor->feedback_valid = true;
+    monitor->last_feedback_ms = now_ms;
+    return HBALL_CAN_EVENT_FEEDBACK;
+}
+
+hball_can_event_t hball_motor_monitor_accept(
+    hball_motor_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint32_t now_ms
+)
+{
+    hball_can_event_t event;
+    uint8_t comm_type;
+    uint16_t data2;
+
+    if ((monitor == NULL) || (frame == NULL))
+    {
+        return HBALL_CAN_EVENT_INVALID;
+    }
+
+    monitor->rx_total++;
+    if ((frame->is_extended == 0U) || (frame->is_remote != 0U))
+    {
+        monitor->rx_ignored++;
+        return HBALL_CAN_EVENT_IGNORED;
+    }
+
+    comm_type = (uint8_t)((frame->id >> 24) & 0x1FU);
+    data2 = (uint16_t)((frame->id >> 8) & 0xFFFFU);
+    if (comm_type == HBALL_RS00_TYPE_GET_ID)
+    {
+        event = hball_accept_probe_reply(monitor, frame, data2, now_ms);
+    }
+    else if ((comm_type == HBALL_RS00_TYPE_FEEDBACK)
+        || (comm_type == HBALL_RS00_TYPE_ACTIVE_REPORT))
+    {
+        event = hball_accept_feedback(monitor, frame, data2, now_ms);
+    }
+    else
+    {
+        event = HBALL_CAN_EVENT_IGNORED;
+    }
+
+    if (event == HBALL_CAN_EVENT_INVALID)
+    {
+        monitor->rx_invalid++;
+    }
+    else if (event == HBALL_CAN_EVENT_IGNORED)
+    {
+        monitor->rx_ignored++;
+    }
+    return event;
+}
+
+bool hball_motor_monitor_feedback_fresh(
+    const hball_motor_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+)
+{
+    return (monitor != NULL)
+        && monitor->feedback_valid
+        && ((uint32_t)(now_ms - monitor->last_feedback_ms) <= timeout_ms);
+}
