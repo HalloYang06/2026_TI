@@ -9,7 +9,6 @@
 #include <csignal>
 #include <cstdint>
 #include <cstring>
-#include <deque>
 #include <iostream>
 #include <limits>
 #include <mutex>
@@ -31,7 +30,8 @@ struct Config {
   std::string camera = "/dev/v4l/by-id/usb-XHH-260128-A_2M-video-index0";
   int width = 640;
   int height = 480;
-  int fps = 100;
+  int fps = 120;
+  int stream_fps = 60;
   int port = 8080;
   cv::Rect roi;
   double left_cm = -12.5;
@@ -104,12 +104,60 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
   cv::Mat gray, blurred;
   cv::cvtColor(roi, gray, cv::COLOR_BGR2GRAY);
   cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 0);
+
+  // The lighting on a steel ball changes with its position, so a fixed global
+  // threshold alone is fragile.  In the rectified 45 px pipe strip, adaptive
+  // thresholding extracts the locally darker ball while ignoring slow changes
+  // in pipe brightness.  Shape scoring rejects the black chassis details.
+  cv::Mat adaptive;
+  cv::adaptiveThreshold(blurred, adaptive, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C,
+                        cv::THRESH_BINARY_INV, 21, 7);
+  const cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, {3, 3});
+  cv::morphologyEx(adaptive, adaptive, cv::MORPH_CLOSE, kernel);
+  std::vector<std::vector<cv::Point>> contours;
+  cv::findContours(adaptive, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+  std::optional<cv::Vec3f> best;
+  double best_score = std::numeric_limits<double>::max();
+  for (const auto& contour : contours) {
+    const double area = cv::contourArea(contour);
+    if (area < cfg.min_area || area > cfg.max_area) continue;
+    const double perimeter = cv::arcLength(contour, true);
+    if (perimeter <= 0.0) continue;
+    const double circularity = 4.0 * CV_PI * area / (perimeter * perimeter);
+    const cv::Rect bounds = cv::boundingRect(contour);
+    const double aspect = static_cast<double>(bounds.width) / std::max(bounds.height, 1);
+    if (circularity < 0.38 || aspect < 0.45 || aspect > 1.9) continue;
+    const cv::Moments moments = cv::moments(contour);
+    if (moments.m00 == 0.0) continue;
+    const cv::Point2f point(static_cast<float>(moments.m10 / moments.m00 + roi_rect.x),
+                            static_cast<float>(moments.m01 / moments.m00 + roi_rect.y));
+    const cv::Point2f delta = point - axis.centre;
+    const double along = delta.dot(axis.direction);
+    const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
+    if (lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
+        std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
+    const double fraction = (along + axis.length / 2) / axis.length;
+    if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.12) continue;
+    const double radius = std::sqrt(area / CV_PI);
+    double score = 2.0 * lateral + 12.0 * std::abs(radius - 10.0) +
+                   90.0 * (1.0 - circularity);
+    if (previous_fraction) score += 140.0 * std::abs(fraction - *previous_fraction);
+    if (score < best_score) {
+      best_score = score;
+      best = cv::Vec3f(point.x - roi_rect.x, point.y - roi_rect.y,
+                        static_cast<float>(radius));
+    }
+  }
+  if (best) return best;
+
+  // Circular Hough detection remains a recovery path when a strong specular
+  // highlight splits the dark contour into several pieces.
   std::vector<cv::Vec3f> circles;
   cv::HoughCircles(blurred, circles, cv::HOUGH_GRADIENT, 1.2, 18,
                    80, 18, cfg.hough_min_radius, cfg.hough_max_radius);
   if (!circles.empty()) {
-    std::optional<cv::Vec3f> best;
-    double best_score = std::numeric_limits<double>::max();
+    std::optional<cv::Vec3f> hough_best;
+    double hough_best_score = std::numeric_limits<double>::max();
     for (const auto& circle : circles) {
       const cv::Point2f point(circle[0] + roi_rect.x, circle[1] + roi_rect.y);
       const cv::Point2f delta = point - axis.centre;
@@ -118,29 +166,28 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
       if (lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
           std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
       const double fraction = (along + axis.length / 2) / axis.length;
-      if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.05) continue;
+      if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.12) continue;
       double score = lateral + 0.5 * std::abs(circle[2] - 10.0F);
       if (previous_fraction) score += 20.0 * std::abs(fraction - *previous_fraction);
-      if (score < best_score) {
-        best_score = score;
-        best = circle;
+      if (score < hough_best_score) {
+        hough_best_score = score;
+        hough_best = circle;
       }
     }
-    if (best) return best;
+    if (hough_best) return hough_best;
   }
 
   // If a bright reflection breaks the circular edge, fall back to the darker
   // connected component inside the already-localised pipe ROI.
   cv::Mat binary;
   cv::threshold(blurred, binary, cfg.threshold, 255, cv::THRESH_BINARY_INV);
-  const cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, {3, 3});
   cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernel);
   cv::morphologyEx(binary, binary, cv::MORPH_CLOSE, kernel);
 
   cv::Mat labels, stats, centroids;
   const int label_count = cv::connectedComponentsWithStats(binary, labels, stats, centroids, 8);
   int best_label = -1;
-  double best_score = std::numeric_limits<double>::max();
+  double threshold_best_score = std::numeric_limits<double>::max();
   for (int label = 1; label < label_count; ++label) {
     const int area = stats.at<int>(label, cv::CC_STAT_AREA);
     const double x = centroids.at<double>(label, 0);
@@ -154,13 +201,13 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
         std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
     const double radius = std::sqrt(area / CV_PI);
     const double fraction = (along + axis.length / 2) / axis.length;
-    if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.05) continue;
+    if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.12) continue;
     double score = lateral + 0.03 * std::abs(radius - 10.0);
     if (previous_fraction) {
       score += 20.0 * std::abs(fraction - *previous_fraction);
     }
-    if (score < best_score) {
-      best_score = score;
+    if (score < threshold_best_score) {
+      threshold_best_score = score;
       best_label = label;
     }
   }
@@ -171,174 +218,161 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
                    static_cast<float>(std::sqrt(area / CV_PI)));
 }
 
-std::optional<PipeAxis> find_pipe_axis(const cv::Mat& image, const Config& cfg) {
-  cv::Mat gray, bright;
-  cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
-  cv::threshold(gray, bright, cfg.pipe_threshold, 255, cv::THRESH_BINARY);
-  const cv::Mat close_kernel = cv::getStructuringElement(cv::MORPH_RECT, {31, 7});
-  cv::morphologyEx(bright, bright, cv::MORPH_CLOSE, close_kernel);
-  std::vector<std::vector<cv::Point>> contours;
-  cv::findContours(bright, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-  std::optional<cv::RotatedRect> best;
-  double best_score = 0.0;
-  for (const auto& contour : contours) {
-    const cv::RotatedRect rotated = cv::minAreaRect(contour);
-    const double long_side = std::max(rotated.size.width, rotated.size.height);
-    const double short_side = std::max(1.0F, std::min(rotated.size.width, rotated.size.height));
-    const double aspect = long_side / short_side;
-    if (aspect < cfg.pipe_min_aspect || long_side < image.cols * 0.45) continue;
-    if (long_side * aspect > best_score) {
-      best_score = long_side * aspect;
-      best = rotated;
-    }
-  }
-  if (!best) return std::nullopt;
-  float angle = best->angle;
-  if (best->size.width < best->size.height) angle += 90.0F;
-  const float radians = angle * static_cast<float>(CV_PI / 180.0);
-  return PipeAxis{best->center, {std::cos(radians), std::sin(radians)},
-                  std::max(best->size.width, best->size.height),
-                  std::min(best->size.width, best->size.height) / 2 + 8.0F};
+const std::vector<cv::Point2f>& pipe_source() {
+  static const std::vector<cv::Point2f> source{{59.0F, 199.0F}, {596.0F, 229.0F},
+                                                {596.0F, 258.0F}, {59.0F, 236.0F}};
+  return source;
 }
 
-std::optional<cv::Rect> find_pipe_roi(const cv::Mat& image, const Config& cfg) {
-  cv::Mat gray, bright;
-  cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
-  cv::threshold(gray, bright, cfg.pipe_threshold, 255, cv::THRESH_BINARY);
-  const cv::Mat close_kernel = cv::getStructuringElement(cv::MORPH_RECT, {31, 7});
-  cv::morphologyEx(bright, bright, cv::MORPH_CLOSE, close_kernel);
-  std::vector<std::vector<cv::Point>> contours;
-  cv::findContours(bright, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-  cv::Rect best;
-  double best_score = 0.0;
-  for (const auto& contour : contours) {
-    const cv::RotatedRect rotated = cv::minAreaRect(contour);
-    const double long_side = std::max(rotated.size.width, rotated.size.height);
-    const double short_side = std::max(1.0F, std::min(rotated.size.width, rotated.size.height));
-    const double aspect = long_side / short_side;
-    if (aspect < cfg.pipe_min_aspect || long_side < image.cols * 0.45) continue;
-    const cv::Rect candidate = cv::boundingRect(contour) & cv::Rect(0, 0, image.cols, image.rows);
-    const double score = long_side * aspect;
-    if (score > best_score) {
-      best_score = score;
-      best = candidate;
-    }
-  }
-  if (best.empty()) return std::nullopt;
-  const int pad_x = 8;
-  const int pad_y = 8;
-  const cv::Rect padded(best.x - pad_x, best.y - pad_y,
-                        best.width + pad_x * 2, best.height + pad_y * 2);
-  return padded & cv::Rect(0, 0, image.cols, image.rows);
+const std::vector<cv::Point2f>& pipe_destination() {
+  static const std::vector<cv::Point2f> destination{{0.0F, 0.0F}, {540.0F, 0.0F},
+                                                     {540.0F, 45.0F}, {0.0F, 45.0F}};
+  return destination;
 }
 
-cv::Mat rectify_pipe(const cv::Mat& image) {
-  // Four corners of the pipe marked in the current 640x480 installation view.
-  const std::vector<cv::Point2f> source{{59.0F, 205.0F}, {596.0F, 235.0F},
-                                         {596.0F, 264.0F}, {59.0F, 242.0F}};
-  const std::vector<cv::Point2f> destination{{50.0F, 207.0F}, {590.0F, 207.0F},
-                                              {590.0F, 252.0F}, {50.0F, 252.0F}};
+cv::Mat rectify_pipe_band(const cv::Mat& image) {
+  // Only transform the calibrated pipe strip, not the entire 640x480 frame.
+  // This keeps the original full camera view for transmission and cuts the
+  // per-frame perspective work from 307200 pixels to 24300 pixels.
   cv::Mat rectified;
-  cv::warpPerspective(image, rectified, cv::getPerspectiveTransform(source, destination),
-                      image.size(), cv::INTER_LINEAR, cv::BORDER_REPLICATE);
+  cv::warpPerspective(image, rectified,
+                      cv::getPerspectiveTransform(pipe_source(), pipe_destination()),
+                      cv::Size(540, 45), cv::INTER_LINEAR, cv::BORDER_REPLICATE);
   return rectified;
 }
 
-void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processing_fps,
-              uint64_t capture_time_us) {
-  const cv::Rect image_rect(0, 0, image.cols, image.rows);
-  // The perspective destination above is the calibrated pipe itself.  Do not
-  // run a second bright-contour search here: it can lock onto the chassis.
-  const cv::Rect roi = cv::Rect(50, 200, 540, 45) & image_rect;
-  const PipeAxis axis{{320.0F, 222.5F}, {1.0F, 0.0F}, 540.0F, 22.5F};
+cv::Point2f map_pipe_point(const cv::Point2f& point) {
+  static const cv::Mat inverse =
+      cv::getPerspectiveTransform(pipe_destination(), pipe_source());
+  std::vector<cv::Point2f> points{point};
+  cv::perspectiveTransform(points, points, inverse);
+  return points.front();
+}
+
+cv::Rect pipe_display_roi() {
+  return cv::boundingRect(pipe_source());
+}
+
+void draw_pipe_outline(cv::Mat& image) {
+  std::vector<cv::Point> outline;
+  outline.reserve(pipe_source().size());
+  for (const auto& point : pipe_source()) {
+    outline.emplace_back(cvRound(point.x), cvRound(point.y));
+  }
+  cv::polylines(image, outline, true, cv::Scalar(255, 180, 0), 2, cv::LINE_AA);
+}
+
+void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& frames,
+              double processing_fps, uint64_t capture_time_us) {
+  const auto processing_started = std::chrono::steady_clock::now();
+  const cv::Rect roi(0, 0, pipe.cols, pipe.rows);
+  const cv::Rect display_roi = pipe_display_roi();
+  const PipeAxis axis{{270.0F, 22.5F}, {1.0F, 0.0F}, 540.0F, 22.5F};
+  static cv::KalmanFilter tracker(2, 1, 0, CV_32F);
+  static bool tracker_ready = false;
   static std::optional<double> previous_fraction;
-  static std::optional<double> filtered_position_cm;
   static int missed_frames = 0;
-  static std::deque<double> stable_positions_cm;
-  cv::rectangle(image, roi, cv::Scalar(255, 180, 0), 2);
-  const auto circle = find_ball(image(roi), cfg, previous_fraction, axis, roi);
+  static bool configured = false;
+  if (!configured) {
+    tracker.transitionMatrix = (cv::Mat_<float>(2, 2) << 1.0F, 1.0F, 0.0F, 1.0F);
+    tracker.measurementMatrix = (cv::Mat_<float>(1, 2) << 1.0F, 0.0F);
+    cv::setIdentity(tracker.processNoiseCov, cv::Scalar::all(0.8));
+    tracker.processNoiseCov.at<float>(1, 1) = 4.0F;
+    cv::setIdentity(tracker.measurementNoiseCov, cv::Scalar::all(4.0));
+    cv::setIdentity(tracker.errorCovPost, cv::Scalar::all(20.0));
+    configured = true;
+  }
+  draw_pipe_outline(image);
+  float predicted_x = 270.0F;
+  if (tracker_ready) {
+    predicted_x = tracker.predict().at<float>(0);
+    previous_fraction = std::clamp(static_cast<double>(predicted_x) / axis.length, 0.0, 1.0);
+  }
+  const auto circle = find_ball(pipe, cfg, previous_fraction, axis, roi);
   bool found = false;
   double position_cm = 0.0;
   float center_x_px = 0.0F;
   float center_y_px = 0.0F;
   float radius_px = 0.0F;
   float contour_area_px2 = 0.0F;
+  bool rejected = false;
   if (circle) {
-    const cv::Point centre(cvRound((*circle)[0]) + roi.x, cvRound((*circle)[1]) + roi.y);
-    const int radius = cvRound((*circle)[2]);
-    const cv::Point2f delta = cv::Point2f(centre) - axis.centre;
-    const double fraction = std::clamp(static_cast<double>(delta.dot(axis.direction) + axis.length / 2) /
-                                           axis.length,
-                                       0.0, 1.0);
-    const double raw_position_cm = cfg.left_cm + fraction * (cfg.right_cm - cfg.left_cm);
-    // A ball cannot travel 1.5 cm in one 100+ Hz camera frame.  Treat such a
-    // candidate as a false visual measurement instead of forwarding it to PID.
-    if (!stable_positions_cm.empty() &&
-        std::abs(raw_position_cm - stable_positions_cm.back()) > 1.5) {
-      cv::circle(image, centre, radius, cv::Scalar(0, 0, 255), 3);
-      if (++missed_frames > 30) {
-        previous_fraction.reset();
-        stable_positions_cm.clear();
-        filtered_position_cm.reset();
+    const float measured_x = (*circle)[0];
+    const bool innovation_ok = !tracker_ready || std::abs(measured_x - predicted_x) <= 55.0F;
+    if (innovation_ok) {
+      float tracked_x = measured_x;
+      if (!tracker_ready) {
+        tracker.statePost = (cv::Mat_<float>(2, 1) << measured_x, 0.0F);
+        tracker.statePre = tracker.statePost.clone();
+        tracker_ready = true;
+      } else {
+        cv::Mat measurement(1, 1, CV_32F);
+        measurement.at<float>(0) = measured_x;
+        tracked_x = tracker.correct(measurement).at<float>(0);
       }
-      cv::putText(image, "steel ball: rejected", {roi.x + 8, std::max(28, roi.y - 10)},
-                  cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 0, 255}, 2);
-    } else {
-      stable_positions_cm.push_back(raw_position_cm);
-      if (stable_positions_cm.size() > 5) stable_positions_cm.pop_front();
-      std::vector<double> ordered(stable_positions_cm.begin(), stable_positions_cm.end());
-      std::nth_element(ordered.begin(), ordered.begin() + ordered.size() / 2, ordered.end());
-      const double median_position_cm = ordered[ordered.size() / 2];
-      filtered_position_cm = filtered_position_cm
-          ? 0.75 * *filtered_position_cm + 0.25 * median_position_cm
-          : median_position_cm;
-      position_cm = *filtered_position_cm;
-      previous_fraction = previous_fraction ? 0.85 * *previous_fraction + 0.15 * fraction : fraction;
+      const double fraction = std::clamp(static_cast<double>(tracked_x) / axis.length, 0.0, 1.0);
+      previous_fraction = fraction;
       missed_frames = 0;
-      const cv::Point tracked_centre(cvRound(axis.centre.x + axis.direction.x *
-                                               (*previous_fraction * axis.length - axis.length / 2)),
-                                     cvRound(axis.centre.y + axis.direction.y *
-                                               (*previous_fraction * axis.length - axis.length / 2)));
-      constexpr int kDisplayBallRadius = 10;
-      cv::circle(image, tracked_centre, kDisplayBallRadius, cv::Scalar(0, 255, 0), 3);
-      cv::circle(image, tracked_centre, 2, cv::Scalar(0, 0, 255), 3);
+      position_cm = cfg.left_cm + fraction * (cfg.right_cm - cfg.left_cm);
+      const cv::Point2f camera_point = map_pipe_point({tracked_x, axis.centre.y});
+      const cv::Point display_point(cvRound(camera_point.x), cvRound(camera_point.y));
+      cv::circle(image, display_point, 10, cv::Scalar(0, 255, 0), 3, cv::LINE_AA);
+      cv::circle(image, display_point, 2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
       std::ostringstream text;
       text.setf(std::ios::fixed);
       text.precision(2);
       text << "steel ball: " << position_cm << " cm";
-      cv::putText(image, text.str(), {roi.x + 8, std::max(28, roi.y - 10)},
+      cv::putText(image, text.str(), {display_roi.x + 8, std::max(28, display_roi.y - 10)},
                   cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 255, 0}, 2);
       found = true;
-      center_x_px = static_cast<float>(centre.x);
-      center_y_px = static_cast<float>(centre.y);
-      radius_px = static_cast<float>(kDisplayBallRadius);
+      center_x_px = camera_point.x;
+      center_y_px = camera_point.y;
+      radius_px = 10.0F;
       contour_area_px2 = static_cast<float>(CV_PI * radius_px * radius_px);
+    } else {
+      rejected = true;
+      const cv::Point2f camera_point = map_pipe_point({measured_x, (*circle)[1]});
+      cv::circle(image, {cvRound(camera_point.x), cvRound(camera_point.y)}, 10,
+                 cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
     }
-  } else {
-    if (++missed_frames > 30) {
+  }
+  if (!found) {
+    ++missed_frames;
+    if (tracker_ready && missed_frames <= 18) {
+      const cv::Point2f camera_point = map_pipe_point({predicted_x, axis.centre.y});
+      cv::circle(image, {cvRound(camera_point.x), cvRound(camera_point.y)}, 10,
+                 cv::Scalar(0, 255, 255), 2, cv::LINE_AA);
+      cv::putText(image, rejected ? "steel ball: rejected (not sent)"
+                                  : "steel ball: predicted (not sent)",
+                  {display_roi.x + 8, std::max(28, display_roi.y - 10)},
+                  cv::FONT_HERSHEY_SIMPLEX, 0.65, {0, 255, 255}, 2);
+    } else {
+      cv::putText(image, "steel ball: not found", {display_roi.x + 8, std::max(28, display_roi.y - 10)},
+                  cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 0, 255}, 2);
+    }
+    if (missed_frames > 18) {
+      tracker_ready = false;
       previous_fraction.reset();
-      stable_positions_cm.clear();
-      filtered_position_cm.reset();
     }
-    cv::putText(image, "steel ball: not found", {roi.x + 8, std::max(28, roi.y - 10)},
-                cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 0, 255}, 2);
   }
   std::ostringstream fps_text;
   fps_text.setf(std::ios::fixed);
   fps_text.precision(1);
-  fps_text << "FPS: " << processing_fps;
-  cv::putText(image, fps_text.str(), {roi.x + 8, std::min(image.rows - 10, roi.y + roi.height + 24)},
+  fps_text << "Detect FPS: " << processing_fps;
+  cv::putText(image, fps_text.str(), {display_roi.x + 8, std::min(image.rows - 10, display_roi.y + display_roi.height + 24)},
               cv::FONT_HERSHEY_SIMPLEX, 0.65, {0, 255, 255}, 2);
   std::lock_guard lock(frames.mutex);
   frames.found = found;
   frames.position_cm = position_cm;
   frames.processing_fps = processing_fps;
   frames.capture_time_us = capture_time_us;
+  frames.processing_time_us = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::steady_clock::now() - processing_started).count());
   frames.center_x_px = center_x_px;
   frames.center_y_px = center_y_px;
   frames.radius_px = radius_px;
   frames.contour_area_px2 = contour_area_px2;
-  frames.roi = roi;
+  frames.roi = display_roi;
 }
 
 void capture_loop(const Config& cfg, Frames& frames) {
@@ -352,44 +386,43 @@ void capture_loop(const Config& cfg, Frames& frames) {
   auto previous_time = std::chrono::steady_clock::now();
   auto next_frame_time = previous_time;
   double processing_fps = 0.0;
+  int preview_frame_counter = 0;
+  const int preview_divisor = std::max(1, (cfg.fps + cfg.stream_fps - 1) / cfg.stream_fps);
   while (running) {
     cv::Mat raw;
     if (!camera.read(raw) || raw.empty()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
       continue;
     }
-    /*
-     * OpenCV exposes the time at which camera.read() returned, not the
-     * sensor exposure midpoint.  Keep the monotonic value for ordering and
-     * diagnostics, but the receiver must not treat it as an exposure
-     * timestamp until a V4L2 timestamp path and clock synchronisation exist.
-     */
-    const auto now = std::chrono::steady_clock::now();
     const uint64_t capture_time_us = static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(
-            now.time_since_epoch()).count());
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+    const auto now = std::chrono::steady_clock::now();
     const double seconds = std::chrono::duration<double>(now - previous_time).count();
     previous_time = now;
     if (seconds > 0.0) {
       const double instant_fps = 1.0 / seconds;
       processing_fps = processing_fps == 0.0 ? instant_fps : 0.9 * processing_fps + 0.1 * instant_fps;
     }
-    cv::Mat detected = rectify_pipe(raw);
-    annotate(detected, cfg, frames, processing_fps, capture_time_us);
-    std::vector<uchar> raw_jpeg, detected_jpeg;
-    cv::imencode(".jpg", raw, raw_jpeg, params);
-    cv::imencode(".jpg", detected, detected_jpeg, params);
-    std::lock_guard lock(frames.mutex);
-    frames.raw = std::move(raw_jpeg);
-    frames.detected = std::move(detected_jpeg);
-    frames.processing_time_us = static_cast<uint32_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - now).count());
-    frames.sequence++;
-    frames.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    next_frame_time += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-        std::chrono::duration<double>(1.0 / std::max(cfg.fps, 1)));
+    const cv::Mat pipe = rectify_pipe_band(raw);
+    cv::Mat detected = raw.clone();
+    annotate(detected, pipe, cfg, frames, processing_fps, capture_time_us);
+    if (++preview_frame_counter >= preview_divisor) {
+      preview_frame_counter = 0;
+      std::vector<uchar> raw_jpeg, detected_jpeg;
+      cv::imencode(".jpg", raw, raw_jpeg, params);
+      cv::imencode(".jpg", detected, detected_jpeg, params);
+      std::lock_guard lock(frames.mutex);
+      frames.raw = std::move(raw_jpeg);
+      frames.detected = std::move(detected_jpeg);
+    }
+    {
+      std::lock_guard lock(frames.mutex);
+      frames.sequence++;
+      frames.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+    next_frame_time += std::chrono::milliseconds(1000 / std::max(cfg.fps, 1));
     if (next_frame_time > std::chrono::steady_clock::now()) {
       std::this_thread::sleep_until(next_frame_time);
     } else {
@@ -498,7 +531,7 @@ void server_loop(const Config& cfg, Frames& frames) {
   }
   while (running) {
     const int client = accept(server, nullptr, nullptr);
-    if (client >= 0) std::thread(serve_client, client, std::ref(frames), cfg.fps).detach();
+    if (client >= 0) std::thread(serve_client, client, std::ref(frames), cfg.stream_fps).detach();
   }
   close(server);
 }
@@ -511,6 +544,7 @@ Config parse_args(int argc, char** argv) {
     else if (key == "--width") cfg.width = std::stoi(argv[++i]);
     else if (key == "--height") cfg.height = std::stoi(argv[++i]);
     else if (key == "--fps") cfg.fps = std::stoi(argv[++i]);
+    else if (key == "--stream-fps") cfg.stream_fps = std::stoi(argv[++i]);
     else if (key == "--port") cfg.port = std::stoi(argv[++i]);
     else if (key == "--roi") { char comma; std::istringstream in(argv[++i]); in >> cfg.roi.x >> comma >> cfg.roi.y >> comma >> cfg.roi.width >> comma >> cfg.roi.height; }
     else if (key == "--left-cm") cfg.left_cm = std::stod(argv[++i]);
