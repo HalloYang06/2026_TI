@@ -9,6 +9,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <iostream>
 #include <limits>
 #include <mutex>
@@ -253,6 +254,7 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
   const PipeAxis axis{{320.0F, 222.5F}, {1.0F, 0.0F}, 540.0F, 22.5F};
   static std::optional<double> previous_fraction;
   static int missed_frames = 0;
+  static std::deque<double> stable_positions_cm;
   cv::rectangle(image, roi, cv::Scalar(255, 180, 0), 2);
   const auto circle = find_ball(image(roi), cfg, previous_fraction, axis, roi);
   bool found = false;
@@ -270,22 +272,43 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
     const double fraction = std::clamp(static_cast<double>(delta.dot(axis.direction) + axis.length / 2) /
                                            axis.length,
                                        0.0, 1.0);
-    position_cm = cfg.left_cm + fraction * (cfg.right_cm - cfg.left_cm);
-    previous_fraction = previous_fraction ? 0.7 * *previous_fraction + 0.3 * fraction : fraction;
-    missed_frames = 0;
-    std::ostringstream text;
-    text.setf(std::ios::fixed);
-    text.precision(2);
-    text << "steel ball: " << position_cm << " cm";
-    cv::putText(image, text.str(), {roi.x + 8, std::max(28, roi.y - 10)},
-                cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 255, 0}, 2);
-    found = true;
-    center_x_px = static_cast<float>(centre.x);
-    center_y_px = static_cast<float>(centre.y);
-    radius_px = (*circle)[2];
-    contour_area_px2 = static_cast<float>(CV_PI * radius_px * radius_px);
+    const double raw_position_cm = cfg.left_cm + fraction * (cfg.right_cm - cfg.left_cm);
+    // A ball cannot travel 1.5 cm in one 100+ Hz camera frame.  Treat such a
+    // candidate as a false visual measurement instead of forwarding it to PID.
+    if (!stable_positions_cm.empty() &&
+        std::abs(raw_position_cm - stable_positions_cm.back()) > 1.5) {
+      cv::circle(image, centre, radius, cv::Scalar(0, 0, 255), 3);
+      if (++missed_frames > 30) {
+        previous_fraction.reset();
+        stable_positions_cm.clear();
+      }
+      cv::putText(image, "steel ball: rejected", {roi.x + 8, std::max(28, roi.y - 10)},
+                  cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 0, 255}, 2);
+    } else {
+      stable_positions_cm.push_back(raw_position_cm);
+      if (stable_positions_cm.size() > 5) stable_positions_cm.pop_front();
+      std::vector<double> ordered(stable_positions_cm.begin(), stable_positions_cm.end());
+      std::nth_element(ordered.begin(), ordered.begin() + ordered.size() / 2, ordered.end());
+      position_cm = ordered[ordered.size() / 2];
+      previous_fraction = previous_fraction ? 0.7 * *previous_fraction + 0.3 * fraction : fraction;
+      missed_frames = 0;
+      std::ostringstream text;
+      text.setf(std::ios::fixed);
+      text.precision(2);
+      text << "steel ball: " << position_cm << " cm";
+      cv::putText(image, text.str(), {roi.x + 8, std::max(28, roi.y - 10)},
+                  cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 255, 0}, 2);
+      found = true;
+      center_x_px = static_cast<float>(centre.x);
+      center_y_px = static_cast<float>(centre.y);
+      radius_px = (*circle)[2];
+      contour_area_px2 = static_cast<float>(CV_PI * radius_px * radius_px);
+    }
   } else {
-    if (++missed_frames > 30) previous_fraction.reset();
+    if (++missed_frames > 30) {
+      previous_fraction.reset();
+      stable_positions_cm.clear();
+    }
     cv::putText(image, "steel ball: not found", {roi.x + 8, std::max(28, roi.y - 10)},
                 cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 0, 255}, 2);
   }
