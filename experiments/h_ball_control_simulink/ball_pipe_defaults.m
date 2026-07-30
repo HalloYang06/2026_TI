@@ -30,7 +30,7 @@ bp.contact.mu_kinetic = 0.030;         % replace with the user's exact result
 bp.contact.stribeck_velocity = 0.020;  % m/s
 bp.contact.slip_smoothing = 0.002;     % m/s; smaller is sharper but stiffer
 bp.contact.slip_viscous = 0.010;       % N/(m/s)
-bp.contact.rolling_resistance = 0.002; % low-resistance provisional value
+bp.contact.rolling_resistance = 0.005; % user-provided approximate Crr
 bp.contact.omega_smoothing = 0.50;     % rad/s
 
 % Other longitudinal resistance.
