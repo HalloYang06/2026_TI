@@ -117,6 +117,7 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
       if (lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
           std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
       const double fraction = (along + axis.length / 2) / axis.length;
+      if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.10) continue;
       double score = lateral + 0.5 * std::abs(circle[2] - 10.0F);
       if (previous_fraction) score += 20.0 * std::abs(fraction - *previous_fraction);
       if (score < best_score) {
@@ -152,6 +153,7 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
         std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
     const double radius = std::sqrt(area / CV_PI);
     const double fraction = (along + axis.length / 2) / axis.length;
+    if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.10) continue;
     double score = lateral + 0.03 * std::abs(radius - 10.0);
     if (previous_fraction) {
       score += 20.0 * std::abs(fraction - *previous_fraction);
@@ -296,7 +298,7 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
     radius_px = (*circle)[2];
     contour_area_px2 = static_cast<float>(CV_PI * radius_px * radius_px);
   } else {
-    if (++missed_frames > 5) previous_fraction.reset();
+    if (++missed_frames > 30) previous_fraction.reset();
     cv::putText(image, "steel ball: not found", {roi.x + 8, std::max(28, roi.y - 10)},
                 cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 0, 255}, 2);
   }
