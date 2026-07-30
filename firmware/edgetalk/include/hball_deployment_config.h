@@ -16,5 +16,7 @@
  */
 #define HBALL_LINKAGE_LEVEL_ENCODER_VALID 1U
 #define HBALL_LINKAGE_LEVEL_ENCODER_RAD 1.7205F
+/* Increasing the real RS00 encoder angle moves the ball toward hinge C. */
+#define HBALL_LINKAGE_MOTOR_DIRECTION_SIGN (-1.0F)
 
 #endif

@@ -53,8 +53,10 @@ static void test_200_hz_pipeline_fuses_each_120_hz_vision_sequence_once(void)
     assert(output.safety_eligible);
     assert(output.linkage_valid);
     assert(output.linkage_calibrated);
+    assert(output.actual_pipe_angle_rad < 0.0F);
     assert(isfinite(output.shadow_command_rad));
     assert(isfinite(output.motor_target_rad));
+    assert(output.shadow_command_rad * output.motor_target_rad < 0.0F);
     assert(fabsf(output.shadow_command_rad) <= 0.104720F);
 }
 

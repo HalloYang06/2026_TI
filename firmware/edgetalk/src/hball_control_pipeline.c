@@ -1,4 +1,5 @@
 #include "hball_control_pipeline.h"
+#include "hball_deployment_config.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -50,8 +51,9 @@ static hball_deployment_input_t hball_pipeline_make_input(
     {
         const float geometric_motor_angle_rad =
             pipeline->fourbar.geometric_level_motor_angle_rad
-            + snapshot->motor_angle_rad
-            - pipeline->motor_level_angle_rad;
+            + HBALL_LINKAGE_MOTOR_DIRECTION_SIGN
+                * (snapshot->motor_angle_rad
+                    - pipeline->motor_level_angle_rad);
 
         *linkage_valid = hball_fourbar_forward(
             &pipeline->fourbar,
@@ -204,7 +206,8 @@ void hball_control_pipeline_step(
     output->linkage_valid = linkage_valid && inverse_valid;
     output->linkage_calibrated = pipeline->linkage_calibrated;
     output->motor_target_rad = pipeline->linkage_calibrated
-        ? pipeline->motor_level_angle_rad + motor_offset_rad
+        ? pipeline->motor_level_angle_rad
+            + HBALL_LINKAGE_MOTOR_DIRECTION_SIGN * motor_offset_rad
         : motor_offset_rad;
     output->safety_eligible = hball_pipeline_safety_eligible(
         output->mode,
