@@ -117,7 +117,7 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
       if (lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
           std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
       const double fraction = (along + axis.length / 2) / axis.length;
-      if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.10) continue;
+      if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.05) continue;
       double score = lateral + 0.5 * std::abs(circle[2] - 10.0F);
       if (previous_fraction) score += 20.0 * std::abs(fraction - *previous_fraction);
       if (score < best_score) {
@@ -153,7 +153,7 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
         std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
     const double radius = std::sqrt(area / CV_PI);
     const double fraction = (along + axis.length / 2) / axis.length;
-    if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.10) continue;
+    if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.05) continue;
     double score = lateral + 0.03 * std::abs(radius - 10.0);
     if (previous_fraction) {
       score += 20.0 * std::abs(fraction - *previous_fraction);
@@ -249,8 +249,8 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
   const cv::Rect image_rect(0, 0, image.cols, image.rows);
   // The perspective destination above is the calibrated pipe itself.  Do not
   // run a second bright-contour search here: it can lock onto the chassis.
-  const cv::Rect roi = cv::Rect(50, 207, 540, 45) & image_rect;
-  const PipeAxis axis{{320.0F, 229.5F}, {1.0F, 0.0F}, 540.0F, 22.5F};
+  const cv::Rect roi = cv::Rect(50, 200, 540, 45) & image_rect;
+  const PipeAxis axis{{320.0F, 222.5F}, {1.0F, 0.0F}, 540.0F, 22.5F};
   static std::optional<double> previous_fraction;
   static int missed_frames = 0;
   cv::rectangle(image, roi, cv::Scalar(255, 180, 0), 2);
