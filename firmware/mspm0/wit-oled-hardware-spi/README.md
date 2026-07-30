@@ -45,13 +45,17 @@ E2A/countA。
 - 40 MHz `SYSPLLCLK1` 作为 MCAN 时钟。SysConfig 生成的标称位时序为
   `NBRP=1, NTSEG1=34, NTSEG2=5, NSJW=5`，采样点 `87.5%`。
 - MSPM0 发布 `0x080/0x100/0x101/0x102/0x103` 五类 8 字节标准帧，
-  频率分别为 `20/200/200/100/100 Hz`；每类使用独立 16 位序号。
+  频率分别为 `20/200/200/100/200 Hz`；每类使用独立 16 位序号，合计
+  `720 frame/s`。姿态与加速度/角速度同为 200 Hz，以匹配 EdgeTalk 的
+  5 ms 前馈/LQG 周期。
 - RX FIFO0 开放接收标准帧和 29 位扩展帧，因此可在调试器中通过
   `g_hball_can_stats` 核对 EdgeTalk 诊断帧、RS00反馈、TEC/REC、bus-off、
   FIFO丢失和最后一帧。
 - 安全默认值保持 `HBALL_CAN_MOTOR_COMMAND_TX_ENABLED=0`。尚未映射硬件急停，
   因此心跳始终置 `ESTOP_ACTIVE`，且不置 `CHASSIS_READY`；轮周长未实测前
   `0x102` 米制轮速保持为零。CAN 联通不代表允许运动。
+- bus-off 恢复先等待 1000 ms，持续故障时最多每秒请求一次正常模式；恢复
+  只调用 TI DriverLib，不绕过控制器要求的隐性位观察过程。
 
 物理总线接成短支线的线型拓扑：MSPM0、EdgeTalk 和 RS00 共地、CANH 对
 CANH、CANL 对 CANL，总线两端各 120 Ω；断电测 CANH-CANL 应约为 60 Ω。
@@ -84,6 +88,9 @@ flash-daplink.bat
 - PWM 20%～40% 分档测速呈近似线性。
 - 双轮 PI 悬空测试可稳定在约 60 counts/100 ms。
 - 加权位置比例差速版本已完成实地跑圈测试，主观效果良好。
+- H题三节点台架上，五类 CAN 遥测均被 EdgeTalk 有效解析；200 Hz 姿态镜像
+  连续只读日志约 729.1 frame/s，所有样本 `tx_fail=0`。该测试保持底盘/电机
+  动力断开、车轮悬空，并且没有发送任何运动命令。
 
 硬件测试时应保证车辆可立即提起或断电，首次修改电机方向、PWM 或循迹参数时应先
 悬空验证。

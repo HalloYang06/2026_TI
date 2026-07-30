@@ -44,7 +44,7 @@
 ## 4. 数据流与时间
 
 - IMU 到 MSPM0 可使用 UART，推荐 `460800` 或 `921600 bit/s`、DMA、二进制定长帧、序号和 CRC。`115200` 在 200 Hz 状态流下余量不足，不作为正式值。
-- MSPM0 与 RS00 共享 `1 Mbps Classic CAN` 接入 EdgeTalk M33。MSPM0五类只读遥测约620帧/s；必须同时观察总线错误、FIFO溢出、重复/乱序/跳号/重启计数和各类数据age。重复或乱序帧不能刷新freshness，心跳未置`IMU_VALID`时新鲜IMU帧也不能进入控制有效位。
+- MSPM0 与 RS00 共享 `1 Mbps Classic CAN` 接入 EdgeTalk M33。MSPM0五类只读遥测为720帧/s（心跳/加速度/角速度/轮速/姿态=`20/200/200/100/200 Hz`）；必须同时观察总线错误、FIFO溢出、重复/乱序/跳号/重启计数和各类数据age。重复或乱序帧不能刷新freshness，心跳未置`IMU_VALID`时新鲜IMU帧也不能进入控制有效位。
 - 树莓派使用 USB Host 连接 EdgeTalk Device Type-C，发送固定64字节 `BALL_MEASUREMENT`。灰度ROI、二值图、轮廓点和完整图像留在树莓派本地，不进入控制链。
 - 正式视觉为120 Hz；链路按240 Hz验收，500 Hz只做合成压力。主机写超时为20 ms，M33必须报告`usb_speed=2`，背压时跳过过期时隙而不是补发旧测量。
 - 每个数据包必须携带源端单调采集时间戳。EdgeTalk 根据握手估计时钟偏差，不能拿接收时刻冒充摄像头曝光时刻。

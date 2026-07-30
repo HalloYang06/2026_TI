@@ -66,6 +66,7 @@ bool hball_can_stream_due(uint32_t now_ms, hball_can_stream_t *stream)
         *stream = HBALL_CAN_STREAM_WHEEL;
         return true;
     case 3U:
+    case 8U:
         *stream = HBALL_CAN_STREAM_ATTITUDE;
         return true;
     default:

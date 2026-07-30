@@ -32,7 +32,7 @@ M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为20
 
 本机集成ARM构建已通过：`text=214596 data=15656 bss=244516`，运行标签为`0.3.0-m33-integrated-shadow`。只有人工执行的`hball_probe5`允许发送无运动Get_ID；自动探针默认关闭，`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`保持硬约束。
 
-2026-07-30已将该集成镜像烧入实板：OpenOCD写入并校验raw Secure+NS `339,968 bytes`，组合XIP校验`332,708 bytes`，NS校验`230,252 bytes`，随后到达Non-secure reset handler。树莓派CDC守护完成自动重连；人工执行一次只读Get_ID后，RS00回复有效，CAN的TEC/REC、pending、bus-off和FIFO丢失均为0。MSPM0下载器尚未接入，`msp_rx=0`，因此三节点实物链路仍不能标记完成。
+2026-07-30已将该集成镜像烧入实板：OpenOCD写入并校验raw Secure+NS `339,968 bytes`，组合XIP校验`332,708 bytes`，NS校验`230,252 bytes`，随后到达Non-secure reset handler。树莓派CDC守护完成自动重连；人工执行一次只读Get_ID后，RS00回复有效，CAN的TEC/REC、pending、bus-off和FIFO丢失均为0。随后接入MSPM0，五类标准遥测均被有效解析；姿态提升到200 Hz后，MSPM0目标总率为720 frame/s，14 s只读日志实测约729.1 frame/s且`tx_fail=0`。这证明三节点物理链路和遥测合同已打通，不代表连续RS00角度反馈或运动闭环已经启用。
 
 ## M55算法与LVGL shadow构建
 

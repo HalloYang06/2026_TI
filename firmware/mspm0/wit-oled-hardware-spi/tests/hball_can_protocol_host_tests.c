@@ -32,7 +32,7 @@ static void test_scheduler_meets_the_five_stream_rates_without_collisions(void)
     assert(counts[HBALL_CAN_STREAM_ACCEL] == 200U);
     assert(counts[HBALL_CAN_STREAM_GYRO] == 200U);
     assert(counts[HBALL_CAN_STREAM_WHEEL] == 100U);
-    assert(counts[HBALL_CAN_STREAM_ATTITUDE] == 100U);
+    assert(counts[HBALL_CAN_STREAM_ATTITUDE] == 200U);
     assert(counts[HBALL_CAN_STREAM_HEARTBEAT] == 20U);
 }
 
