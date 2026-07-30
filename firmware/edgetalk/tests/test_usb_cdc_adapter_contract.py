@@ -5,6 +5,14 @@ ROOT = Path(__file__).resolve().parents[3]
 ADAPTER = ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_usb_cdc.c"
 SCONSCRIPT = ROOT / "firmware" / "edgetalk" / "SConscript"
 MAIN = ROOT / "firmware" / "edgetalk" / "rtthread" / "main.c"
+DIAGNOSTICS_CONFIG = (
+    ROOT / "firmware" / "edgetalk" / "include" / "hball_diagnostics_config.h"
+)
+PERIODIC_DIAGNOSTIC_SOURCES = (
+    ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_bench_app.c",
+    ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_m33_inputs.c",
+    ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_m33_control_guard.c",
+)
 
 
 def test_usb_cdc_uses_official_emusb_sequence_in_non_control_thread():
@@ -41,6 +49,8 @@ def test_usb_cdc_receives_512_byte_chunks_and_parses_read_only_vision_frames():
     assert "hball_rate_meter_accept(" in source
     assert "vision_rate_x10=" in source
     assert "vision_bytes_s=" in source
+    assert "#define HBALL_VISION_TARGET_HZ 100U" in source
+    assert "#define HBALL_VISION_ACCEPT_HZ 240U" in source
     assert "USBD_GetSpeed()" in source
     assert "usb_speed=" in source
     assert "actuator_tx=0" in source
@@ -97,11 +107,31 @@ def test_usb_only_build_is_explicit_and_excludes_can_sources():
     assert "HBALL_USB_ONLY=1" in usb_only_branch
 
 
-def test_m33_main_has_visible_p16_5_usb_only_heartbeat():
+def test_m33_main_has_visible_p16_5_heartbeat_in_every_build_mode():
     source = MAIN.read_text(encoding="utf-8")
 
     assert "GET_PIN(16, 5)" in source
     assert "HBALL_HEARTBEAT_PERIOD_MS 500U" in source
     assert "rt_pin_mode" in source
     assert "rt_pin_write" in source
-    assert "HBALL_USB_ONLY" in source
+    main_body = source[source.index("int main(void)") :]
+    build_mode_end = main_body.index("#endif")
+    assert main_body.index("rt_pin_mode") > build_mode_end
+    assert main_body.index("rt_pin_write") > build_mode_end
+    assert main_body.count("rt_pin_write") >= 2
+
+
+def test_periodic_uart_diagnostics_default_off_to_protect_can_rx_fifo():
+    config = DIAGNOSTICS_CONFIG.read_text(encoding="utf-8")
+    sconscript = SCONSCRIPT.read_text(encoding="utf-8")
+
+    assert "#define HBALL_PERIODIC_DIAGNOSTICS 0" in config
+    assert "BSP_CANFD0_RX_FIFO0_ELEMENTS=64U" in sconscript
+    bench_source = PERIODIC_DIAGNOSTIC_SOURCES[0].read_text(encoding="utf-8")
+    assert "rx_fifo_depth=%u" in bench_source
+    assert "BSP_CANFD0_RX_FIFO0_ELEMENTS" in bench_source
+    for path in PERIODIC_DIAGNOSTIC_SOURCES:
+        source = path.read_text(encoding="utf-8")
+        assert '#include "hball_diagnostics_config.h"' in source
+        assert "#if HBALL_PERIODIC_DIAGNOSTICS" in source
+        assert "MSH_CMD_EXPORT" in source

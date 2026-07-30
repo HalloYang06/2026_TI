@@ -1,5 +1,6 @@
 #include "hball_m33_inputs.h"
 #include "hball_dualcore_platform.h"
+#include "hball_diagnostics_config.h"
 
 #include <finsh.h>
 #include <rtthread.h>
@@ -112,7 +113,9 @@ static void hball_m33_inputs_print_status(void)
 
 static void hball_m33_snapshot_worker_entry(void *parameter)
 {
+#if HBALL_PERIODIC_DIAGNOSTICS
     rt_uint32_t last_log_ms = (rt_uint32_t)rt_tick_get_millisecond();
+#endif
 
     RT_UNUSED(parameter);
     while (1)
@@ -147,11 +150,13 @@ static void hball_m33_snapshot_worker_entry(void *parameter)
                 g_hball_ipc_publish_failure_total++;
             }
         }
+#if HBALL_PERIODIC_DIAGNOSTICS
         if ((rt_uint32_t)(now_ms - last_log_ms) >= HBALL_M33_INPUT_LOG_PERIOD_MS)
         {
             last_log_ms = now_ms;
             hball_m33_inputs_print_status();
         }
+#endif
         rt_thread_mdelay(HBALL_M33_SNAPSHOT_PERIOD_MS);
     }
 }

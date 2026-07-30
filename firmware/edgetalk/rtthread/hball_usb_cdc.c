@@ -18,6 +18,8 @@
 #define HBALL_USB_POLL_MS 2U
 #define HBALL_USB_DISCONNECTED_POLL_MS 20U
 #define HBALL_USB_READY_PERIOD_MS 1000U
+#define HBALL_VISION_TARGET_HZ 100U
+#define HBALL_VISION_ACCEPT_HZ 240U
 
 #define HBALL_USB_VID 0x058BU
 #define HBALL_USB_PID 0x0282U
@@ -457,10 +459,12 @@ static void hball_usb_status(void)
         confidence_permille
     );
     rt_kprintf(
-        "[hball-usb] vision_rate_x10=%lu vision_bytes_s=%lu frame_bytes=%u target_hz=120 accept_hz=240\n",
+        "[hball-usb] vision_rate_x10=%lu vision_bytes_s=%lu frame_bytes=%u target_hz=%u accept_hz=%u\n",
         (unsigned long)vision_rate_x10,
         (unsigned long)vision_bytes_s,
-        (unsigned int)HBALL_VISION_FRAME_SIZE
+        (unsigned int)HBALL_VISION_FRAME_SIZE,
+        (unsigned int)HBALL_VISION_TARGET_HZ,
+        (unsigned int)HBALL_VISION_ACCEPT_HZ
     );
 }
 MSH_CMD_EXPORT(hball_usb_status, show read-only H-ball USB CDC diagnostics);

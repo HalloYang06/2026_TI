@@ -56,6 +56,7 @@ elif integrated_shadow:
         CPPDEFINES=[
             'HBALL_INTEGRATED_SHADOW=1',
             'HBALL_BENCH_AUTO_PROBE5=0',
+            'BSP_CANFD0_RX_FIFO0_ELEMENTS=64U',
         ],
     )
 else:
@@ -65,7 +66,7 @@ else:
         os.path.join(cwd, 'rtthread', 'hball_bench_app.c'),
         os.path.join(cwd, 'rtthread', 'main.c'),
     ]
-    cppdefines = []
+    cppdefines = ['BSP_CANFD0_RX_FIFO0_ELEMENTS=64U']
     if os.environ.get('HBALL_BENCH_AUTO_PROBE5', '0') == '1':
         cppdefines.append('HBALL_BENCH_AUTO_PROBE5=1')
 

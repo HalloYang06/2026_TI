@@ -1,6 +1,7 @@
 #include "hball_control_guard.h"
 #include "hball_dualcore_platform.h"
 #include "hball_m33_inputs.h"
+#include "hball_diagnostics_config.h"
 
 #include <finsh.h>
 #include <rtthread.h>
@@ -107,7 +108,9 @@ static void hball_m33_guard_worker_entry(void *parameter)
     rt_tick_t release_tick = rt_tick_get();
     const rt_tick_t period_ticks =
         rt_tick_from_millisecond(HBALL_M33_GUARD_PERIOD_MS);
+#if HBALL_PERIODIC_DIAGNOSTICS
     rt_uint32_t last_log_ms = (rt_uint32_t)rt_tick_get_millisecond();
+#endif
 
     RT_UNUSED(parameter);
     while (1)
@@ -116,12 +119,14 @@ static void hball_m33_guard_worker_entry(void *parameter)
             (rt_uint32_t)rt_tick_get_millisecond();
 
         hball_m33_guard_step(now_ms);
+#if HBALL_PERIODIC_DIAGNOSTICS
         if ((rt_uint32_t)(now_ms - last_log_ms)
             >= HBALL_M33_GUARD_LOG_PERIOD_MS)
         {
             last_log_ms = now_ms;
             hball_m33_guard_print_status();
         }
+#endif
         (void)rt_thread_delay_until(&release_tick, period_ticks);
     }
 }

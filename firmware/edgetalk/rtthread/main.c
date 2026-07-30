@@ -14,10 +14,13 @@ __attribute__((weak)) struct _reent _impure_data;
 
 int main(void)
 {
-#if HBALL_USB_ONLY
     rt_base_t heartbeat_level = PIN_LOW;
 
+#if HBALL_USB_ONLY
     rt_kprintf("[hball] EdgeTalk M33 USB-only CDC probe main\n");
+#else
+    rt_kprintf("[hball] EdgeTalk M33 read-only CAN bench main\n");
+#endif
     rt_pin_mode(HBALL_HEARTBEAT_LED, PIN_MODE_OUTPUT);
     rt_pin_write(HBALL_HEARTBEAT_LED, heartbeat_level);
     while (1)
@@ -26,11 +29,4 @@ int main(void)
         rt_pin_write(HBALL_HEARTBEAT_LED, heartbeat_level);
         rt_thread_mdelay(HBALL_HEARTBEAT_PERIOD_MS);
     }
-#else
-    rt_kprintf("[hball] EdgeTalk M33 read-only CAN bench main\n");
-    while (1)
-    {
-        rt_thread_mdelay(1000U);
-    }
-#endif
 }

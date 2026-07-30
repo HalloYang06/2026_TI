@@ -1,5 +1,6 @@
 #include "hball_can.h"
 #include "hball_rate_meter.h"
+#include "hball_diagnostics_config.h"
 #if HBALL_INTEGRATED_SHADOW
 #include "hball_m33_inputs.h"
 #endif
@@ -22,6 +23,15 @@
 #define HBALL_BENCH_LOG_PERIOD_MS 1000U
 #define HBALL_BENCH_AUTO_PROBE_DELAY_MS 1000U
 #define HBALL_BENCH_RX_BUDGET 32U
+
+#ifndef BSP_CANFD0_RX_FIFO0_ELEMENTS
+#error "H-ball CAN build must define the RX FIFO depth"
+#endif
+
+_Static_assert(
+    BSP_CANFD0_RX_FIFO0_ELEMENTS >= 64U,
+    "H-ball CAN RX FIFO must absorb bounded diagnostic UART stalls"
+);
 
 static hball_motor_monitor_t g_hball_motor;
 static hball_msp_monitor_t g_hball_msp;
@@ -165,17 +175,25 @@ static rt_err_t hball_send_probe5_once(void)
 
 static void hball_worker_entry(void *parameter)
 {
-    rt_uint32_t last_log_ms = hball_now_ms();
-    rt_uint32_t boot_ms = last_log_ms;
+#if HBALL_BENCH_AUTO_PROBE5
+    rt_uint32_t boot_ms = hball_now_ms();
     rt_bool_t auto_probe_done = RT_FALSE;
+#endif
+#if HBALL_PERIODIC_DIAGNOSTICS
+    rt_uint32_t last_log_ms = hball_now_ms();
+#endif
 
     RT_UNUSED(parameter);
     while (1)
     {
+#if HBALL_BENCH_AUTO_PROBE5 || HBALL_PERIODIC_DIAGNOSTICS
         rt_uint32_t now_ms;
+#endif
 
         hball_poll_can();
+#if HBALL_BENCH_AUTO_PROBE5 || HBALL_PERIODIC_DIAGNOSTICS
         now_ms = hball_now_ms();
+#endif
 #if HBALL_BENCH_AUTO_PROBE5
         if (!auto_probe_done
             && ((rt_uint32_t)(now_ms - boot_ms) >= HBALL_BENCH_AUTO_PROBE_DELAY_MS))
@@ -183,10 +201,8 @@ static void hball_worker_entry(void *parameter)
             auto_probe_done = RT_TRUE;
             (void)hball_send_probe5_once();
         }
-#else
-        RT_UNUSED(boot_ms);
-        RT_UNUSED(auto_probe_done);
 #endif
+#if HBALL_PERIODIC_DIAGNOSTICS
         if ((rt_uint32_t)(now_ms - last_log_ms) >= HBALL_BENCH_LOG_PERIOD_MS)
         {
             last_log_ms = now_ms;
@@ -197,6 +213,7 @@ static void hball_worker_entry(void *parameter)
                 (unsigned long)g_hball_tx_failure
             );
         }
+#endif
         rt_thread_mdelay(HBALL_BENCH_PERIOD_MS);
     }
 }
@@ -235,14 +252,15 @@ static void hball_status(void)
     rt_memset(&diagnostic, 0, sizeof(diagnostic));
     result = ifx_can_direct_get_diag(&diagnostic);
     rt_kprintf(
-        "[hball-m33] status version=%s read_only=1 can_ready=%d tx=%lu/%lu/%lu raw_rx=%lu can_rate_x10=%lu\n",
+        "[hball-m33] status version=%s read_only=1 can_ready=%d tx=%lu/%lu/%lu raw_rx=%lu can_rate_x10=%lu rx_fifo_depth=%u\n",
         HBALL_BENCH_VERSION,
         (int)g_hball_can_ready,
         (unsigned long)g_hball_tx_total,
         (unsigned long)g_hball_tx_success,
         (unsigned long)g_hball_tx_failure,
         (unsigned long)g_hball_raw_rx_total,
-        (unsigned long)can_rate_x10
+        (unsigned long)can_rate_x10,
+        (unsigned int)BSP_CANFD0_RX_FIFO0_ELEMENTS
     );
     rt_kprintf(
         "[hball-m33] probe pending=%d valid=%d uid=%08lx%08lx motor_rx=%lu invalid=%lu ignored=%lu\n",
