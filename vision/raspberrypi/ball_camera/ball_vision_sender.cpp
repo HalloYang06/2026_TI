@@ -34,8 +34,6 @@ struct Config {
   int stream_fps = 60;
   int port = 8080;
   cv::Rect roi;
-  double left_cm = -12.5;
-  double right_cm = 12.5;
   int threshold = 200;
   int min_area = 50;
   int max_area = 12000;
@@ -72,30 +70,17 @@ struct PipeAxis {
   float half_width;
 };
 
-struct PositionReference {
-  double measured_cm;
-  double actual_cm;
-};
-
-double calibrated_position_cm(double measured_cm) {
-  // Current fixed installation, measured on the marked -10/-7.5/-5/+5/+7.5/+10 cm points.
-  // The perspective-corrected pixel coordinate is slightly nonlinear, so use
-  // monotonic piecewise interpolation instead of stretching only the two ends.
-  static const std::vector<PositionReference> references{
-      {-8.00, -10.00}, {-6.21, -7.50}, {-4.37, -5.00},
-      {3.50, 5.00}, {5.80, 7.50}, {8.25, 10.00},
-  };
-  size_t upper = 1;
-  while (upper < references.size() && measured_cm > references[upper].measured_cm) {
-    ++upper;
-  }
-  if (upper == references.size()) upper = references.size() - 1;
-  const size_t lower = upper - 1;
-  const auto& first = references[lower];
-  const auto& second = references[upper];
-  const double fraction = (measured_cm - first.measured_cm) /
-                          (second.measured_cm - first.measured_cm);
-  return first.actual_cm + fraction * (second.actual_cm - first.actual_cm);
+double calibrated_position_cm(double pipe_x_px) {
+  // One-dimensional projective calibration of the current fixed camera view.
+  // It is fitted from the measured -10/-7.5/-5/+5/+7.5/+10 cm marks.  A line
+  // in the camera image is projective, so this is more accurate than forcing
+  // a single linear centimetres-per-pixel scale before the four-point warp is
+  // refined again.
+  constexpr double kNumeratorSlope = 0.06281099943416173;
+  constexpr double kNumeratorOffset = -15.450827222405008;
+  constexpr double kDenominatorSlope = 0.0005801149048865943;
+  return (kNumeratorSlope * pipe_x_px + kNumeratorOffset) /
+         (kDenominatorSlope * pipe_x_px + 1.0);
 }
 
 void signal_handler(int) { running = false; }
@@ -339,8 +324,7 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
       const double fraction = std::clamp(static_cast<double>(tracked_x) / axis.length, 0.0, 1.0);
       previous_fraction = fraction;
       missed_frames = 0;
-      const double measured_position_cm = cfg.left_cm + fraction * (cfg.right_cm - cfg.left_cm);
-      position_cm = calibrated_position_cm(measured_position_cm);
+      position_cm = calibrated_position_cm(tracked_x);
       const cv::Point2f camera_point = map_pipe_point({tracked_x, axis.centre.y});
       const cv::Point display_point(cvRound(camera_point.x), cvRound(camera_point.y));
       cv::circle(image, display_point, 10, cv::Scalar(0, 255, 0), 3, cv::LINE_AA);
@@ -574,8 +558,6 @@ Config parse_args(int argc, char** argv) {
     else if (key == "--stream-fps") cfg.stream_fps = std::stoi(argv[++i]);
     else if (key == "--port") cfg.port = std::stoi(argv[++i]);
     else if (key == "--roi") { char comma; std::istringstream in(argv[++i]); in >> cfg.roi.x >> comma >> cfg.roi.y >> comma >> cfg.roi.width >> comma >> cfg.roi.height; }
-    else if (key == "--left-cm") cfg.left_cm = std::stod(argv[++i]);
-    else if (key == "--right-cm") cfg.right_cm = std::stod(argv[++i]);
     else if (key == "--threshold") cfg.threshold = std::stoi(argv[++i]);
     else if (key == "--min-area") cfg.min_area = std::stoi(argv[++i]);
     else if (key == "--max-area") cfg.max_area = std::stoi(argv[++i]);
