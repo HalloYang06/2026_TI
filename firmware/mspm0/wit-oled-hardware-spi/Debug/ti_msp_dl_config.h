@@ -157,8 +157,8 @@ extern "C" {
 #define GPIO_UART_WIT_IOMUX_RX_FUNC                    IOMUX_PINCM16_PF_UART3_RX
 #define GPIO_UART_WIT_IOMUX_TX_FUNC                    IOMUX_PINCM15_PF_UART3_TX
 #define UART_WIT_BAUD_RATE                                                (9600)
-#define UART_WIT_IBRD_40_MHZ_9600_BAUD                                      (260)
-#define UART_WIT_FBRD_40_MHZ_9600_BAUD                                       (27)
+#define UART_WIT_IBRD_40_MHZ_9600_BAUD                                     (260)
+#define UART_WIT_FBRD_40_MHZ_9600_BAUD                                      (27)
 
 
 
@@ -237,28 +237,26 @@ extern "C" {
 #define ENCODERA_PORT                                                    (GPIOA)
 
 /* Defines for E1A: GPIOA.12 with pinCMx 34 on package pin 5 */
-// pins affected by this interrupt request:["E1A","E1B"]
+// pins affected by this interrupt request:["E1A"]
 #define ENCODERA_INT_IRQN                                       (GPIOA_INT_IRQn)
 #define ENCODERA_INT_IIDX                       (DL_INTERRUPT_GROUP1_IIDX_GPIOA)
 #define ENCODERA_E1A_IIDX                                   (DL_GPIO_IIDX_DIO12)
 #define ENCODERA_E1A_PIN                                        (DL_GPIO_PIN_12)
 #define ENCODERA_E1A_IOMUX                                       (IOMUX_PINCM34)
 /* Defines for E1B: GPIOA.31 with pinCMx 6 on package pin 39 */
-#define ENCODERA_E1B_IIDX                                   (DL_GPIO_IIDX_DIO31)
 #define ENCODERA_E1B_PIN                                        (DL_GPIO_PIN_31)
 #define ENCODERA_E1B_IOMUX                                        (IOMUX_PINCM6)
 /* Port definition for Pin Group ENCODERB */
 #define ENCODERB_PORT                                                    (GPIOB)
 
 /* Defines for E2A: GPIOB.12 with pinCMx 29 on package pin 64 */
-// pins affected by this interrupt request:["E2A","E2B"]
+// pins affected by this interrupt request:["E2A"]
 #define ENCODERB_INT_IRQN                                       (GPIOB_INT_IRQn)
 #define ENCODERB_INT_IIDX                       (DL_INTERRUPT_GROUP1_IIDX_GPIOB)
 #define ENCODERB_E2A_IIDX                                   (DL_GPIO_IIDX_DIO12)
 #define ENCODERB_E2A_PIN                                        (DL_GPIO_PIN_12)
 #define ENCODERB_E2A_IOMUX                                       (IOMUX_PINCM29)
 /* Defines for E2B: GPIOB.13 with pinCMx 30 on package pin 1 */
-#define ENCODERB_E2B_IIDX                                   (DL_GPIO_IIDX_DIO13)
 #define ENCODERB_E2B_PIN                                        (DL_GPIO_PIN_13)
 #define ENCODERB_E2B_IOMUX                                       (IOMUX_PINCM30)
 /* Port definition for Pin Group GPIO_IIC */
@@ -314,13 +312,57 @@ extern "C" {
 /* Defines for KEY_3: GPIOA.9 with pinCMx 20 on package pin 55 */
 #define GPIO_KEY_KEY_3_PIN                                       (DL_GPIO_PIN_9)
 #define GPIO_KEY_KEY_3_IOMUX                                     (IOMUX_PINCM20)
-
 /* Port definition for Pin Group START_KEY */
-#define START_KEY_PORT                                                    (GPIOB)
+#define START_KEY_PORT                                                   (GPIOB)
 
 /* Defines for BUTTON: GPIOB.21 with pinCMx 49 on package pin 20 */
 #define START_KEY_BUTTON_PIN                                    (DL_GPIO_PIN_21)
 #define START_KEY_BUTTON_IOMUX                                   (IOMUX_PINCM49)
+
+
+/* Defines for MCAN0 */
+#define MCAN0_INST                                                        CANFD0
+#define GPIO_MCAN0_CAN_TX_PORT                                             GPIOA
+#define GPIO_MCAN0_CAN_TX_PIN                                     DL_GPIO_PIN_26
+#define GPIO_MCAN0_IOMUX_CAN_TX                                  (IOMUX_PINCM59)
+#define GPIO_MCAN0_IOMUX_CAN_TX_FUNC               IOMUX_PINCM59_PF_CANFD0_CANTX
+#define GPIO_MCAN0_CAN_RX_PORT                                             GPIOA
+#define GPIO_MCAN0_CAN_RX_PIN                                     DL_GPIO_PIN_27
+#define GPIO_MCAN0_IOMUX_CAN_RX                                  (IOMUX_PINCM60)
+#define GPIO_MCAN0_IOMUX_CAN_RX_FUNC               IOMUX_PINCM60_PF_CANFD0_CANRX
+#define MCAN0_INST_IRQHandler                                 CANFD0_IRQHandler
+#define MCAN0_INST_INT_IRQN                                     CANFD0_INT_IRQn
+
+
+/* Defines for MCAN0 MCAN RAM configuration */
+#define MCAN0_INST_MCAN_STD_ID_FILT_START_ADDR     (0)
+#define MCAN0_INST_MCAN_STD_ID_FILTER_NUM          (0)
+#define MCAN0_INST_MCAN_EXT_ID_FILT_START_ADDR     (0)
+#define MCAN0_INST_MCAN_EXT_ID_FILTER_NUM          (0)
+#define MCAN0_INST_MCAN_TX_BUFF_START_ADDR         (0)
+#define MCAN0_INST_MCAN_TX_BUFF_SIZE               (1)
+#define MCAN0_INST_MCAN_FIFO_1_START_ADDR          (272)
+#define MCAN0_INST_MCAN_FIFO_1_NUM                 (0)
+#define MCAN0_INST_MCAN_TX_EVENT_START_ADDR        (16)
+#define MCAN0_INST_MCAN_TX_EVENT_SIZE              (0)
+#define MCAN0_INST_MCAN_EXT_ID_AND_MASK            (0x1FFFFFFFU)
+#define MCAN0_INST_MCAN_RX_BUFF_START_ADDR         (272)
+#define MCAN0_INST_MCAN_FIFO_0_START_ADDR          (16)
+#define MCAN0_INST_MCAN_FIFO_0_NUM                 (16)
+
+#define MCAN0_INST_MCAN_INTERRUPTS (DL_MCAN_INTERRUPT_BO | \
+						DL_MCAN_INTERRUPT_ELO | \
+						DL_MCAN_INTERRUPT_EP | \
+						DL_MCAN_INTERRUPT_EW | \
+						DL_MCAN_INTERRUPT_MRAF | \
+						DL_MCAN_INTERRUPT_PEA | \
+						DL_MCAN_INTERRUPT_PED | \
+						DL_MCAN_INTERRUPT_RF0F | \
+						DL_MCAN_INTERRUPT_RF0L | \
+						DL_MCAN_INTERRUPT_RF0N | \
+						DL_MCAN_INTERRUPT_TC)
+
+
 
 /* clang-format on */
 
@@ -337,6 +379,7 @@ void SYSCFG_DL_UART_WIT_init(void);
 void SYSCFG_DL_SPI_LCD_init(void);
 void SYSCFG_DL_DMA_init(void);
 
+void SYSCFG_DL_MCAN0_init(void);
 
 bool SYSCFG_DL_saveConfiguration(void);
 bool SYSCFG_DL_restoreConfiguration(void);

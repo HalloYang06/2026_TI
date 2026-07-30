@@ -34,6 +34,7 @@
 #include "main.h"
 #include "stdio.h"
 #include "string.h"
+#include "hball_can_port.h"
 
 #define APP_MODE_CAR             0U
 #define APP_MODE_GYRO_LCD_TEST   1U
@@ -167,6 +168,7 @@ int32_t Get_Encoder_countB_LAST=0;
 
 int main(void){
     SYSCFG_DL_init();
+    hball_can_port_init();
 #if (APP_MODE != APP_MODE_GYRO_LCD_TEST) && (APP_MODE != APP_MODE_ENCODER_TEST)
     SysTick_Init();
 #endif

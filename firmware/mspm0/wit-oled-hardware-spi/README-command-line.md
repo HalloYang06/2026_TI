@@ -7,7 +7,9 @@ installation and is not the default path.
 ## Required tools
 
 - MSPM0 SDK: `build-keil.bat` currently detects
-  `F:\TI\mspm0_sdk_2_01_00_03` or `C:\ti\mspm0_sdk_2_11_00_07`.
+  `F:\TI\mspm0_sdk_2_01_00_03`, `C:\ti\mspm0_sdk_2_05_01_00`, or
+  `C:\ti\mspm0_sdk_2_11_00_07`. The checked-in CAN configuration was
+  generated and verified with `2.05.01.00`.
 - Keil ArmClang: the build helper detects the configured
   `KEIL_ARMCLANG_BIN`, the current `D:\Keil5_5_39` installation, or the
   original `F:\keil_v5` installation.

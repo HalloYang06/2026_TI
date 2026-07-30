@@ -6,6 +6,7 @@
 #include "wit.h"
 #include "vl53l0x.h"
 #include "lsm6dsv16x.h"
+#include "hball_can_port.h"
 // 全局变量声明（放在函数外部）
 uint8_t init_count = 0;          // 初始数据计数
 float yaw_offset = 0.0f;         // yaw角偏移量
@@ -23,6 +24,7 @@ void Interrupt_Init(void)
 void SysTick_Handler(void)
 {
     tick_ms++;
+    hball_can_port_tick_1ms(tick_ms);
 }
 
 #if defined UART_BNO08X_INST_IRQHandler

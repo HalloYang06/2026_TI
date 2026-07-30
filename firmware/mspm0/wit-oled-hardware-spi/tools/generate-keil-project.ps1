@@ -40,7 +40,7 @@ $include = @(
     "$SdkRoot\source",
     "$SdkRoot\source\third_party\CMSIS\Core\Include",
     '..', '..\Debug',
-    '..\Drivers\ENCODER', '..\Drivers\GRAY', '..\Drivers\MOTOR',
+    '..\Drivers\CAN', '..\Drivers\ENCODER', '..\Drivers\GRAY', '..\Drivers\MOTOR',
     '..\Drivers\MSPM0', '..\Drivers\OLED_Hardware_SPI', '..\Drivers\PID',
     '..\Drivers\UART_VOFA+', '..\Drivers\WIT'
 ) -join ';'
@@ -76,6 +76,8 @@ $applicationFiles = @(
     ,@('startup_mspm0g350x_uvision.s', '2', "$SdkRoot\source\ti\devices\msp\m0p\startup_system_files\keil\startup_mspm0g350x_uvision.s")
     ,@('main.c', '1', '..\main.c')
     ,@('ti_msp_dl_config.c', '1', '..\Debug\ti_msp_dl_config.c')
+    ,@('hball_can_protocol.c', '1', '..\Drivers\CAN\hball_can_protocol.c')
+    ,@('hball_can_port.c', '1', '..\Drivers\CAN\hball_can_port.c')
     ,@('encoder.c', '1', '..\Drivers\ENCODER\encoder.c')
     ,@('beeper.c', '1', '..\Drivers\GRAY\beeper.c')
     ,@('gray.c', '1', '..\Drivers\GRAY\gray.c')
