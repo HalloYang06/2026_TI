@@ -78,7 +78,9 @@ static hball_sensor_snapshot_t make_sensor_snapshot(void)
     snapshot.attitude_sequence = 103U;
     snapshot.wheel_sequence = 104U;
     snapshot.msp_status_flags = 0x1234U;
-    snapshot.motor_fault_summary = 0U;
+    snapshot.motor_fault_summary = 0x15U;
+    snapshot.motor_mode_state = 2U;
+    snapshot.motor_run_mode = 5U;
     snapshot.vision_capture_time_us = UINT64_C(0x0102030405060708);
     snapshot.vision_receive_age_ms = 4U;
     snapshot.imu_age_ms = 3U;
@@ -95,6 +97,9 @@ static hball_sensor_snapshot_t make_sensor_snapshot(void)
     snapshot.motor_angle_rad = -0.031F;
     snapshot.motor_velocity_rad_s = 1.6F;
     snapshot.motor_torque_nm = 0.12F;
+    snapshot.motor_temperature_c = 37.5F;
+    snapshot.motor_filtered_iq_a = -1.25F;
+    snapshot.motor_vbus_v = 48.2F;
     return snapshot;
 }
 
@@ -123,6 +128,8 @@ static void assert_sensor_equal(
     assert(actual->wheel_sequence == expected->wheel_sequence);
     assert(actual->msp_status_flags == expected->msp_status_flags);
     assert(actual->motor_fault_summary == expected->motor_fault_summary);
+    assert(actual->motor_mode_state == expected->motor_mode_state);
+    assert(actual->motor_run_mode == expected->motor_run_mode);
     assert(actual->vision_capture_time_us == expected->vision_capture_time_us);
     assert(actual->vision_receive_age_ms == expected->vision_receive_age_ms);
     assert(actual->imu_age_ms == expected->imu_age_ms);
@@ -148,6 +155,13 @@ static void assert_sensor_equal(
         actual->motor_velocity_rad_s, expected->motor_velocity_rad_s
     );
     assert_float_bits_equal(actual->motor_torque_nm, expected->motor_torque_nm);
+    assert_float_bits_equal(
+        actual->motor_temperature_c, expected->motor_temperature_c
+    );
+    assert_float_bits_equal(
+        actual->motor_filtered_iq_a, expected->motor_filtered_iq_a
+    );
+    assert_float_bits_equal(actual->motor_vbus_v, expected->motor_vbus_v);
 }
 
 static void test_layout_and_crc(void)
@@ -160,6 +174,7 @@ static void test_layout_and_crc(void)
     assert(sizeof(hball_ipc_sensor_slot_t) == HBALL_IPC_SENSOR_FRAME_SIZE);
     assert(sizeof(hball_ipc_control_slot_t) == HBALL_IPC_CONTROL_FRAME_SIZE);
     assert(sizeof(hball_ipc_shared_region_t) == HBALL_IPC_SHARED_REGION_SIZE);
+    assert(HBALL_IPC_VERSION == 2U);
     assert(hball_ipc_crc32c(check, sizeof(check) - 1U) == UINT32_C(0xe3069283));
 }
 
@@ -259,6 +274,10 @@ static void test_nonfinite_or_out_of_range_values_are_rejected(void)
         == HBALL_IPC_RANGE);
     sensor = make_sensor_snapshot();
     sensor.motor_angle_rad = NAN;
+    assert(hball_ipc_sensor_publish(&sensor_slot, &sensor, NULL)
+        == HBALL_IPC_RANGE);
+    sensor = make_sensor_snapshot();
+    sensor.motor_vbus_v = NAN;
     assert(hball_ipc_sensor_publish(&sensor_slot, &sensor, NULL)
         == HBALL_IPC_RANGE);
 

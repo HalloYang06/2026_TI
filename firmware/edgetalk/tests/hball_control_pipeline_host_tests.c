@@ -108,10 +108,28 @@ static void test_estop_motor_fault_or_low_confidence_blocks_safety_eligibility(v
     assert(pipeline.low_confidence_vision_skips == 1U);
 }
 
+static void test_read_only_motor_parameters_remain_shadow_only(void)
+{
+    hball_control_pipeline_t pipeline;
+    hball_control_output_t output;
+    hball_sensor_snapshot_t snapshot = make_tracking_snapshot();
+
+    hball_control_pipeline_init(&pipeline, 0.0F);
+    snapshot.vision_sequence = 1U;
+    snapshot.valid_flags &= ~HBALL_SENSOR_VALID_MOTOR;
+    snapshot.valid_flags |= HBALL_SENSOR_VALID_MOTOR_PARAMETERS;
+    hball_control_pipeline_step(&pipeline, &snapshot, 0.005F, 0.0F, &output);
+
+    assert(output.mode == HBALL_CONTROL_TRACKING);
+    assert(isfinite(output.shadow_command_rad));
+    assert(!output.safety_eligible);
+}
+
 int main(void)
 {
     test_200_hz_pipeline_fuses_each_120_hz_vision_sequence_once();
     test_pipeline_degrades_by_vision_age_without_refusing_model_prediction();
     test_estop_motor_fault_or_low_confidence_blocks_safety_eligibility();
+    test_read_only_motor_parameters_remain_shadow_only();
     return 0;
 }

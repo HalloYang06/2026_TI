@@ -22,7 +22,9 @@ static hball_lqg_input_t hball_pipeline_make_input(
     hball_lqg_input_t input;
 
     memset(&input, 0, sizeof(input));
-    if ((snapshot->valid_flags & HBALL_SENSOR_VALID_MOTOR) != 0U)
+    if ((snapshot->valid_flags
+            & (HBALL_SENSOR_VALID_MOTOR
+                | HBALL_SENSOR_VALID_MOTOR_PARAMETERS)) != 0U)
     {
         input.beam_angle_rad = snapshot->motor_angle_rad;
     }

@@ -144,6 +144,12 @@ static bool hball_sensor_is_valid(const hball_sensor_snapshot_t *snapshot)
         && isfinite(snapshot->motor_angle_rad)
         && isfinite(snapshot->motor_velocity_rad_s)
         && isfinite(snapshot->motor_torque_nm)
+        && isfinite(snapshot->motor_temperature_c)
+        && isfinite(snapshot->motor_filtered_iq_a)
+        && isfinite(snapshot->motor_vbus_v)
+        && (snapshot->motor_fault_summary <= 0x3fU)
+        && (snapshot->motor_mode_state <= 3U)
+        && (snapshot->motor_run_mode <= 5U)
         && (snapshot->vision_confidence >= 0.0F)
         && (snapshot->vision_confidence <= 1.0F);
 }
@@ -298,7 +304,9 @@ hball_ipc_result_t hball_ipc_sensor_publish(
     hball_store_u16(payload + 8U, snapshot->attitude_sequence);
     hball_store_u16(payload + 10U, snapshot->wheel_sequence);
     hball_store_u16(payload + 12U, snapshot->msp_status_flags);
-    payload[14] = snapshot->motor_fault_summary;
+    payload[14] = (uint8_t)(snapshot->motor_fault_summary
+        | (uint8_t)(snapshot->motor_mode_state << 6U));
+    payload[15] = snapshot->motor_run_mode;
     hball_store_u64(payload + 16U, snapshot->vision_capture_time_us);
     hball_store_u32(payload + 24U, snapshot->vision_receive_age_ms);
     hball_store_u32(payload + 28U, snapshot->imu_age_ms);
@@ -315,6 +323,9 @@ hball_ipc_result_t hball_ipc_sensor_publish(
     hball_store_float(payload + 72U, snapshot->motor_angle_rad);
     hball_store_float(payload + 76U, snapshot->motor_velocity_rad_s);
     hball_store_float(payload + 80U, snapshot->motor_torque_nm);
+    hball_store_float(payload + 84U, snapshot->motor_temperature_c);
+    hball_store_float(payload + 88U, snapshot->motor_filtered_iq_a);
+    hball_store_float(payload + 92U, snapshot->motor_vbus_v);
     hball_store_u32(
         frame + HBALL_IPC_SENSOR_CRC_OFFSET,
         hball_ipc_crc32c(
@@ -372,7 +383,9 @@ hball_ipc_result_t hball_ipc_sensor_read(
     snapshot->attitude_sequence = hball_load_u16(payload + 8U);
     snapshot->wheel_sequence = hball_load_u16(payload + 10U);
     snapshot->msp_status_flags = hball_load_u16(payload + 12U);
-    snapshot->motor_fault_summary = payload[14];
+    snapshot->motor_fault_summary = (uint8_t)(payload[14] & 0x3fU);
+    snapshot->motor_mode_state = (uint8_t)(payload[14] >> 6U);
+    snapshot->motor_run_mode = (uint8_t)(payload[15] & 0x07U);
     snapshot->vision_capture_time_us = hball_load_u64(payload + 16U);
     snapshot->vision_receive_age_ms = hball_load_u32(payload + 24U);
     snapshot->imu_age_ms = hball_load_u32(payload + 28U);
@@ -389,6 +402,9 @@ hball_ipc_result_t hball_ipc_sensor_read(
     snapshot->motor_angle_rad = hball_load_float(payload + 72U);
     snapshot->motor_velocity_rad_s = hball_load_float(payload + 76U);
     snapshot->motor_torque_nm = hball_load_float(payload + 80U);
+    snapshot->motor_temperature_c = hball_load_float(payload + 84U);
+    snapshot->motor_filtered_iq_a = hball_load_float(payload + 88U);
+    snapshot->motor_vbus_v = hball_load_float(payload + 92U);
     return hball_sensor_is_valid(snapshot) ? HBALL_IPC_OK : HBALL_IPC_RANGE;
 }
 

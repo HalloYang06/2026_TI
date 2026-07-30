@@ -49,9 +49,31 @@ static hball_sensor_fusion_t make_populated_fusion(void)
     motor.position_rad = 0.1F;
     motor.velocity_rad_s = -0.2F;
     motor.torque_nm = 0.3F;
+    motor.temperature_c = 31.5F;
+    motor.mode_state = 2U;
     motor.fault_summary = 4U;
     hball_sensor_fusion_set_motor(&fusion, &motor, 99U);
     return fusion;
+}
+
+static hball_motor_parameters_t make_motor_parameters(uint32_t update_ms)
+{
+    hball_motor_parameters_t parameters;
+    uint8_t slot;
+
+    memset(&parameters, 0, sizeof(parameters));
+    parameters.valid_flags = HBALL_RS00_PARAMETER_VALID_ALL;
+    parameters.run_mode = 5U;
+    parameters.rotation = -2;
+    parameters.mech_position_rad = 1.25F;
+    parameters.filtered_iq_a = -0.75F;
+    parameters.mech_velocity_rad_s = 2.5F;
+    parameters.vbus_v = 47.8F;
+    for (slot = 0U; slot < HBALL_RS00_PARAMETER_COUNT; ++slot)
+    {
+        parameters.last_update_ms[slot] = update_ms;
+    }
+    return parameters;
 }
 
 static void test_snapshot_combines_fresh_usb_can_and_motor_sources(void)
@@ -77,6 +99,50 @@ static void test_snapshot_combines_fresh_usb_can_and_motor_sources(void)
     assert(fabsf(snapshot.body_pitch_rad - (-0.03F)) < 1.0e-7F);
     assert(fabsf(snapshot.yaw_rate_rad_s - 0.6F) < 1.0e-7F);
     assert(fabsf(snapshot.motor_angle_rad - 0.1F) < 1.0e-7F);
+    assert(snapshot.motor_mode_state == 2U);
+    assert(fabsf(snapshot.motor_temperature_c - 31.5F) < 1.0e-7F);
+}
+
+static void test_read_only_parameters_reach_shadow_without_claiming_feedback(void)
+{
+    hball_sensor_fusion_t fusion;
+    hball_sensor_snapshot_t snapshot;
+    hball_motor_parameters_t parameters = make_motor_parameters(100U);
+
+    hball_sensor_fusion_init(&fusion);
+    hball_sensor_fusion_set_motor_parameters(&fusion, &parameters);
+    hball_sensor_fusion_snapshot(&fusion, 110U, &snapshot);
+
+    assert((snapshot.valid_flags & HBALL_SENSOR_VALID_MOTOR_PARAMETERS) != 0U);
+    assert((snapshot.valid_flags & HBALL_SENSOR_VALID_MOTOR) == 0U);
+    assert(snapshot.motor_run_mode == 5U);
+    assert(fabsf(snapshot.motor_angle_rad - 1.25F) < 1.0e-7F);
+    assert(fabsf(snapshot.motor_velocity_rad_s - 2.5F) < 1.0e-7F);
+    assert(fabsf(snapshot.motor_filtered_iq_a - (-0.75F)) < 1.0e-7F);
+    assert(fabsf(snapshot.motor_vbus_v - 47.8F) < 1.0e-7F);
+    assert(fabsf(snapshot.motor_torque_nm) < 1.0e-7F);
+    assert(fabsf(snapshot.motor_temperature_c) < 1.0e-7F);
+
+    hball_sensor_fusion_snapshot(
+        &fusion, 100U + HBALL_SENSOR_MOTOR_PARAMETER_STALE_MS + 1U, &snapshot
+    );
+    assert((snapshot.valid_flags & HBALL_SENSOR_VALID_MOTOR_PARAMETERS) == 0U);
+}
+
+static void test_fresh_full_feedback_has_priority_over_parameter_kinematics(void)
+{
+    hball_sensor_fusion_t fusion = make_populated_fusion();
+    hball_sensor_snapshot_t snapshot;
+    hball_motor_parameters_t parameters = make_motor_parameters(100U);
+
+    hball_sensor_fusion_set_motor_parameters(&fusion, &parameters);
+    hball_sensor_fusion_snapshot(&fusion, 110U, &snapshot);
+
+    assert((snapshot.valid_flags & HBALL_SENSOR_VALID_MOTOR) != 0U);
+    assert((snapshot.valid_flags & HBALL_SENSOR_VALID_MOTOR_PARAMETERS) != 0U);
+    assert(fabsf(snapshot.motor_angle_rad - 0.1F) < 1.0e-7F);
+    assert(fabsf(snapshot.motor_velocity_rad_s - (-0.2F)) < 1.0e-7F);
+    assert(fabsf(snapshot.motor_filtered_iq_a - (-0.75F)) < 1.0e-7F);
 }
 
 static void test_snapshot_expires_each_source_by_its_own_deadline(void)
@@ -130,6 +196,8 @@ static void test_mspm0_imu_health_bit_gates_fresh_samples(void)
 int main(void)
 {
     test_snapshot_combines_fresh_usb_can_and_motor_sources();
+    test_read_only_parameters_reach_shadow_without_claiming_feedback();
+    test_fresh_full_feedback_has_priority_over_parameter_kinematics();
     test_snapshot_expires_each_source_by_its_own_deadline();
     test_invalid_vision_flags_never_enter_valid_snapshot();
     test_mspm0_imu_health_bit_gates_fresh_samples();

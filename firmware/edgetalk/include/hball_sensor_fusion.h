@@ -17,12 +17,14 @@ extern "C" {
 #define HBALL_SENSOR_VALID_MOTOR (UINT32_C(1) << 3)
 #define HBALL_SENSOR_VALID_HEARTBEAT (UINT32_C(1) << 4)
 #define HBALL_SENSOR_ESTOP_ACTIVE (UINT32_C(1) << 5)
+#define HBALL_SENSOR_VALID_MOTOR_PARAMETERS (UINT32_C(1) << 6)
 
 #define HBALL_SENSOR_VISION_STALE_MS 100U
 #define HBALL_SENSOR_IMU_STALE_MS 20U
 #define HBALL_SENSOR_WHEEL_STALE_MS 30U
 #define HBALL_SENSOR_MOTOR_STALE_MS 20U
 #define HBALL_SENSOR_HEARTBEAT_STALE_MS 100U
+#define HBALL_SENSOR_MOTOR_PARAMETER_STALE_MS 500U
 
 typedef struct
 {
@@ -36,6 +38,8 @@ typedef struct
     uint16_t wheel_sequence;
     uint16_t msp_status_flags;
     uint8_t motor_fault_summary;
+    uint8_t motor_mode_state;
+    uint8_t motor_run_mode;
     uint8_t reserved;
     uint64_t vision_capture_time_us;
     uint32_t vision_receive_age_ms;
@@ -53,6 +57,9 @@ typedef struct
     float motor_angle_rad;
     float motor_velocity_rad_s;
     float motor_torque_nm;
+    float motor_temperature_c;
+    float motor_filtered_iq_a;
+    float motor_vbus_v;
 } hball_sensor_snapshot_t;
 
 typedef struct
@@ -60,6 +67,7 @@ typedef struct
     hball_vision_measurement_t vision;
     hball_msp_monitor_t msp;
     hball_motor_feedback_t motor;
+    hball_motor_parameters_t motor_parameters;
     uint32_t vision_receive_ms;
     uint32_t motor_receive_ms;
     uint32_t snapshot_sequence;
@@ -80,6 +88,10 @@ void hball_sensor_fusion_set_motor(
     hball_sensor_fusion_t *fusion,
     const hball_motor_feedback_t *feedback,
     uint32_t receive_ms
+);
+void hball_sensor_fusion_set_motor_parameters(
+    hball_sensor_fusion_t *fusion,
+    const hball_motor_parameters_t *parameters
 );
 void hball_sensor_fusion_snapshot(
     hball_sensor_fusion_t *fusion,

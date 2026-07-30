@@ -61,6 +61,17 @@ void hball_sensor_fusion_set_motor(
     fusion->motor_received = true;
 }
 
+void hball_sensor_fusion_set_motor_parameters(
+    hball_sensor_fusion_t *fusion,
+    const hball_motor_parameters_t *parameters
+)
+{
+    if ((fusion != NULL) && (parameters != NULL))
+    {
+        fusion->motor_parameters = *parameters;
+    }
+}
+
 static uint32_t hball_imu_age_ms(
     const hball_msp_monitor_t *monitor, uint32_t now_ms
 )
@@ -127,6 +138,13 @@ void hball_sensor_fusion_snapshot(
     {
         snapshot->valid_flags |= HBALL_SENSOR_VALID_MOTOR;
     }
+    if (hball_motor_parameters_fresh(
+            &fusion->motor_parameters,
+            now_ms,
+            HBALL_SENSOR_MOTOR_PARAMETER_STALE_MS))
+    {
+        snapshot->valid_flags |= HBALL_SENSOR_VALID_MOTOR_PARAMETERS;
+    }
     if (snapshot->heartbeat_age_ms <= HBALL_SENSOR_HEARTBEAT_STALE_MS)
     {
         snapshot->valid_flags |= HBALL_SENSOR_VALID_HEARTBEAT;
@@ -142,6 +160,8 @@ void hball_sensor_fusion_snapshot(
     snapshot->wheel_sequence = fusion->msp.wheel_sequence;
     snapshot->msp_status_flags = fusion->msp.status_flags;
     snapshot->motor_fault_summary = fusion->motor.fault_summary;
+    snapshot->motor_mode_state = fusion->motor.mode_state;
+    snapshot->motor_run_mode = fusion->motor_parameters.run_mode;
     snapshot->ball_position_m = fusion->vision.ball_position_m;
     snapshot->vision_confidence = fusion->vision.confidence;
     snapshot->longitudinal_accel_mps2 = fusion->msp.accel_mps2[0];
@@ -149,7 +169,19 @@ void hball_sensor_fusion_snapshot(
     snapshot->body_pitch_rad = fusion->msp.attitude_rad[1];
     snapshot->yaw_rate_rad_s = fusion->msp.gyro_rad_s[2];
     snapshot->body_speed_mps = fusion->msp.body_speed_mps;
-    snapshot->motor_angle_rad = fusion->motor.position_rad;
-    snapshot->motor_velocity_rad_s = fusion->motor.velocity_rad_s;
+    if ((snapshot->valid_flags & HBALL_SENSOR_VALID_MOTOR) != 0U)
+    {
+        snapshot->motor_angle_rad = fusion->motor.position_rad;
+        snapshot->motor_velocity_rad_s = fusion->motor.velocity_rad_s;
+    }
+    else if ((snapshot->valid_flags & HBALL_SENSOR_VALID_MOTOR_PARAMETERS) != 0U)
+    {
+        snapshot->motor_angle_rad = fusion->motor_parameters.mech_position_rad;
+        snapshot->motor_velocity_rad_s =
+            fusion->motor_parameters.mech_velocity_rad_s;
+    }
     snapshot->motor_torque_nm = fusion->motor.torque_nm;
+    snapshot->motor_temperature_c = fusion->motor.temperature_c;
+    snapshot->motor_filtered_iq_a = fusion->motor_parameters.filtered_iq_a;
+    snapshot->motor_vbus_v = fusion->motor_parameters.vbus_v;
 }
