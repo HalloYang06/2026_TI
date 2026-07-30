@@ -14,7 +14,7 @@
  * Formal control stays in shadow until the RS00 encoder reading at a
  * mechanically level pipe is measured and this validity flag is changed.
  */
-#define HBALL_LINKAGE_LEVEL_ENCODER_VALID 0U
-#define HBALL_LINKAGE_LEVEL_ENCODER_RAD 0.0F
+#define HBALL_LINKAGE_LEVEL_ENCODER_VALID 1U
+#define HBALL_LINKAGE_LEVEL_ENCODER_RAD 1.7205F
 
 #endif
