@@ -115,7 +115,7 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
       const double along = delta.dot(axis.direction);
       const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
       if (lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
-          std::abs(along) > axis.length * 0.24F) continue;
+          std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
       const double fraction = (along + axis.length / 2) / axis.length;
       if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.10) continue;
       double score = lateral + 0.5 * std::abs(circle[2] - 10.0F);
@@ -150,7 +150,7 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
     const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
     if (area < cfg.min_area || area > cfg.max_area ||
         lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
-        std::abs(along) > axis.length * 0.24F) continue;
+        std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
     const double radius = std::sqrt(area / CV_PI);
     const double fraction = (along + axis.length / 2) / axis.length;
     if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.10) continue;
@@ -235,8 +235,8 @@ cv::Mat rectify_pipe(const cv::Mat& image) {
   // Four corners of the pipe marked in the current 640x480 installation view.
   const std::vector<cv::Point2f> source{{59.0F, 205.0F}, {596.0F, 235.0F},
                                          {596.0F, 264.0F}, {59.0F, 242.0F}};
-  const std::vector<cv::Point2f> destination{{50.0F, 215.0F}, {590.0F, 215.0F},
-                                              {590.0F, 260.0F}, {50.0F, 260.0F}};
+  const std::vector<cv::Point2f> destination{{50.0F, 207.0F}, {590.0F, 207.0F},
+                                              {590.0F, 252.0F}, {50.0F, 252.0F}};
   cv::Mat rectified;
   cv::warpPerspective(image, rectified, cv::getPerspectiveTransform(source, destination),
                       image.size(), cv::INTER_LINEAR, cv::BORDER_REPLICATE);
@@ -249,23 +249,11 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
   const cv::Rect image_rect(0, 0, image.cols, image.rows);
   // The perspective destination above is the calibrated pipe itself.  Do not
   // run a second bright-contour search here: it can lock onto the chassis.
-  const cv::Rect roi = cv::Rect(50, 215, 540, 45) & image_rect;
-  const PipeAxis axis{{320.0F, 237.5F}, {1.0F, 0.0F}, 540.0F, 22.5F};
+  const cv::Rect roi = cv::Rect(50, 207, 540, 45) & image_rect;
+  const PipeAxis axis{{320.0F, 229.5F}, {1.0F, 0.0F}, 540.0F, 22.5F};
   static std::optional<double> previous_fraction;
   static int missed_frames = 0;
-  const cv::Point2f normal(-axis.direction.y, axis.direction.x);
-  const float active_half_length = axis.length * 0.24F;
-  const float active_half_width = std::min(axis.half_width, static_cast<float>(cfg.max_center_offset));
-  const std::vector<cv::Point> active_band{
-      cv::Point(cvRound(axis.centre.x - axis.direction.x * active_half_length - normal.x * active_half_width),
-                cvRound(axis.centre.y - axis.direction.y * active_half_length - normal.y * active_half_width)),
-      cv::Point(cvRound(axis.centre.x + axis.direction.x * active_half_length - normal.x * active_half_width),
-                cvRound(axis.centre.y + axis.direction.y * active_half_length - normal.y * active_half_width)),
-      cv::Point(cvRound(axis.centre.x + axis.direction.x * active_half_length + normal.x * active_half_width),
-                cvRound(axis.centre.y + axis.direction.y * active_half_length + normal.y * active_half_width)),
-      cv::Point(cvRound(axis.centre.x - axis.direction.x * active_half_length + normal.x * active_half_width),
-                cvRound(axis.centre.y - axis.direction.y * active_half_length + normal.y * active_half_width))};
-  cv::polylines(image, active_band, true, cv::Scalar(255, 180, 0), 2);
+  cv::rectangle(image, roi, cv::Scalar(255, 180, 0), 2);
   const auto circle = find_ball(image(roi), cfg, previous_fraction, axis, roi);
   bool found = false;
   double position_cm = 0.0;
