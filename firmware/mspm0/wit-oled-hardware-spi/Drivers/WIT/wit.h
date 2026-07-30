@@ -20,6 +20,8 @@
 
 #include "ti_msp_dl_config.h"
 
+#define WIT_DMA_TRANSFER_SIZE 32U
+
 typedef struct {
     float pitch;
     float roll;
@@ -35,12 +37,16 @@ typedef struct {
 } WIT_Data_t;
 
 extern volatile WIT_Data_t wit_data;
+extern uint8_t wit_dmaBuffer[WIT_DMA_TRANSFER_SIZE];
 extern volatile uint32_t wit_rx_byte_count;
 extern volatile uint32_t wit_valid_frame_count;
+extern volatile uint32_t wit_checksum_error_count;
+extern volatile uint32_t wit_unknown_frame_count;
 extern volatile uint32_t wit_accel_frame_count;
 extern volatile uint32_t wit_gyro_frame_count;
 extern volatile uint32_t wit_angle_frame_count;
 
 void WIT_Init(void);
+void WIT_ProcessBytes(const uint8_t *data, uint16_t length);
 
 #endif /* #ifndef __WIT_H */

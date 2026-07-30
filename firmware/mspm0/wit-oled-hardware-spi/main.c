@@ -168,6 +168,12 @@ int32_t Get_Encoder_countB_LAST=0;
 
 int main(void){
     SYSCFG_DL_init();
+    /*
+     * Several APP_MODE handlers intentionally never return. Start the WIT
+     * UART/DMA before dispatching to them so CAN telemetry carries real
+     * source samples instead of a 200 Hz mirror of zero-initialized data.
+     */
+    WIT_Init();
     hball_can_port_init();
 #if (APP_MODE != APP_MODE_GYRO_LCD_TEST) && (APP_MODE != APP_MODE_ENCODER_TEST)
     SysTick_Init();
@@ -187,7 +193,6 @@ int main(void){
     DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
     lcd_init();
     gyro_lcd_screen_init();
-    WIT_Init();
     gyro_lcd_test();
 #elif APP_MODE == APP_MODE_MOTOR_TEST
     motor_stop();
@@ -249,7 +254,6 @@ int main(void){
     NVIC_ClearPendingIRQ(TIMER_0_INST_INT_IRQN);
     Interrupt_Init();
     ui_home_page();
-    WIT_Init();
 
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);

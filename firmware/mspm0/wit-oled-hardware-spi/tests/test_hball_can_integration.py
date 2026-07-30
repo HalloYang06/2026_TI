@@ -33,6 +33,27 @@ def test_wit_uart_source_and_generated_config_are_115200_baud() -> None:
     assert "UART_WIT_FBRD_40_MHZ_115200_BAUD" in generated_c
 
 
+def test_wit_dma_starts_before_non_returning_application_mode() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+
+    assert main.count("WIT_Init();") == 1
+    assert main.index("WIT_Init();") < main.index("#if APP_MODE == APP_MODE_LCD_TEST")
+
+
+def test_wit_dma_completion_and_uart_timeout_share_stream_parser() -> None:
+    interrupt = (PROJECT / "Drivers" / "MSPM0" / "interrupt.c").read_text(
+        encoding="utf-8"
+    )
+    wit = (PROJECT / "Drivers" / "WIT" / "wit.c").read_text(encoding="utf-8")
+    build = (PROJECT / "tools" / "build-keil.ps1").read_text(encoding="utf-8")
+
+    assert "void DMA_IRQHandler(void)" in interrupt
+    assert "WIT_ProcessBytes" in interrupt
+    assert "DL_DMA_EVENT_IIDX_DMACH0" in interrupt
+    assert "DL_DMA_enableInterrupt(DMA, DL_DMA_INTERRUPT_CHANNEL0)" in wit
+    assert "Drivers\\WIT\\wit_parser.c" in build
+
+
 def test_mspm0_can_port_is_integrated_without_motor_commands() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
     interrupt = (PROJECT / "Drivers" / "MSPM0" / "interrupt.c").read_text(

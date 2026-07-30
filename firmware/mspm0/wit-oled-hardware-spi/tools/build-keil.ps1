@@ -42,7 +42,8 @@ $sources = @(
     'Drivers\GRAY\led.c', 'Drivers\GRAY\track.c', 'Drivers\MOTOR\motor.c',
     'Drivers\MSPM0\clock.c', 'Drivers\MSPM0\interrupt.c',
     'Drivers\OLED_Hardware_SPI\oled_hardware_spi.c', 'Drivers\PID\pid.c',
-    'Drivers\UART_VOFA+\uart_vofa.c', 'Drivers\WIT\wit.c',
+    'Drivers\UART_VOFA+\uart_vofa.c',
+    'Drivers\WIT\wit_parser.c', 'Drivers\WIT\wit.c',
     "$SdkRoot\source\ti\devices\msp\m0p\startup_system_files\keil\startup_mspm0g350x_uvision.s"
 )
 $includeDirs = @(
