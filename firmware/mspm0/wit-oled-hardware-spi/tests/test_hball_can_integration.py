@@ -54,6 +54,16 @@ def test_wit_dma_completion_and_uart_timeout_share_stream_parser() -> None:
     assert "Drivers\\WIT\\wit_parser.c" in build
 
 
+def test_jy901s_accel_gyro_angle_reports_are_enabled_before_dma() -> None:
+    wit = (PROJECT / "Drivers" / "WIT" / "wit.c").read_text(encoding="utf-8")
+    build = (PROJECT / "tools" / "build-keil.ps1").read_text(encoding="utf-8")
+
+    configure = wit.index("wit_jy901s_enable_control_reports();")
+    arm_dma = wit.index("DL_DMA_setSrcAddr(")
+    assert configure < arm_dma
+    assert "Drivers\\WIT\\wit_jy901s_config.c" in build
+
+
 def test_mspm0_can_port_is_integrated_without_motor_commands() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
     interrupt = (PROJECT / "Drivers" / "MSPM0" / "interrupt.c").read_text(

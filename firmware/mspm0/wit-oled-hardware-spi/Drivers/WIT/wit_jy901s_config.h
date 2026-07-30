@@ -1,0 +1,23 @@
+#ifndef WIT_JY901S_CONFIG_H
+#define WIT_JY901S_CONFIG_H
+
+#include <stdint.h>
+
+#define WIT_JY901S_COMMAND_SIZE 5U
+#define WIT_JY901S_REG_OUTPUT_CONTENT 0x02U
+#define WIT_JY901S_REG_KEY 0x69U
+#define WIT_JY901S_KEY_UNLOCK 0xB588U
+
+#define WIT_JY901S_OUTPUT_ACCEL 0x0002U
+#define WIT_JY901S_OUTPUT_GYRO 0x0004U
+#define WIT_JY901S_OUTPUT_ANGLE 0x0008U
+#define WIT_JY901S_OUTPUT_ACCEL_GYRO_ANGLE \
+    (WIT_JY901S_OUTPUT_ACCEL | WIT_JY901S_OUTPUT_GYRO \
+        | WIT_JY901S_OUTPUT_ANGLE)
+
+void wit_jy901s_build_write_command(
+    uint8_t register_address,
+    uint16_t value,
+    uint8_t command[WIT_JY901S_COMMAND_SIZE]);
+
+#endif

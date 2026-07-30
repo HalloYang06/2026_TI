@@ -477,6 +477,11 @@
               <FilePath>..\Drivers\UART_VOFA+\uart_vofa.c</FilePath>
             </File>
             <File>
+              <FileName>wit_jy901s_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\WIT\wit_jy901s_config.c</FilePath>
+            </File>
+            <File>
               <FileName>wit_parser.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\WIT\wit_parser.c</FilePath>
