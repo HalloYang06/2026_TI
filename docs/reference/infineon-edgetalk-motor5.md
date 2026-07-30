@@ -85,3 +85,15 @@ EdgeTalk启动顺序是 Secure M33 -> Non-secure M33 -> 可选 M55。H题第一�
 - `firmware/m33/applications/control/control_layer.*`：RS00私有协议、MIT/CSP/电流模式接口和反馈解析。
 
 参考仓库记录只能证明特定版本、板卡和台架曾工作，不能替代 H题实物的电机铭牌确认、接线核对和重新标定。
+
+## 7. H题实物CSP微动结果（2026-07-31）
+
+本项目已在EdgeTalk M33 `0.5.0-m33-manual-small-step`上完成独立验证，不再只依赖参考仓库：
+
+- 22 V、软件限流0.8 A、限速0.5 rad/s、摆杆架空无载、人工断电急停。
+- 先stop，设置`run_mode=5`并读回确认，再写当前位置保持点后enable。
+- 初始`1.684 rad`，命令`+10 mrad`，100 Hz `mechPos/mechVel`定向读回到`1.694 rad`。
+- 回位读到`1.687 rad`后stop，fault=`0x00`；CAN发送无失败，TEC/REC和FIFO full/lost均为0。
+- `0x02`实测适合作为命令响应确认，不应假定为250~500 Hz周期状态；台架会话因此主动轮询`0x7019/0x701B`。
+
+精确白名单与命令状态机见`shared/protocol/RS00_CSP_BENCH_V1.md`。H题机构零点、方向、传动比和机械限位仍未标定，不能复制机械臂参数。

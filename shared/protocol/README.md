@@ -12,6 +12,8 @@ V1缺少完整IMU epoch和源时间，兼容扩展见
 
 EdgeTalk双核之间的H题专用256字节共享快照已冻结为 [EDGETALK_DUALCORE_IPC_V1](EDGETALK_DUALCORE_IPC_V1.md)：两个32字节cache-line对齐槽，使用显式小端字段、CRC32C和奇偶seqlock。控制返回在版本1强制为`SHADOW_ONLY`。
 
+EdgeTalk M33到5号RS00的人工台架微动合同见 [RS00_CSP_BENCH_V1](RS00_CSP_BENCH_V1.md)。它冻结CSP白名单、限幅、状态机和100 Hz定向位置/速度读回；这不是M55正式算法执行器合同。
+
 ## 通用包头
 
 第一版建议采用小端定长头：

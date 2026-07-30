@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-M33 有三个显式构建模式：默认只读 CAN 台架、`HBALL_USB_ONLY=1` 的 USB CDC 联调镜像，以及 `HBALL_INTEGRATED_SHADOW=1` 的 USB+CAN+200 Hz传感器快照镜像。集成模式会发布M33->M55共享快照并读取M55 `SHADOW_ONLY`结果，但不包含任何执行器发送；P16.5蓝灯每500 ms翻转，用来区分“未启动”和“USB未枚举”。
+M33 有三个显式构建模式：默认只读 CAN 台架、`HBALL_USB_ONLY=1` 的 USB CDC 联调镜像，以及 `HBALL_INTEGRATED_SHADOW=1` 的 USB+CAN+200 Hz传感器快照镜像。集成模式发布M33->M55共享快照并读取M55 `SHADOW_ONLY`结果，同时包含一个开机禁用、只能人工触发的RS00 CSP微动验收层；M55和自动算法仍没有执行器发送。P16.5蓝灯每500 ms翻转，用来区分“未启动”和“USB未枚举”。
 
 当前实现已按 Infineon 官方 PSoC Edge CDC echo 启动顺序切换到 BSP 自带 emUSB 2.1.0.3859，并完成 M33 编译、Secure+NS 合并、烧录、逐字节校验和树莓派双向压力测试。P16.5 蓝灯正常闪烁，FinSH 为 `state=0x1e configured=1 conn=1 cfg=1 actuator_tx=0`；树莓派枚举为 `058b:0282`、`cdc_acm`、High-Speed 480 Mbps，并生成 `/dev/ttyACM0` 和稳定的 `/dev/serial/by-id/...HBALL-PROBE-if00`。二进制接收每次最多读取官方 HS Bulk 的 512 字节，再交给跨读取流解析器，不把一次 CDC Receive 当成一帧。
 
@@ -30,7 +30,20 @@ scons -j12
 
 M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为200 Hz快照。USB和CAN线程通过RT-Thread优先级继承mutex更新单写数据层；每类数据独立计算age和valid。MSPM0各数据流现在独立检查16位源序号：重复/乱序帧不刷新时间戳，跳号和重启可诊断，心跳未置`IMU_VALID`时不发布有效IMU。MSPM0的200 Hz镜像重复同一WIT源序号时也不会刷新age。当前快照保留视觉板原始`capture_time_us`，但在时钟同步实现前只把`vision_receive_age_ms`用于链路诊断，不能冒充真实采集age。
 
-本机集成ARM构建已通过：`text=214596 data=15656 bss=244516`，运行标签为`0.3.0-m33-integrated-shadow`。只有人工执行的`hball_probe5`允许发送无运动Get_ID；自动探针默认关闭，`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`保持硬约束。
+本机集成ARM构建已通过：`text=133552 data=2152 bss=256449`，运行标签为`0.5.0-m33-manual-small-step`。自动探针和自动运动默认关闭，`ACTUATOR_TX=0`保持硬约束；只有带确认口令的FinSH命令可进入独立人工台架状态机。状态机、帧合同和实测结果见`shared/protocol/RS00_CSP_BENCH_V1.md`。
+
+人工台架命令为：
+
+```text
+hball_motor_prepare5 CONFIRM_NO_LOAD
+hball_motor_arm5 CONFIRM_NO_LOAD
+hball_motor_step5 CONFIRM_NO_LOAD 10
+hball_motor_return5
+hball_motor_stop5
+hball_motor_status5
+```
+
+准备阶段先stop，再以2 ms间隔设置CSP、`0.5 rad/s`、`0.8 A`和当前保持点，读回`run_mode=5`后才允许arm。使能后必须收到新的`0x02`反馈；控制会话以100 Hz交替读取`mechPos/mechVel`，2 s无人工命令、反馈/故障异常或回位超时均stop。没有set-zero、速度、Iq或力矩命令API。
 
 2026-07-30已将该集成镜像烧入实板：OpenOCD写入并校验raw Secure+NS `339,968 bytes`，组合XIP校验`332,708 bytes`，NS校验`230,252 bytes`，随后到达Non-secure reset handler。树莓派CDC守护完成自动重连；人工执行一次只读Get_ID后，RS00回复有效，CAN的TEC/REC、pending、bus-off和FIFO丢失均为0。随后接入MSPM0，五类标准遥测均被有效解析；姿态提升到200 Hz后，MSPM0目标总率为720 frame/s，14 s只读日志实测约729.1 frame/s且`tx_fail=0`。这证明三节点物理链路和遥测合同已打通，不代表连续RS00角度反馈或运动闭环已经启用。
 
@@ -48,7 +61,7 @@ M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为20
 python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q
 ```
 
-当前主仓库同时覆盖文本探针、64字节视觉帧、CRC32C、坏帧重同步、USB拆/粘包，以及CAN帧经统一快照进入LQG shadow的端到端主机测试。集成M33 ARM构建已通过，大小为`text=214596 data=15656 bss=244516`；真实240 Hz二进制接收计数仍需单独验证。
+当前主仓库同时覆盖文本探针、64字节视觉帧、CRC32C、坏帧重同步、USB拆/粘包，以及CAN帧经统一快照进入LQG shadow的端到端主机测试。集成M33 ARM构建已通过，大小为`text=133552 data=2152 bss=256449`；真实240 Hz二进制接收计数仍需单独验证。
 
 ## 已验证的构建与烧录流程
 
@@ -93,7 +106,7 @@ python3 vision/raspberrypi/edgetalk_vision_stream.py --duration 30 --rate 240
   RS00两连杆基线替换为OOSM Kalman、LQI、IMU前馈和端部保护。
 - 1 kHz：M33检查M55 shadow的freshness、有限值和故障状态；部署前把仿真的正常`+-5 deg`、
   恢复约`+-7 deg`、硬限位`+-8 deg`以及两连杆逆解加入安全门；当前只观察，不发送。
-- 200 Hz电机目标：正式方案采用RS00 CSP位置模式，写入经安全门批准的`loc_ref`并配置保守`limit_spd/limit_cur`；当前`ACTUATOR_TX=0`，发送适配器尚未实现。
+- 200 Hz电机目标：正式方案采用RS00 CSP位置模式，写入经安全门批准的`loc_ref`并配置保守`limit_spd/limit_cur`；人工台架发送适配器已验证10 mrad微动，正式M55算法仍保持`ACTUATOR_TX=0`。
 - 250~500 Hz电机反馈：读取角度、速度、温度、故障和跟随误差；具体周期以台架实测为准。
 - 位置环与FOC：留在RS00内部驱动器，频率在取得厂家资料或实测前不假定，M33不重复实现三相电流环。MIT位置-速度阻抗模式仅作为CSP带宽不足时的备选。
 - 安全状态机：视觉/IMU/编码器超时、电机故障、母线压降、通信CRC/序号异常和人工急停。

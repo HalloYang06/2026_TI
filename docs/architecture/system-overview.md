@@ -35,7 +35,7 @@
 | 图像采集与球心识别 | 100 Hz控制基线；实机按采集时间去重约115.73 Hz | 10 ms周期，实测处理P95约1.44 ms | 树莓派 |
 | 当前非线性预测、视觉更新、LQG shadow | 200 Hz | 2 ms | EdgeTalk M55 |
 | M33目标角安全监督 | 1 kHz | 0.5 ms | EdgeTalk M33 |
-| 受限目标角CAN发布 | 200 Hz，当前禁用 | 2 ms | EdgeTalk M33 -> RS00 |
+| 受限目标角CAN发布 | 正式算法200 Hz仍禁用；人工10 mrad台架路径已验证 | 2 ms | EdgeTalk M33 -> RS00 |
 | RS00角度/速度反馈 | 250~500 Hz，待实测 | 2 ms | RS00 -> EdgeTalk M33 |
 | 位置环与FOC电流环 | 驱动器内部频率，待厂家资料/实测 | 不由本项目假定 | RS00内部驱动器 |
 
@@ -69,7 +69,7 @@ flowchart TD
     F --> S["目标摆角限幅/限速"]
     L --> S
     S --> K["两连杆逆解<br/>待接入"]
-    K --> G["M33安全门 1 kHz<br/>CAN目标 200 Hz，TX关闭"]
+    K --> G["M33安全门 1 kHz<br/>正式CAN目标200 Hz仍关闭<br/>人工CSP微动已验证"]
     G --> A["RS00内部CSP位置环/FOC"]
     E["编码器角度/速度 250~500 Hz"] --> G
     E --> A
@@ -80,7 +80,7 @@ flowchart TD
 旧LQG回归见`experiments/h_ball_control_sim/LQR_MODEL.md`；当前RS00两连杆、100 Hz视觉、
 OOSM KF + LQI推荐基线和压力结果见`experiments/h_ball_control_simulink/`。
 
-当前软件层次和运行时冻结见`docs/decisions/ADR-004-edgetalk-runtime-and-stream-boundaries.md`。M33运行RT-Thread并独占USB/CAN与安全门，M55使用Infineon官方FreeRTOS port运行200 Hz shadow算法；任何自动测试都保持`ACTUATOR_TX=0`。
+当前软件层次和运行时冻结见`docs/decisions/ADR-004-edgetalk-runtime-and-stream-boundaries.md`。M33运行RT-Thread并独占USB/CAN与安全门，M55使用Infineon官方FreeRTOS port运行200 Hz shadow算法；任何自动测试都保持`ACTUATOR_TX=0`。人工CSP验收层及`1.684 -> 1.694 rad`实测见`docs/decisions/ADR-007-rs00-manual-csp-commissioning.md`，它不改变M55的shadow边界。
 
 ## 6. 故障与降级
 

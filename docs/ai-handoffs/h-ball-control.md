@@ -16,19 +16,17 @@ Updated: 2026-07-31
 NanoPi-M5仅作树莓派性能或接口不达标时的单机备选；`PSOC_E84_robot`只提供工具链和
 RS00协议参考，不迁移机械臂业务、零点或运动参数。
 
-本轮已经完成三条真实链路：
+本轮已经完成四端基础链路和一次受限电机微动：
 
 1. 树莓派与EdgeTalk USB CDC已部署开机守护，并通过真实重启、EdgeTalk重刷断连和自动重连验收。
-2. EdgeTalk与5号RS00在`1 Mbps Classic CAN`下完成一次人工只读Get_ID，TX/ACK/回复正常，所有CAN错误计数为0。
+2. EdgeTalk与5号RS00在`1 Mbps Classic CAN`下完成六项参数读回、CSP模式设置、enable、`+10 mrad`、回位和stop，所有CAN错误计数为0。
 3. 更正接线后，MSPM0G3507以11位标准帧持续发送五类遥测，EdgeTalk在同一总线上同时接收RS00扩展帧；五类解析有效，200 Hz姿态镜像实测总接收约729.1帧/s。该数字是CAN镜像率，不是IMU源采样率。
 
-因此可以宣称“三节点CAN物理链路、标准/扩展帧共存和MSPM0遥测合同已打通”。不能宣称
-滚球运动闭环已完成：RS00目前只验证了只读Get_ID，连续250~500 Hz角度反馈、真实100 Hz
-视觉、M33/M55共享地址统一、两连杆逆解和执行器控制仍待完成。
+4. 同一集成镜像上，树莓派USB守护保持`enabled/active`，EdgeTalk端`109/109` PING/PONG零失败；MSPM0约778 Hz遥测与RS00人工控制并存。
 
-当前分支为`prep/2026`，未创建或填充`main`。所有自动任务保持`MOTOR_COMMAND_TX=0`、
-`ACTUATOR_TX=0`，M55只允许`SHADOW_ONLY`。实机只发送过人工触发的一次RS00只读Get_ID；
-从未发送enable、set-zero、位置、速度或力矩。
+因此可以宣称“树莓派USB、MSPM0 CAN、EdgeTalk M33和RS00人工执行器基础闭环已打通”。不能宣称滚球运动闭环已完成：真实100 Hz视觉、M33/M55共享地址统一、两连杆逆解和M55算法到正式200 Hz CSP发布仍待完成。
+
+当前分支为`prep/2026`，未创建或填充`main`。所有自动任务保持`ACTUATOR_TX=0`，M55只允许`SHADOW_ONLY`。M33另有开机禁用、FinSH口令触发的人工CSP台架路径；已经发送enable和有界位置目标，但从未发送set-zero、速度、Iq或力矩命令。
 
 ## 当前数据路径
 
@@ -37,13 +35,15 @@ RS00协议参考，不迁移机械臂业务、零点或运动参数。
   -> 64 B BALL_MEASUREMENT_V1
   -> M33 emUSB流解析/CRC/序号/age
 
-MSPM0五类标准帧 + RS00扩展帧（当前仅Get_ID；连续角度反馈待启用）
+MSPM0五类标准帧 + RS00扩展反馈/参数帧
   -> 1 Mbps Classic CAN
   -> M33质量门/200 Hz sensor_snapshot
   -> shared SRAM IPC
   -> M55 FreeRTOS 200 Hz观测器/LQG（SHADOW_ONLY，尚不可部署）
   -> M33 1 kHz安全监督
-  -> ACTUATOR_TX=0
+  -> ACTUATOR_TX=0（正式算法）
+
+人工台架例外：M33 FinSH口令 -> CSP白名单 -> 100 Hz mechPos/mechVel验证 -> stop
 ```
 
 M33是USB、CAN、输入有效性和最终安全门的唯一所有者；M55不链接CAN或执行器发送。
@@ -69,7 +69,7 @@ LVGL数据钩子为10 Hz，只显示本题参数和`SHADOW / TX OFF`。
   -> 水管角限幅/限速
   -> 连续装配分支的两连杆逆解
   -> M33安全门
-  -> RS00 CSP目标（当前TX关闭）
+  -> RS00 CSP目标（正式算法TX关闭；人工10 mrad台架路径已验证）
 ```
 
 不要把LQG shadow写成已经部署的OOSM LQI，也不要同时叠加高带宽LADRC/ESO和卡尔曼扰动
@@ -108,18 +108,19 @@ WIT `UART_WIT`当前已设为`115200 bit/s`，三类11字节帧理论上最多�
 ### EdgeTalk M33
 
 - 构建模式：`HBALL_USB_ONLY=0`、`HBALL_INTEGRATED_SHADOW=1`。
-- 运行标签：`0.3.0-m33-integrated-shadow`。
-- ELF：`text=214596 data=15656 bss=244516`。
-- SHA-256：ELF `A68AA8435BFE361D1448706A13242D66746C41674AFD1936440979EA04ECCD4B`；NS HEX `5F449A2DB5AC486B59EEB9B537334F8D4522A11F809D30FE0627BD265E6732D2`；raw Secure+NS `E0C7733AAADAC9D2CD892A50529DD2896C1251259B1FCFA5CA8BB8581646C34D`；XIP verify `0DED6751F5F887E020F039E748A1756B983C44A3742AA72AD49C51AC7FC1F318`。
+- 运行标签：`0.5.0-m33-manual-small-step`。
+- ELF：`text=133552 data=2152 bss=256449`。
+- SHA-256：ELF `AA11BE8E23D8148260EB29139EFD2C87BD36DFC6EED40973D96CE4C62E625889`；NS HEX `7DD42E806F62336AF201D54FD3C72BEBC5AEF9E5F18E4FAEA152D3782B0D3456`；raw Secure+NS `FFD47ABD4F13459E67E9A3F5EFB4867CDBF6FD7F581812227018B23DE4401A8A`；XIP verify `9E8850EE2315118FA3628A42E352883BCF0BAA90A41C68C958077F1F7B4C614D`。
 - OpenOCD预检确认`cat1d.cm33.smif1_ns`位于`0x60000000–0x67FFFFFF`。
-- 写入/校验：raw `339,968 bytes`、组合XIP `332,708 bytes`、NS `230,252 bytes`，随后到达Non-secure reset handler。
-- 运行日志持续输出200 Hz快照、1 kHz安全监督、`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`。
+- 写入/校验：raw `241,664 bytes`、组合XIP `237,004 bytes`，随后到达Non-secure reset handler。
+- 运行日志持续输出200 Hz快照、1 kHz安全监督和`ACTUATOR_TX=0`；人工台架路径单独计数。
 
 ### RS00 CAN
 
-- 手工只读Get_ID请求为扩展帧`0x0000FD05`，回复为`0x000005FE`；设备唯一标识已核对但不写入Git。
-- `tx=1/1/0`、`TXBRP=0`、TEC/REC=0、bus-off=0、FIFO full/lost=0。
-- 该结果只证明电机↔EdgeTalk双向链路，不代表电机已经使能或运动。
+- 六项只读参数`run_mode/mechPos/Iq/mechVel/VBUS/rotation`已收齐，`valid=0x3f`。
+- 人工台架：`1.684 rad -> 1.694 rad -> 1.687 rad -> stop`，限速0.5 rad/s、限流0.8 A、fault=`0x00`。
+- `tx=769/769/0`、TEC/REC=0、bus-off=0、FIFO full/lost=0；100 Hz定向`mechPos/mechVel`证明目标真实落地。
+- 该结果证明人工执行器路径，不代表M55正式200 Hz控制发布已经启用。
 
 ### 树莓派 USB
 
@@ -127,6 +128,7 @@ WIT `UART_WIT`当前已设为`115200 bit/s`，三类11字节帧理论上最多�
 - 用户systemd服务`hball-edgetalk-usb.service`为`enabled`、`active`，linger=`yes`。
 - 树莓派真实重启后服务自动启动并收到READY；EdgeTalk重刷时服务能自动重连。
 - 守护只发换行和PING，不发合成有效球位置，不访问CAN。
+- 本次电机镜像重刷后EdgeTalk端实测`ping_rx=109/pong_tx=109`，`tx_fail=0/rx_fail=0`。
 
 ### 树莓派真实相机
 
@@ -146,12 +148,12 @@ WIT `UART_WIT`当前已设为`115200 bit/s`，三类11字节帧理论上最多�
 - 初次健康对拍：`msp_rx=437108`、`invalid=0`，heartbeat/accel/gyro/attitude/wheel五类valid均为1。
 - 错接压力曾触发bus-off；恢复逻辑先等待1 s，持续故障最多每秒尝试一次，并在健康后重武装。
 - 主机测试覆盖协议、集成、恢复首延迟/限频/重武装/32位ms回绕；ARM GCC完整链接通过。
-- 14 s只读日志实测约`729.1 frame/s`，与720帧/s目标及板间时钟误差一致，`tx_fail=0`。
-- 实机测试保持电机/底盘动力断开、车轮悬空无载；未发送任何运动命令。
+- 本次与RS00微动并行时总线实测约`778.7 frame/s`，五类数据valid、invalid/dup/ooo/gap均为0。
+- 实机测试保持摆杆/车轮架空无载，RS00单独完成10 mrad微动；MSPM0仍没有运动命令API。
 
 ### 软件回归
 
-- `python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q`：当前54项通过。
+- `python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q`：当前57项通过。
 - `python -m pytest firmware/mspm0/wit-oled-hardware-spi/tests -q`：当前4项通过。
 - `python -m pytest experiments/h_ball_control_sim/tests -q`：旧模型29项回归通过。
 - MSPM0 ArmClang全量链接通过，`Code=38324 RO-data=15104 RW-data=144 ZI-data=5968`；
