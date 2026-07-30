@@ -42,8 +42,8 @@ struct Config {
   int max_center_offset = 80;
   int pipe_threshold = 200;
   double pipe_min_aspect = 5.5;
-  int hough_min_radius = 6;
-  int hough_max_radius = 18;
+  int hough_min_radius = 8;
+  int hough_max_radius = 13;
   int edge_ignore = 16;
 };
 
@@ -253,6 +253,7 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
   const cv::Rect roi = cv::Rect(50, 200, 540, 45) & image_rect;
   const PipeAxis axis{{320.0F, 222.5F}, {1.0F, 0.0F}, 540.0F, 22.5F};
   static std::optional<double> previous_fraction;
+  static std::optional<double> filtered_position_cm;
   static int missed_frames = 0;
   static std::deque<double> stable_positions_cm;
   cv::rectangle(image, roi, cv::Scalar(255, 180, 0), 2);
@@ -266,8 +267,6 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
   if (circle) {
     const cv::Point centre(cvRound((*circle)[0]) + roi.x, cvRound((*circle)[1]) + roi.y);
     const int radius = cvRound((*circle)[2]);
-    cv::circle(image, centre, radius, cv::Scalar(0, 255, 0), 3);
-    cv::circle(image, centre, 2, cv::Scalar(0, 0, 255), 3);
     const cv::Point2f delta = cv::Point2f(centre) - axis.centre;
     const double fraction = std::clamp(static_cast<double>(delta.dot(axis.direction) + axis.length / 2) /
                                            axis.length,
@@ -281,6 +280,7 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
       if (++missed_frames > 30) {
         previous_fraction.reset();
         stable_positions_cm.clear();
+        filtered_position_cm.reset();
       }
       cv::putText(image, "steel ball: rejected", {roi.x + 8, std::max(28, roi.y - 10)},
                   cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 0, 255}, 2);
@@ -289,9 +289,20 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
       if (stable_positions_cm.size() > 5) stable_positions_cm.pop_front();
       std::vector<double> ordered(stable_positions_cm.begin(), stable_positions_cm.end());
       std::nth_element(ordered.begin(), ordered.begin() + ordered.size() / 2, ordered.end());
-      position_cm = ordered[ordered.size() / 2];
-      previous_fraction = previous_fraction ? 0.7 * *previous_fraction + 0.3 * fraction : fraction;
+      const double median_position_cm = ordered[ordered.size() / 2];
+      filtered_position_cm = filtered_position_cm
+          ? 0.75 * *filtered_position_cm + 0.25 * median_position_cm
+          : median_position_cm;
+      position_cm = *filtered_position_cm;
+      previous_fraction = previous_fraction ? 0.85 * *previous_fraction + 0.15 * fraction : fraction;
       missed_frames = 0;
+      const cv::Point tracked_centre(cvRound(axis.centre.x + axis.direction.x *
+                                               (*previous_fraction * axis.length - axis.length / 2)),
+                                     cvRound(axis.centre.y + axis.direction.y *
+                                               (*previous_fraction * axis.length - axis.length / 2)));
+      constexpr int kDisplayBallRadius = 10;
+      cv::circle(image, tracked_centre, kDisplayBallRadius, cv::Scalar(0, 255, 0), 3);
+      cv::circle(image, tracked_centre, 2, cv::Scalar(0, 0, 255), 3);
       std::ostringstream text;
       text.setf(std::ios::fixed);
       text.precision(2);
@@ -301,13 +312,14 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
       found = true;
       center_x_px = static_cast<float>(centre.x);
       center_y_px = static_cast<float>(centre.y);
-      radius_px = (*circle)[2];
+      radius_px = static_cast<float>(kDisplayBallRadius);
       contour_area_px2 = static_cast<float>(CV_PI * radius_px * radius_px);
     }
   } else {
     if (++missed_frames > 30) {
       previous_fraction.reset();
       stable_positions_cm.clear();
+      filtered_position_cm.reset();
     }
     cv::putText(image, "steel ball: not found", {roi.x + 8, std::max(28, roi.y - 10)},
                 cv::FONT_HERSHEY_SIMPLEX, 0.75, {0, 0, 255}, 2);
