@@ -275,3 +275,32 @@ MATLAB/Simulink R2025b按新机构和115200 bit/s、200 Hz唯一IMU基线重跑�
 
 不得擅自删除用户未跟踪的实验、配置和临时产物。任何自动测试都不得解锁RS00、发送运动目标
 或发起车辆自主运动。
+
+## 2026-07-31 现场演示任务编排与首个shadow切片
+
+- 基于`fd059c7`完成架构规划，并已实现任务CAN V1、MSP任务客户端和M33任务仲裁器；
+  对应提交为`ba707fd`、`ded48ca`和`95cc986`。
+- 冻结方向为：MSPM0上的SW3/SW1是唯一操作员入口，M33是唯一分布式任务仲裁器，
+  M55只执行带任务上下文的滚球算法，树莓派常驻视觉/录像/回放。
+- 赛题第1项不是SW3选项；SW3只循环官方Q2到Q6。每次有效SW1使用一个
+  `mission_epoch`关联CAN、IPC、USB日志、视频和结果；Q6只在START时锁存一次初始球位。
+- MSP与M33之间已有独立任务控制面；双核任务IPC和USB任务marker仍未实现，不能让M55或
+  树莓派根据本地事件自行猜测START。
+- NanoPi-M5只作为冷备视觉主机，不进入比赛主链路。
+- 规划文档为：
+  - `docs/decisions/ADR-008-competition-demo-mission-orchestration.md`；
+  - `docs/architecture/competition-demo-state-machine.md`；
+  - `docs/architecture/system-overview.md`；
+  - 本交接文档。
+- 验证结果：EdgeTalk与MSP主机测试合计`60 passed`；MSP Keil固件构建成功；M33集成工程
+  构建成功并生成重定位后的`build/rtthread.hex`。树莓派`192.168.3.33`已可达，Windows可见
+  EdgeTalk `COM26`及USB串行口`COM11`。尚未烧录本次固件，也没有发送运动命令。
+- 主要风险仍是裁判计时口径、100/120 Hz正式视觉门限、A/B地标判据、硬急停映射和
+  RS00正式反馈/限位尚未冻结；这些项目已经列入规划文档的实施前参数表。
+- 决策见`docs/decisions/ADR-008-competition-demo-mission-orchestration.md`；完整状态、READY
+  掩码、协议草案、实施切片和现场SOP见
+  `docs/architecture/competition-demo-state-machine.md`。
+- 下一步在车轮/动力/急停/操作者条件明确后烧录MSP与M33，只验证`0x081/0x084`上行和
+  `0x082`下行、epoch/Q号/状态序号一致，预期停在PREPARING且`ACTUATOR_TX=0`。随后再把
+  MSP现有SW3/SW1菜单接入任务client和缺失READY显示。不得跳过Checkpoint A/B直接开放
+  正式运动；SW1长按中止语义仍待负责人确认。

@@ -106,3 +106,14 @@ OOSM KF + LQI推荐基线和压力结果见`experiments/h_ball_control_simulink/
 7. 低速转弯、整圈、逐级压力验证。
 
 自动化测试在任何阶段都不得解锁电机或发起车辆自主运动。
+
+## 8. 现场任务编排
+
+比赛固件不允许MSP、M33、M55和树莓派各自判断任务开始。MSPM0上的SW3/SW1是唯一
+操作员入口，EdgeTalk M33汇总动态READY并作为唯一任务仲裁器；每次有效SW1启动使用同一
+`mission_epoch`贯穿CAN、双核IPC、USB日志和录像。赛题第1项作为树莓派常驻录像/回放
+服务，SW3只选择官方Q2到Q6；NanoPi-M5不进入正式关键链路。
+
+完整状态机、协议草案、实现切片和现场SOP见
+[`competition-demo-state-machine.md`](competition-demo-state-machine.md)，决策理由见
+[`ADR-008`](../decisions/ADR-008-competition-demo-mission-orchestration.md)。
