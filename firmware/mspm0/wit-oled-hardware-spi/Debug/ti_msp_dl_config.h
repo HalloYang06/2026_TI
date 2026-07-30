@@ -157,8 +157,8 @@ extern "C" {
 #define GPIO_UART_WIT_IOMUX_RX_FUNC                    IOMUX_PINCM16_PF_UART3_RX
 #define GPIO_UART_WIT_IOMUX_TX_FUNC                    IOMUX_PINCM15_PF_UART3_TX
 #define UART_WIT_BAUD_RATE                                              (115200)
-#define UART_WIT_IBRD_40_MHZ_115200_BAUD                                    (10)
-#define UART_WIT_FBRD_40_MHZ_115200_BAUD                                    (54)
+#define UART_WIT_IBRD_40_MHZ_115200_BAUD                                    (21)
+#define UART_WIT_FBRD_40_MHZ_115200_BAUD                                    (45)
 
 
 

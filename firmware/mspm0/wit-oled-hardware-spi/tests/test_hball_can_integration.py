@@ -17,6 +17,22 @@ def test_mspm0_sysconfig_is_1m_classic_can_on_verified_pins() -> None:
     assert 'mux2.inputSelect = "CANCLKMUX_PLLCLK1_OUT"' in syscfg
 
 
+def test_wit_uart_source_and_generated_config_are_115200_baud() -> None:
+    syscfg = (PROJECT / "wit-oled-hardware-spi.syscfg").read_text(encoding="utf-8")
+    generated_c = (PROJECT / "Debug" / "ti_msp_dl_config.c").read_text(
+        encoding="utf-8"
+    )
+    generated_h = (PROJECT / "Debug" / "ti_msp_dl_config.h").read_text(
+        encoding="utf-8"
+    )
+
+    assert "UART3.targetBaudRate                   = 115200;" in syscfg
+    assert "Target baud rate: 115200" in generated_c
+    assert "UART_WIT_BAUD_RATE                                              (115200)" in generated_h
+    assert "UART_WIT_IBRD_40_MHZ_115200_BAUD" in generated_c
+    assert "UART_WIT_FBRD_40_MHZ_115200_BAUD" in generated_c
+
+
 def test_mspm0_can_port_is_integrated_without_motor_commands() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
     interrupt = (PROJECT / "Drivers" / "MSPM0" / "interrupt.c").read_text(
