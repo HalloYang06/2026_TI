@@ -73,7 +73,7 @@ NanoPi-M5 -- USB CDC（二进制协议） --> EdgeTalk M33
 
 | 环节 | 频率/阈值 | 所属 |
 |---|---:|---|
-| IMU实际采样 | 1 kHz | MSPM0 |
+| JY901S UART三类报告 | 200 Hz（实测各约199.6 Hz） | MSPM0 |
 | 底盘速度/差速闭环 | 1 kHz | MSPM0 |
 | IMU CAN发布 | 200 Hz，stale `20 ms` | MSPM0 -> M33 |
 | 车体/轮速发布 | 100 Hz，stale `30 ms` | MSPM0 -> M33 |

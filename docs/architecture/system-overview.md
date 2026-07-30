@@ -29,7 +29,7 @@
 | 周期任务 | 频率 | 最迟完成时间 | 所属板 |
 |---|---:|---:|---|
 | 红外阵列采样 | 1 kHz | 0.5 ms | MSPM0 |
-| IMU DMA取样/解包 | WIT UART 115200；模型按200 Hz唯一样本 | 0.5 ms | MSPM0 |
+| IMU DMA取样/解包 | JY901S 115200；accel/gyro/attitude实测各约199.6 Hz | 0.5 ms | MSPM0 |
 | 底盘速度/差速环 | 500 Hz | 1 ms | MSPM0 |
 | IMU与底盘状态发布 | 200 Hz | 2 ms | MSPM0 |
 | 图像采集与球心识别 | 100 Hz控制基线；实机按采集时间去重约115.73 Hz | 10 ms周期，实测处理P95约1.44 ms | 树莓派 |
@@ -43,10 +43,8 @@
 
 ## 4. 数据流与时间
 
-- WIT到MSPM0的`UART_WIT`已设为`115200 bit/s`，三类11字节帧的完整组理论上限约
-  349.1 Hz：100 Hz占线约28.6%，200 Hz约57.3%；500 Hz完整组至少需要165 kbit/s，
-  115200仍然不够。模型按200 Hz唯一样本与8 ms延迟运行，实机仍须用三类源计数和
-  时间戳确认WIT输出率；CAN镜像不得冒充新样本。协议迁移见
+- JY901S到MSPM0为`115200 bit/s`；启用`RSW=0x000E`后10 s内三类源帧各
+  `+1996`（约199.6 Hz）且零校验错误。CAN重复镜像不刷新源age。协议迁移见
   `shared/protocol/MSPM0_CAN_TELEMETRY_V2_PROPOSAL.md`。
 - MSPM0 与 RS00 共享 `1 Mbps Classic CAN` 接入 EdgeTalk M33。MSPM0五类只读遥测为720帧/s（心跳/加速度/角速度/轮速/姿态=`20/200/200/100/200 Hz`）；必须同时观察总线错误、FIFO溢出、重复/乱序/跳号/重启计数和各类数据age。重复或乱序帧不能刷新freshness，心跳未置`IMU_VALID`时新鲜IMU帧也不能进入控制有效位。
 - 树莓派使用 USB Host 连接 EdgeTalk Device Type-C，发送固定64字节 `BALL_MEASUREMENT`。灰度ROI、二值图、轮廓点和完整图像留在树莓派本地，不进入控制链。
@@ -63,7 +61,7 @@
 flowchart TD
     R["目标球位置"] --> O["延迟Kalman观测器<br/>x_hat, v_hat, d_hat"]
     V["100 Hz / 64 B球位置<br/>时间戳/置信度"] --> O
-    I["115200 bit/s<br/>200 Hz唯一ax/pitch样本"] --> O
+    I["accel/gyro/attitude<br/>源帧各约200 Hz"] --> O
     I --> F["非线性扰动前馈"]
     O --> L["离散LQI 200 Hz"]
     F --> S["目标摆角限幅/限速"]

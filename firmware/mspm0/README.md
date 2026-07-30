@@ -7,8 +7,8 @@
 
 用户已确定继续使用上一年参赛的天猛星/MSPM0G3507作为底盘控制器，当前小车工程已接近调通。
 后续滚球部署不得擅自重构原底盘逻辑。源码可确认WIT使用UART3、RX=`PB3`、TX=`PB2`、
-DMA与RX timeout中断，当前SysConfig波特率为`115200 bit/s`；`TIMER_0`为20 ms旧小车PID。
-这不能证明IMU或板间状态已经达到500 Hz。
+DMA与RX timeout中断，WIT UART为`115200 bit/s`；`TIMER_0`为20 ms旧小车PID。
+确认JY901S后已按官方`RSW=0x000E`启用三类报告，10 s实测各约199.6 Hz。
 
 ## 计划职责
 
@@ -25,8 +25,9 @@ EdgeTalk根据这些状态计算水管角并通过CAN控制RS00。
 
 ## IMU串口建议
 
-- MSP到EdgeTalk推荐`460800`或`921600 bit/s`、8N1、UART DMA环形缓冲。
-- 当前WIT到MSP是UART3 `115200 bit/s`；它是传感器链路，不等于板间发布链路。
+- JY901S到MSP是UART3 `115200 bit/s`和DMA流式解析；MSP到EdgeTalk是
+  `1 Mbps Classic CAN`，两条链路分别统计。
+- 每次MSPM0上电写`KEY=0xB588`、延1 ms后写`RSW=0x000E`，不反复写SAVE。
 - 传感器链路应先测真实输出帧长、突发间隔和最大解析延迟；理论带宽够不等于控制余量够。
 - 加速度和角速度先做坐标系转换、量程检查和抗混叠低通，再按冻结的板间发布频率发包。
 - 状态包携带采样时刻而不是发送完成时刻；检测丢帧、乱序、CRC错误和传感器重启。

@@ -23,6 +23,9 @@ RS00协议参考，不迁移机械臂业务、零点或运动参数。
 3. 更正接线后，MSPM0G3507以11位标准帧持续发送五类遥测，EdgeTalk在同一总线上同时接收RS00扩展帧；五类解析有效，200 Hz姿态镜像实测总接收约729.1帧/s。该数字是CAN镜像率，不是IMU源采样率。
 
 4. 同一集成镜像上，树莓派USB守护保持`enabled/active`，EdgeTalk端`109/109` PING/PONG零失败；MSPM0约778 Hz遥测与RS00人工控制并存。
+5. JY901S UART为115200 bit/s，MSPM0上电按官方顺序设`RSW=0x000E`。10 s实测
+   `0x51/0x52/0x53`各`+1996`（约199.6 Hz），checksum/unknown增量为0；EdgeTalk
+   心跳`status=0x0003`、统一快照`imu_age=4 ms`。
 
 因此可以宣称“树莓派USB、MSPM0 CAN、EdgeTalk M33和RS00人工执行器基础闭环已打通”。不能宣称滚球运动闭环已完成：真实100 Hz视觉、M33/M55共享地址统一、两连杆逆解和M55算法到正式200 Hz CSP发布仍待完成。
 
@@ -109,10 +112,9 @@ gap和重启；重复或乱序帧不能刷新freshness。IMU/轮速/心跳stale�
 当前MSPM0总线调度为720帧/s，11位Classic CAN最坏位填充估算约占1 Mbps的10%；即使未来
 RS00扩展反馈达到500 Hz，总线预计仍低于20%。64字节视觉帧继续通过USB发送，不走CAN。
 
-WIT `UART_WIT`当前已设为`115200 bit/s`，三类11字节帧理论上最多约349.1个
-完整组/s。模型按200 Hz唯一样本运行；MSPM0使用各类WIT实际接收计数作
-`0x100/0x101/0x103`源序号，重复的
-200 Hz CAN镜像不再伪装成新样本。统一epoch和源时刻仍需按
+JY901S `UART_WIT`为`115200 bit/s`，三类源帧均实测约199.6 Hz。MSPM0使用
+各类实际接收计数作`0x100/0x101/0x103`源序号，重复CAN镜像不伪装成
+新样本。统一epoch和源时刻仍需按
 `shared/protocol/MSPM0_CAN_TELEMETRY_V2_PROPOSAL.md`实现。
 
 ## 实机与构建证据
@@ -161,12 +163,14 @@ WIT `UART_WIT`当前已设为`115200 bit/s`，三类11字节帧理论上最多�
 - 错接压力曾触发bus-off；恢复逻辑先等待1 s，持续故障最多每秒尝试一次，并在健康后重武装。
 - 主机测试覆盖协议、集成、恢复首延迟/限频/重武装/32位ms回绕；ARM GCC完整链接通过。
 - 本次与RS00微动并行时总线实测约`778.7 frame/s`，五类数据valid、invalid/dup/ooo/gap均为0。
+- JY901S启用固件通过Horco CMSIS-DAP写入`94,208 bytes`；10 s三类源帧各`+1996`，
+  校验/未知帧增量为0，静置Z轴一帧约`9.915 m/s²`。
 - 实机测试保持摆杆/车轮架空无载，RS00单独完成10 mrad微动；MSPM0仍没有运动命令API。
 
 ### 软件回归
 
 - `python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q`：当前57项通过。
-- `python -m pytest firmware/mspm0/wit-oled-hardware-spi/tests -q`：当前4项通过。
+- `python -m pytest firmware/mspm0/wit-oled-hardware-spi/tests -q`：当前10项通过。
 - `python -m pytest experiments/h_ball_control_sim/tests -q`：旧模型29项回归通过。
 - MSPM0 ArmClang全量链接通过，`Code=38324 RO-data=15104 RW-data=144 ZI-data=5968`；
   20个警告均来自既有OLED字库的超长字符串初始化。
@@ -204,8 +208,8 @@ C是右侧固定合页，水管水平时`C->B`向左；O位于C左侧285 mm、�
 车身IMU仍应保留：它补偿车辆俯仰和轴向加速度，不测水管相对车身角度。相对水管角必须
 由RS00编码器经过四杆正解得到；世界系水管角为
 `theta_linkage(q)+pitch_vehicle`。车身IMU无法发现连杆回差和支架变形，必要时在C轴
-增加直接角度编码器。当前WIT UART为115200 bit/s，串口容量足以承载200 Hz完整组；
-但仍要用源序号和时间戳确认真实输出率，200 Hz CAN镜像不能冒充新IMU样本。
+增加直接角度编码器。JY901S的加速度、角速度和姿态源帧均已实测约199.6 Hz；
+CAN重复镜像不刷新源age。
 
 MATLAB/Simulink R2025b按新机构和115200 bit/s、200 Hz唯一IMU基线重跑：
 
