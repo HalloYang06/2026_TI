@@ -45,3 +45,48 @@ python3 edgetalk_vision_stream.py --duration 30 --rate 240 --min-rate 237.6
 3. 用LED/屏幕时间码或硬件触发测量采集到数据包到达的端到端延迟。
 4. 保存不含个人信息的小型参数化测试样例；大视频和原始数据不提交 Git。
 5. 回放测试只产生位置消息，不能通过测试脚本解锁电机或启动车辆。
+
+## USB 开机安全守护
+
+`edgetalk_usb_daemon.py`用于树莓派开机后的第一阶段链路维护。它按以下顺序选择串口：
+
+1. 显式`--port`参数。
+2. `/dev/serial/by-id/`中的唯一稳定路径；存在多个设备时优先名称含`HBall`的唯一项。
+3. 仅在没有by-id设备时，回退到唯一的`/dev/ttyACM*`；多个候选时拒绝猜测。
+
+守护进程等待设备出现，USB断线、READY超时或PING超时后关闭端口并重新发现。收到EdgeTalk心跳后记录`READY: sequence=... uptime_ms=...`，作为开机握手证据。串口以pyserial的`exclusive=True`打开，同时用`flock`进程锁阻止第二个实例占用同一控制链。
+
+安全边界：此开机服务只接收`HBALL_USB_READY`并发送`PING`，不会调用`edgetalk_vision_stream.py`，不会发送64字节视觉帧，更不会用合成轨迹冒充`POSITION_VALID=1`的真实钢球位置。真实相机算法接管前保持这个PING-only状态；后续正式视觉进程在未检出钢球时必须发送`POSITION_VALID=0`，不得回退到合成有效位置。
+
+### 安装为用户服务
+
+树莓派先安装运行依赖：
+
+```bash
+sudo apt update
+sudo apt install python3-serial
+```
+
+在仓库的`vision/raspberrypi`目录执行：
+
+```bash
+mkdir -p ~/.config/hball ~/.config/systemd/user
+cp systemd/edgetalk-usb.env.example ~/.config/hball/edgetalk-usb.env
+cp systemd/hball-edgetalk-usb.service ~/.config/systemd/user/
+```
+
+编辑`~/.config/hball/edgetalk-usb.env`，把`HBALL_USB_DAEMON`改为本机脚本的绝对路径。配置不包含用户名、IP、口令或设备序列号。然后启用服务：
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now hball-edgetalk-usb.service
+systemctl --user status hball-edgetalk-usb.service
+```
+
+若要求未登录时也随系统启动，由操作者显式执行`sudo loginctl enable-linger "$USER"`。日志只用于确认`WAIT`、`RECONNECT`和正常PING链路：
+
+```bash
+journalctl --user -u hball-edgetalk-usb.service -f
+```
+
+首次连接必须在底盘动力断开、轮子和执行器卸载、仅调试器或限流USB供电、急停可用且操作者能立即拔线断电的台架上进行。服务不发送CAN或任何运动命令。需要运行人工视觉吞吐测试时，先停止守护服务释放独占串口；测试结束后再重新启动，避免两个进程争抢端口。

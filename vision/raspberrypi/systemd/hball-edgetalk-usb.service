@@ -1,0 +1,18 @@
+[Unit]
+Description=H-ball EdgeTalk USB safe-link daemon
+After=local-fs.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/hball/edgetalk-usb.env
+ExecStart=/usr/bin/env python3 -u "${HBALL_USB_DAEMON}" --lock-file %t/hball-edgetalk-usb.lock
+Restart=always
+RestartSec=1s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+
+[Install]
+WantedBy=default.target
