@@ -2,8 +2,8 @@
 %
 % The test starts inside the 10 mm accuracy band at +5 mm. It compares
 % centre holding on a moving vehicle and a bounded start/brake/pothole case.
-% The estimator/controller remain at 200 Hz; the current WIT source model
-% supplies about 30 unique IMU groups/s and holds each sample between updates.
+% The estimator/controller and WIT source model run at 200 Hz. The WIT UART
+% is 115200 bit/s; source timestamps must still verify the real output rate.
 
 clearvars;
 close all;

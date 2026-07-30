@@ -16,7 +16,7 @@ PSOC Edge E84
   └─ RS00 CAN 1 Mbit/s motion-mode command and feedback
 
 MSPM0G3507
-  ├─ current WIT source: about 29.1 complete groups/s at 9600 bit/s
+  ├─ WIT UART: 115200 bit/s; 200 Hz deployment baseline
   └─ source-sequenced/timestamped IMU publication
        │ dedicated SPI/UART/CAN-FD
        └──────────────────────────────► PSOC Edge E84
@@ -65,14 +65,14 @@ disturbance and can produce a limit cycle on the slippery pipe.
 
 ## Real-time task budget
 
-The current WIT UART is 9600 bit/s. Three 11-byte 8N1 frames require at least
-330 bits, so there can be at most about 29.1 complete accel/gyro/attitude
-groups per second. The MSPM0 timestamps and source-sequences those groups.
-A 200 Hz CAN mirror is publication scheduling, not a 5 ms IMU source period.
+The WIT UART is 115200 bit/s. Three 11-byte 8N1 frames require 330 bits, so
+the serial ceiling is about 349.1 complete accel/gyro/attitude groups per
+second. The model uses 200 Hz unique groups and 8 ms delay; the MSPM0 must
+timestamp and source-sequence groups so hardware tests can verify that rate.
 
 | Device/task | Suggested method |
 |---|---|
-| MSPM0, source event ≈29 Hz | assemble WIT frames and timestamp the unique group |
+| MSPM0, source event 200 Hz target | assemble WIT frames and timestamp the unique group |
 | MSPM0, CAN scheduler | publish source sequence/age; repeated mirrors do not refresh freshness |
 | PSOC, 200 Hz | consume the latest timestamped IMU sample with zero-order hold |
 | PSOC, 200 Hz | 3-state observer, LQI, feedforward and edge supervisor |

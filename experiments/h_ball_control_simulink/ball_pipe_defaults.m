@@ -10,7 +10,7 @@ function bp = ball_pipe_defaults()
 %   constants. Replace them with values identified on the real apparatus.
 
 bp.meta.model_name = 'ball_pipe_nonlinear';
-bp.meta.version = '1.3-measured-linkage-30hz-imu';
+bp.meta.version = '1.4-measured-linkage-115200-200hz-imu';
 
 % Physical geometry and gravity.
 bp.gravity = 9.80665;                 % m/s^2
@@ -148,10 +148,10 @@ bp.actuator.delay = bp.rs00.command_delay;
 % Camera and controller timing.
 bp.sample.Ts_control = 0.005;           % s, 200 Hz controller
 bp.sample.Ts_camera = 1/100;            % s, user-confirmed 100 Hz camera
-% Current WIT UART is 9600 bit/s. Three 11-byte 8N1 frames limit complete
-% accel/gyro/attitude groups to about 29.1 Hz. Use a 30 Hz grid approximation;
-% the 200 Hz CAN mirror repeats held data and is not a new-sample rate.
-bp.sample.Ts_imu = 1/30;                % s, current source-rate approximation
+% The WIT UART is 115200 bit/s. Three 11-byte 8N1 frames require 330 bits,
+% giving a 349.1-group/s serial ceiling. Model 200 Hz unique groups as the
+% deployment baseline; confirm the sensor output rate from source timestamps.
+bp.sample.Ts_imu = 1/200;               % s, conservative deployment baseline
 bp.sensor.camera_pipeline_delay = 0.025; % s, exposure + Raspberry Pi vision
 bp.sensor.rpi_psoc_uart_delay = 0.010;   % s, framing + buffering + processing
 bp.sensor.vision_delay = ...
@@ -160,7 +160,7 @@ bp.sensor.position_sigma = 0.0015;      % m, 1-sigma camera noise
 bp.sensor.position_quantization = 0.0005; % m/pixel-equivalent
 bp.sensor.dropout_probability = 0.02;   % probability per camera frame
 bp.sensor.random_seed = 20260729;
-bp.sensor.imu_delay = 0.035;             % s, serial group + processing estimate
+bp.sensor.imu_delay = 0.008;             % s, 2.9 ms wire time + processing/scheduling
 bp.sensor.imu_pitch_sigma = 0.10*pi/180; % rad
 bp.sensor.imu_accel_sigma = 0.04;        % m/s^2, gravity-compensated axis
 bp.sensor.imu_pitch_bias = 0.05*pi/180;  % rad
@@ -222,7 +222,7 @@ bp.kalman.disturbance_random_walk_sigma = 0.30; % m/s^3
 bp.reference.time = [0; 2; 5; 8; 11; 14];
 bp.reference.position = [0; 0; 0.020; -0.020; 0; 0];
 bp.sim.stop_time = 14.0;
-bp.sim.fixed_step = 1/3000;             % s; common grid for 30/100/200/500 Hz tasks
+bp.sim.fixed_step = 1/3000;             % s; common grid for 100/200/500 Hz tasks
 
 end
 

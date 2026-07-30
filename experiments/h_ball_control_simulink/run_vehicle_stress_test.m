@@ -100,8 +100,8 @@ scenarios(8).vehicle.events = [ ...
 scenarios(8).sensor.vision_delay = 0.050;
 scenarios(8).sensor.dropout_probability = 0.05;
 
-% Optional what-if override, e.g. a WIT link upgraded to 115200 bit/s and
-% configured for 200 Hz unique source groups. This does not change defaults.
+% Optional sensitivity override for measured WIT source rate and delay.
+% The default is the 115200 bit/s, 200 Hz deployment baseline.
 if exist('imu_source_rate_override_hz', 'var') ...
         && ~isempty(imu_source_rate_override_hz)
     for index = 1:numel(scenarios)

@@ -344,7 +344,7 @@ UART2.rxPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 UART2.rxPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric8";
 
 UART3.$name                            = "UART_WIT";
-UART3.targetBaudRate                   = 9600;
+UART3.targetBaudRate                   = 115200;
 UART3.enableFIFO                       = true;
 UART3.rxTimeoutValue                   = 2;
 UART3.uartClkDiv                       = "2";
