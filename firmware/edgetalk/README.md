@@ -30,7 +30,9 @@ scons -j12
 
 M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为200 Hz快照。USB和CAN线程通过RT-Thread优先级继承mutex更新单写数据层；每类数据独立计算age和valid。MSPM0各数据流现在独立检查16位序号：重复/乱序帧不刷新时间戳，跳号和重启可诊断，心跳未置`IMU_VALID`时不发布有效IMU。当前快照保留视觉板原始`capture_time_us`，但在时钟同步实现前只把`vision_receive_age_ms`用于链路诊断，不能冒充真实采集age。
 
-本机集成ARM构建已通过：`text=216884 data=14932 bss=245233`。只有人工执行的`hball_probe5`允许发送无运动Get_ID；自动探针默认关闭，`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`保持硬约束。
+本机集成ARM构建已通过：`text=214596 data=15656 bss=244516`，运行标签为`0.3.0-m33-integrated-shadow`。只有人工执行的`hball_probe5`允许发送无运动Get_ID；自动探针默认关闭，`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`保持硬约束。
+
+2026-07-30已将该集成镜像烧入实板：OpenOCD写入并校验raw Secure+NS `339,968 bytes`，组合XIP校验`332,708 bytes`，NS校验`230,252 bytes`，随后到达Non-secure reset handler。树莓派CDC守护完成自动重连；人工执行一次只读Get_ID后，RS00回复有效，CAN的TEC/REC、pending、bus-off和FIFO丢失均为0。MSPM0下载器尚未接入，`msp_rx=0`，因此三节点实物链路仍不能标记完成。
 
 ## M55算法与LVGL shadow构建
 
@@ -46,7 +48,7 @@ M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为20
 python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q
 ```
 
-当前主仓库同时覆盖文本探针、64字节视觉帧、CRC32C、坏帧重同步、USB拆/粘包，以及CAN帧经统一快照进入LQG shadow的端到端主机测试。集成M33 ARM构建已通过，大小为`text=216884 data=14932 bss=245233`；真实240 Hz二进制接收计数仍需单独验证。
+当前主仓库同时覆盖文本探针、64字节视觉帧、CRC32C、坏帧重同步、USB拆/粘包，以及CAN帧经统一快照进入LQG shadow的端到端主机测试。集成M33 ARM构建已通过，大小为`text=214596 data=15656 bss=244516`；真实240 Hz二进制接收计数仍需单独验证。
 
 ## 已验证的构建与烧录流程
 
