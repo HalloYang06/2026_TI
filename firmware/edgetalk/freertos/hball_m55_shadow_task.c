@@ -4,6 +4,7 @@
 #include "task.h"
 
 #include "hball_control_pipeline.h"
+#include "hball_deployment_config.h"
 #include "hball_m55_ipc.h"
 
 #include <stddef.h>
@@ -224,6 +225,12 @@ BaseType_t hball_m55_freertos_start(void)
         return pdPASS;
     }
     hball_control_pipeline_init(&g_hball_m55_pipeline, 0.0F);
+    if (HBALL_LINKAGE_LEVEL_ENCODER_VALID != 0U)
+    {
+        (void)hball_control_pipeline_set_motor_level(
+            &g_hball_m55_pipeline, HBALL_LINKAGE_LEVEL_ENCODER_RAD
+        );
+    }
     memset(&g_hball_m55_snapshot, 0, sizeof(g_hball_m55_snapshot));
     memset(&g_hball_m55_output, 0, sizeof(g_hball_m55_output));
     memset(&g_hball_m55_ui_snapshot, 0, sizeof(g_hball_m55_ui_snapshot));

@@ -1,7 +1,8 @@
 #ifndef HBALL_CONTROL_PIPELINE_H
 #define HBALL_CONTROL_PIPELINE_H
 
-#include "hball_lqg.h"
+#include "hball_deployment_controller.h"
+#include "hball_fourbar.h"
 #include "hball_sensor_fusion.h"
 
 #include <stdbool.h>
@@ -33,11 +34,17 @@ typedef struct
     float estimated_position_m;
     float estimated_velocity_mps;
     float estimated_disturbance_mps2;
+    float actual_pipe_angle_rad;
+    float motor_target_rad;
+    bool linkage_valid;
+    bool linkage_calibrated;
 } hball_control_output_t;
 
 typedef struct
 {
-    hball_lqg_t lqg;
+    hball_deployment_controller_t controller;
+    hball_fourbar_geometry_t fourbar;
+    float motor_level_angle_rad;
     uint32_t last_vision_sequence;
     uint32_t step_total;
     uint32_t vision_measurements_consumed;
@@ -45,10 +52,14 @@ typedef struct
     uint32_t low_confidence_vision_skips;
     uint32_t rejected_vision_measurements;
     bool vision_sequence_initialized;
+    bool linkage_calibrated;
 } hball_control_pipeline_t;
 
 void hball_control_pipeline_init(
     hball_control_pipeline_t *pipeline, float initial_position_m
+);
+bool hball_control_pipeline_set_motor_level(
+    hball_control_pipeline_t *pipeline, float motor_level_angle_rad
 );
 void hball_control_pipeline_step(
     hball_control_pipeline_t *pipeline,

@@ -1,4 +1,5 @@
 #include "hball_usb_probe.h"
+#include "hball_usb_telemetry.h"
 
 #include <finsh.h>
 #include <rtthread.h>
@@ -56,6 +57,8 @@ typedef struct
     float last_vision_confidence;
     rt_bool_t vision_sequence_initialized;
     rt_bool_t binary_mode;
+    rt_uint32_t telemetry_tx_total;
+    rt_uint32_t telemetry_drop_total;
 } hball_usb_stats_t;
 
 static const USB_DEVICE_INFO g_hball_usb_device_info = {
@@ -71,6 +74,49 @@ static hball_usb_stats_t g_hball_usb_stats;
 static hball_vision_stream_t g_hball_vision_stream;
 static hball_rate_meter_t g_hball_vision_rate;
 static rt_thread_t g_hball_usb_thread = RT_NULL;
+static hball_log_record_t g_hball_telemetry_latest;
+static volatile rt_bool_t g_hball_telemetry_pending = RT_FALSE;
+static rt_bool_t hball_usb_write(const char *message, rt_size_t length);
+
+bool hball_usb_telemetry_submit(const hball_log_record_t *record)
+{
+    rt_base_t level;
+
+    if (record == RT_NULL)
+    {
+        return false;
+    }
+    level = rt_hw_interrupt_disable();
+    if (g_hball_telemetry_pending)
+    {
+        g_hball_usb_stats.telemetry_drop_total++;
+    }
+    g_hball_telemetry_latest = *record;
+    g_hball_telemetry_pending = RT_TRUE;
+    rt_hw_interrupt_enable(level);
+    return true;
+}
+
+static void hball_usb_send_pending_telemetry(void)
+{
+    hball_log_record_t record;
+    uint8_t frame[HBALL_LOG_FRAME_SIZE];
+    rt_base_t level = rt_hw_interrupt_disable();
+
+    if (!g_hball_telemetry_pending)
+    {
+        rt_hw_interrupt_enable(level);
+        return;
+    }
+    record = g_hball_telemetry_latest;
+    g_hball_telemetry_pending = RT_FALSE;
+    rt_hw_interrupt_enable(level);
+    if (hball_log_encode(&record, frame)
+        && hball_usb_write((const char *)frame, sizeof(frame)))
+    {
+        g_hball_usb_stats.telemetry_tx_total++;
+    }
+}
 
 /*
  * Endpoint layout and startup order follow Infineon's PSoC Edge CDC echo
@@ -283,6 +329,7 @@ static void hball_usb_session(void)
             (rt_uint32_t)rt_tick_get_millisecond();
         int received;
 
+        hball_usb_send_pending_telemetry();
         if (!g_hball_usb_stats.binary_mode
             && ((rt_uint32_t)(now_ms - last_ready_ms)
                 >= HBALL_USB_READY_PERIOD_MS))
@@ -465,6 +512,12 @@ static void hball_usb_status(void)
         (unsigned int)HBALL_VISION_FRAME_SIZE,
         (unsigned int)HBALL_VISION_TARGET_HZ,
         (unsigned int)HBALL_VISION_ACCEPT_HZ
+    );
+    rt_kprintf(
+        "[hball-usb] telemetry_tx=%lu telemetry_drop=%lu frame_bytes=%u target_hz=50 actuator_tx=0\n",
+        (unsigned long)g_hball_usb_stats.telemetry_tx_total,
+        (unsigned long)g_hball_usb_stats.telemetry_drop_total,
+        (unsigned int)HBALL_LOG_FRAME_SIZE
     );
 }
 MSH_CMD_EXPORT(hball_usb_status, show read-only H-ball USB CDC diagnostics);

@@ -18,6 +18,7 @@ from typing import Any
 from urllib.request import urlopen
 
 from edgetalk_usb_daemon import SingleInstanceLock, find_serial_port
+from edgetalk_log_protocol import ControlLogStream
 from vision_measurement_protocol import (
     FLAG_DETECTED,
     FLAG_POSITION_VALID,
@@ -66,10 +67,14 @@ def build_measurement(payload: dict[str, Any]) -> VisionMeasurement:
     )
 
 
-def forward_stream(source_url: str, device, *, max_frames: int | None = None) -> int:
+def forward_stream(
+    source_url: str, device, *, max_frames: int | None = None,
+    telemetry_log=None,
+) -> int:
     """Forward fresh SSE records; a disconnect raises so the caller reconnects."""
     forwarded = 0
     last_sequence: int | None = None
+    telemetry = ControlLogStream()
     with urlopen(source_url, timeout=5.0) as response:
         for raw_line in response:
             if not raw_line.startswith(b"data: "):
@@ -88,6 +93,11 @@ def forward_stream(source_url: str, device, *, max_frames: int | None = None) ->
             if written != len(frame):
                 raise OSError(f"short USB CDC write: {written}/{len(frame)}")
             device.flush()
+            waiting = getattr(device, "in_waiting", 0)
+            if waiting:
+                for record in telemetry.push(device.read(waiting)):
+                    if telemetry_log is not None:
+                        telemetry_log.write(record.raw)
             last_sequence = sequence
             forwarded += 1
             if max_frames is not None and forwarded >= max_frames:
@@ -101,6 +111,10 @@ def main() -> int:
     parser.add_argument("--port", help="EdgeTalk /dev/serial/by-id path; auto-detect by default")
     parser.add_argument("--retry", type=float, default=1.0)
     parser.add_argument("--lock-file", default="/tmp/hball-edgetalk-camera.lock")
+    parser.add_argument(
+        "--telemetry-log",
+        help="append validated 80-byte control records; disabled by default",
+    )
     arguments = parser.parse_args()
     if arguments.retry <= 0.0:
         parser.error("retry must be positive")
@@ -115,14 +129,22 @@ def main() -> int:
     if not lock.acquire():
         print("FAIL: another EdgeTalk camera sender owns the USB link", file=sys.stderr)
         return 3
+    telemetry_log = None
     try:
+        telemetry_log = (
+            open(arguments.telemetry_log, "ab", buffering=0)
+            if arguments.telemetry_log else None
+        )
         while True:
             try:
                 port = find_serial_port(arguments.port)
                 with serial.Serial(port=port, baudrate=115200, timeout=0.0,
                                    write_timeout=WRITE_TIMEOUT_S, exclusive=True) as device:
                     device.reset_input_buffer()
-                    count = forward_stream(arguments.source_url, device)
+                    count = forward_stream(
+                        arguments.source_url, device,
+                        telemetry_log=telemetry_log,
+                    )
                     print(f"RECONNECT: SSE ended after {count} frames", file=sys.stderr)
             except (OSError, RuntimeError, ValueError) as error:
                 print(f"RECONNECT: {error}", file=sys.stderr)
@@ -130,6 +152,8 @@ def main() -> int:
     except KeyboardInterrupt:
         return 0
     finally:
+        if telemetry_log is not None:
+            telemetry_log.close()
         lock.close()
 
 

@@ -2,12 +2,14 @@
 #include "hball_dualcore_platform.h"
 #include "hball_m33_inputs.h"
 #include "hball_diagnostics_config.h"
+#include "hball_usb_telemetry.h"
 
 #include <finsh.h>
 #include <rtthread.h>
 
 #define HBALL_M33_GUARD_PERIOD_MS 1U
 #define HBALL_M33_GUARD_LOG_PERIOD_MS 1000U
+#define HBALL_M33_TELEMETRY_PERIOD_MS 20U
 
 _Static_assert(
     HBALL_CONTROL_GUARD_ACTUATOR_TX_ENABLED == 0U,
@@ -25,6 +27,44 @@ static rt_uint32_t g_hball_m33_snapshot_failure_total = 0U;
 static rt_uint32_t g_hball_m33_stale_event_total = 0U;
 static hball_ipc_result_t g_hball_m33_last_ipc_result = HBALL_IPC_HEADER;
 static rt_bool_t g_hball_m33_fresh_previous = RT_FALSE;
+static rt_uint32_t g_hball_m33_telemetry_sequence = 0U;
+static rt_uint32_t g_hball_m33_last_telemetry_ms = 0U;
+
+static void hball_m33_submit_telemetry(
+    const hball_sensor_snapshot_t *sensor, rt_uint32_t now_ms
+)
+{
+    hball_log_record_t record;
+
+    if ((rt_uint32_t)(now_ms - g_hball_m33_last_telemetry_ms)
+        < HBALL_M33_TELEMETRY_PERIOD_MS)
+    {
+        return;
+    }
+    g_hball_m33_last_telemetry_ms = now_ms;
+    rt_memset(&record, 0, sizeof(record));
+    record.sequence = g_hball_m33_telemetry_sequence++;
+    record.produced_time_ms = now_ms;
+    record.sensor_sequence = sensor->sequence;
+    record.controller_steps = g_hball_m33_shadow.controller_steps;
+    record.vision_sequence = sensor->vision_sequence;
+    record.sensor_valid_flags = sensor->valid_flags;
+    record.control_mode = g_hball_m33_shadow.mode;
+    record.guard_reason = (rt_uint16_t)g_hball_m33_decision.reason;
+    record.status_flags =
+        g_hball_m33_decision.safety_qualified ? UINT32_C(1) : 0U;
+    record.ball_position_m = sensor->ball_position_m;
+    record.estimated_position_m = g_hball_m33_shadow.estimated_position_m;
+    record.estimated_velocity_mps = g_hball_m33_shadow.estimated_velocity_mps;
+    record.estimated_disturbance_mps2 =
+        g_hball_m33_shadow.estimated_disturbance_mps2;
+    record.pipe_target_rad = g_hball_m33_decision.shadow_target_rad;
+    record.motor_angle_rad = sensor->motor_angle_rad;
+    record.motor_velocity_rad_s = sensor->motor_velocity_rad_s;
+    record.longitudinal_accel_mps2 = sensor->longitudinal_accel_mps2;
+    record.body_pitch_rad = sensor->body_pitch_rad;
+    (void)hball_usb_telemetry_submit(&record);
+}
 
 static void hball_m33_guard_print_status(void)
 {
@@ -76,6 +116,7 @@ static void hball_m33_guard_step(rt_uint32_t now_ms)
                 now_ms,
                 &g_hball_m33_decision
             );
+            hball_m33_submit_telemetry(&sensor, now_ms);
         }
         else
         {

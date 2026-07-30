@@ -169,7 +169,7 @@ JY901S `UART_WIT`为`115200 bit/s`，三类源帧均实测约199.6 Hz。MSPM0使
 
 ### 软件回归
 
-- `python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q`：当前57项通过。
+- `python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q`：当前62项通过。
 - `python -m pytest firmware/mspm0/wit-oled-hardware-spi/tests -q`：当前10项通过。
 - `python -m pytest experiments/h_ball_control_sim/tests -q`：旧模型29项回归通过。
 - MSPM0 ArmClang全量链接通过，`Code=38324 RO-data=15104 RW-data=144 ZI-data=5968`；
@@ -203,8 +203,8 @@ JY901S `UART_WIT`为`115200 bit/s`，三类源帧均实测约199.6 Hz。MSPM0使
 
 视觉轴向坐标冻结为：`x=0`是树莓派检测零点，向合页C为负，远离C为正，因此
 `x_C=-155 mm`、球心到C的沿管力臂为`s_C=155 mm+x`。物理挡边为`x=±112 mm`；
-球心软件几何极限必须再扣除钢球半径。当前文档名义钢球直径10 mm，而Simulink使用
-半径10 mm，两者冲突，下一次模型修改前必须用卡尺确认。
+球心软件几何极限必须再扣除钢球半径。用户确认钢球直径约10 mm，因此部署算法暂按
+半径5 mm、球心几何极限±107 mm；最终值仍用卡尺确认。
 
 C是右侧固定合页，水管水平时`C->B`向左；O位于C左侧285 mm、低55 mm。若外径约
 50 mm且C轴与水管中心轴重合，管底约68 mm。当前雅可比保护下连续可用区约
@@ -242,6 +242,21 @@ MATLAB/Simulink R2025b按新机构和115200 bit/s、200 Hz唯一IMU基线重跑�
 - `docs/hardware/measured-parameters.md`
 
 ## 下一步：从遥测打通到可控闭环
+
+### 2026-07-31 固件实现状态
+
+- M55控制管线已切换到部署版三状态延迟KF（`x/v/等效扰动`）、LQI、车身IMU前馈、
+  积分抗饱和和端部恢复；保存32个200 Hz状态，按视觉曝光时间做最长150 ms历史更新并回放。
+- 四杆正逆解已使用`OA=35 mm`、`AB=55.5 mm`、`CB=300.1 mm`和
+  `O-C=(-285,-55) mm`；水平几何解为`3.051858578444 rad`。
+- 正常/恢复/硬角度限制为`±4°/±5.5°/±6°`，管角指令斜率为`0.35 rad/s`。
+- 水平位实际RS00编码器值尚未提供，`HBALL_LINKAGE_LEVEL_ENCODER_VALID=0`。
+  因此即使M55影子算法输出正常，M33安全资格也必定为false。
+- M33新增50 Hz只读控制日志邮箱，USB线程发送80字节CRC32C帧；控制线程不做USB阻塞写。
+  树莓派桥接程序用`--telemetry-log PATH`保存通过CRC校验的帧，原始量约4 kB/s。
+  协议见`docs/protocol/EDGETALK_CONTROL_LOG_V1.md`。
+- 主机测试62项通过；尚未完成目标板编译、M55烧录或实车闭环验证，正式自动运动仍锁死
+  `ACTUATOR_TX=0`。
 
 1. 记录IMU型号/固件、支持的波特率/输出率、CAN收发器型号和EN/STB接法、轮周长与编码器counts/rev，再把`0x102`从0改成标定米制速度。
 2. 查RS00厂家资料或做只读抓包，冻结实际角度/速度反馈帧和250~500 Hz反馈周期；在此之前不发送模式切换、使能或位置命令。

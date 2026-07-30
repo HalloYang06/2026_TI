@@ -133,6 +133,9 @@ static hball_control_output_t run_pipeline(
     hball_control_output_t output;
 
     hball_control_pipeline_init(&pipeline, 0.0F);
+    assert(hball_control_pipeline_set_motor_level(
+        &pipeline, snapshot->motor_angle_rad
+    ));
     hball_control_pipeline_step(&pipeline, snapshot, 0.005F, 0.0F, &output);
     return output;
 }

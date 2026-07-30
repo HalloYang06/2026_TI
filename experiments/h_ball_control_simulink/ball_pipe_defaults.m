@@ -14,11 +14,11 @@ bp.meta.version = '1.4-measured-linkage-115200-200hz-imu';
 
 % Physical geometry and gravity.
 bp.gravity = 9.80665;                 % m/s^2
-bp.ball.radius = 0.010;               % m
+bp.ball.radius = 0.005;               % m, approx. 10 mm measured diameter
 bp.ball.density = 7850;               % kg/m^3, typical carbon/bearing steel
 bp.ball.mass = (4/3) * pi * bp.ball.radius^3 * bp.ball.density;
 bp.ball.inertia = (2/5) * bp.ball.mass * bp.ball.radius^2;
-bp.pipe.usable_length = 0.250;        % m, user-measured usable length
+bp.pipe.usable_length = 0.224;        % m, physical ball path: +/-112 mm
 bp.pipe.inner_diameter = 0.050;       % m, documented for later geometry upgrades
 
 % Steel/PVC contact model.
@@ -116,11 +116,10 @@ bp.mechanism.pipe_mass = 0.30;          % kg, PVC pipe + end bracket placeholder
 bp.mechanism.pipe_inertia_about_com = ...
     bp.mechanism.pipe_mass*bp.pipe.usable_length^2/12;
 bp.mechanism.extra_inertia = 0.001;     % kg*m^2, hinge/end bracket placeholder
-% These 0.125 m lever arms assume C is at one end of the 250 mm usable
-% section. Re-measure if the 300.1 mm C-B radius includes an offset bracket.
+% Pipe COM remains provisional; vision x=0 is measured 155 mm from C.
 bp.mechanism.com_along_pipe = 0.125;    % m; C to pipe/bracket COM placeholder
 bp.mechanism.com_below_pivot = 0.0;     % m; positive gives restoring torque
-bp.mechanism.ball_origin_from_pivot = 0.125; % m; C to ball x=0 placeholder
+bp.mechanism.ball_origin_from_pivot = 0.155; % m; C to vision x=0, user-measured
 bp.mechanism.pipe_inertia_about_pivot = ...
     bp.mechanism.pipe_inertia_about_com ...
     + bp.mechanism.pipe_mass*( ...

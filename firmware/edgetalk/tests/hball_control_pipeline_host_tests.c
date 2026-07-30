@@ -34,6 +34,7 @@ static void test_200_hz_pipeline_fuses_each_120_hz_vision_sequence_once(void)
     hball_sensor_snapshot_t snapshot = make_tracking_snapshot();
 
     hball_control_pipeline_init(&pipeline, 0.004F);
+    assert(hball_control_pipeline_set_motor_level(&pipeline, 0.0F));
     for (uint32_t step = 0U; step < 10U; ++step)
     {
         snapshot.sequence = step + 1U;
@@ -47,11 +48,14 @@ static void test_200_hz_pipeline_fuses_each_120_hz_vision_sequence_once(void)
     assert(pipeline.step_total == 10U);
     assert(pipeline.vision_measurements_consumed == 6U);
     assert(pipeline.duplicate_vision_skips == 4U);
-    assert(pipeline.lqg.accepted_camera_updates == 6U);
+    assert(pipeline.controller.accepted_camera_updates == 6U);
     assert(output.mode == HBALL_CONTROL_TRACKING);
     assert(output.safety_eligible);
+    assert(output.linkage_valid);
+    assert(output.linkage_calibrated);
     assert(isfinite(output.shadow_command_rad));
-    assert(fabsf(output.shadow_command_rad) <= 0.069814F);
+    assert(isfinite(output.motor_target_rad));
+    assert(fabsf(output.shadow_command_rad) <= 0.104720F);
 }
 
 static void test_pipeline_degrades_by_vision_age_without_refusing_model_prediction(void)
@@ -61,6 +65,7 @@ static void test_pipeline_degrades_by_vision_age_without_refusing_model_predicti
     hball_sensor_snapshot_t snapshot = make_tracking_snapshot();
 
     hball_control_pipeline_init(&pipeline, 0.0F);
+    assert(hball_control_pipeline_set_motor_level(&pipeline, 0.0F));
     snapshot.vision_sequence = 1U;
     hball_control_pipeline_step(&pipeline, &snapshot, 0.005F, 0.0F, &output);
     assert(output.mode == HBALL_CONTROL_TRACKING);
@@ -89,6 +94,7 @@ static void test_estop_motor_fault_or_low_confidence_blocks_safety_eligibility(v
     hball_sensor_snapshot_t snapshot = make_tracking_snapshot();
 
     hball_control_pipeline_init(&pipeline, 0.0F);
+    assert(hball_control_pipeline_set_motor_level(&pipeline, 0.0F));
     snapshot.vision_sequence = 1U;
     snapshot.valid_flags |= HBALL_SENSOR_ESTOP_ACTIVE;
     hball_control_pipeline_step(&pipeline, &snapshot, 0.005F, 0.0F, &output);
@@ -115,6 +121,7 @@ static void test_read_only_motor_parameters_remain_shadow_only(void)
     hball_sensor_snapshot_t snapshot = make_tracking_snapshot();
 
     hball_control_pipeline_init(&pipeline, 0.0F);
+    assert(hball_control_pipeline_set_motor_level(&pipeline, 0.0F));
     snapshot.vision_sequence = 1U;
     snapshot.valid_flags &= ~HBALL_SENSOR_VALID_MOTOR;
     snapshot.valid_flags |= HBALL_SENSOR_VALID_MOTOR_PARAMETERS;

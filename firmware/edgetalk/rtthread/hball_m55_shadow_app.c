@@ -1,4 +1,5 @@
 #include "hball_control_pipeline.h"
+#include "hball_deployment_config.h"
 #include "hball_m55_ipc.h"
 #include "hball_m55_ui.h"
 
@@ -215,6 +216,12 @@ static int hball_m55_shadow_start(void)
     int lvgl_result;
 
     hball_control_pipeline_init(&g_hball_m55_pipeline, 0.0F);
+    if (HBALL_LINKAGE_LEVEL_ENCODER_VALID != 0U)
+    {
+        (void)hball_control_pipeline_set_motor_level(
+            &g_hball_m55_pipeline, HBALL_LINKAGE_LEVEL_ENCODER_RAD
+        );
+    }
     rt_memset(&g_hball_m55_snapshot, 0, sizeof(g_hball_m55_snapshot));
     rt_memset(&g_hball_m55_output, 0, sizeof(g_hball_m55_output));
     g_hball_m55_snapshot.vision_receive_age_ms = UINT32_MAX;

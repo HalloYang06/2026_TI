@@ -8,11 +8,11 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_m55_control_pipeline_consumes_multirate_snapshots_safely(tmp_path: Path):
+def test_deployment_controller_and_fourbar_host_contract(tmp_path: Path):
     gcc = shutil.which("gcc")
     assert gcc is not None, "host GCC is required for the EdgeTalk C-port tests"
 
-    executable = tmp_path / "hball_control_pipeline_host_tests.exe"
+    executable = tmp_path / "hball_deployment_host_tests.exe"
     command = [
         gcc,
         "-std=c11",
@@ -22,10 +22,21 @@ def test_m55_control_pipeline_consumes_multirate_snapshots_safely(tmp_path: Path
         "-pedantic",
         "-I",
         str(ROOT / "firmware" / "edgetalk" / "include"),
-        str(ROOT / "firmware" / "edgetalk" / "src" / "hball_deployment_controller.c"),
+        str(
+            ROOT
+            / "firmware"
+            / "edgetalk"
+            / "src"
+            / "hball_deployment_controller.c"
+        ),
         str(ROOT / "firmware" / "edgetalk" / "src" / "hball_fourbar.c"),
-        str(ROOT / "firmware" / "edgetalk" / "src" / "hball_control_pipeline.c"),
-        str(ROOT / "firmware" / "edgetalk" / "tests" / "hball_control_pipeline_host_tests.c"),
+        str(
+            ROOT
+            / "firmware"
+            / "edgetalk"
+            / "tests"
+            / "hball_deployment_host_tests.c"
+        ),
         "-lm",
         "-o",
         str(executable),
