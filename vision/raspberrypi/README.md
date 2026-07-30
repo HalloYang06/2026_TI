@@ -30,6 +30,23 @@ python3 edgetalk_vision_stream.py --duration 30 --rate 240 --min-rate 237.6
 
 正式发送的USB单次写超时为20 ms；发生背压时跳过已经过期的采集时隙，不把旧帧排队补发。64字节帧应逐帧立即提交，不能为追求USB包利用率等待凑满512字节。
 
+## 真实 OpenCV 相机桥接
+
+`edgetalk_camera_bridge.py`用于已部署的`ball_vision_sender` C++服务。该服务在
+`http://127.0.0.1:8080/data`提供每个新视觉序号的SSE JSON；桥接程序只取该测量元数据，
+转换为`VISION_MEASUREMENT_V1`后写入EdgeTalk USB CDC。图像仍只用于电脑图传/录像，绝不
+发送到控制链。
+
+```bash
+sudo apt install -y python3-serial
+python3 edgetalk_camera_bridge.py
+```
+
+它优先使用唯一的`/dev/serial/by-id/`设备；存在多个设备时必须用`--port`传入明确的稳定路径。
+发送端有独占锁，不能与仅握手的`edgetalk_usb_daemon.py`同时占用同一个CDC设备。调试完成后可
+将`systemd/hball-edgetalk-camera.service`复制到`/etc/systemd/system/`并启用；该服务只发送视觉
+测量帧，不会启用电机、发送CAN或产生运动命令。
+
 球速不由树莓派用相邻两帧直接差分后作为控制量。EdgeTalk根据100 Hz带时间戳位置，
 在OOSM Kalman中估计球速和扰动。
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=H-ball real camera measurement sender for EdgeTalk
+After=ball-camera.service
+Wants=ball-camera.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/halloyang/2026_TI/vision/raspberrypi/edgetalk_camera_bridge.py
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

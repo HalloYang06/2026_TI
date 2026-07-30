@@ -1,0 +1,15 @@
+[Unit]
+Description=C++ OpenCV ball vision and MJPEG sender
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=halloyang
+WorkingDirectory=/home/halloyang/2026_TI/vision/raspberrypi/ball_camera
+ExecStart=/home/halloyang/2026_TI/vision/raspberrypi/ball_camera/start_ball_camera.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
