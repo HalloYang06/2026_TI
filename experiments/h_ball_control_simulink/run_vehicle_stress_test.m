@@ -1,6 +1,7 @@
 %RUN_VEHICLE_STRESS_TEST Mobile-platform low-friction pressure test.
 
-clearvars -except vehicle_stress_selection;
+clearvars -except vehicle_stress_selection ...
+    imu_source_rate_override_hz imu_delay_override;
 close all;
 
 root = fileparts(mfilename('fullpath'));
@@ -26,8 +27,9 @@ scenario_names = { ...
     'Normal vehicle motion', ...
     'Acceleration and hard brake', ...
     'Pothole plus degraded UART vision', ...
-    'Worst combined, optimized', ...
-    'Worst combined, KF-LQI only', ...
+    'Feasible combined, optimized', ...
+    'Feasible combined, KF-LQI only', ...
+    'Beyond new mechanism envelope', ...
     '3.0 m/s2 transient over steady authority'};
 
 scenarios = repmat(base, 1, numel(scenario_names));
@@ -58,31 +60,58 @@ scenarios(4).sensor.vision_delay = 0.100;
 scenarios(4).sensor.dropout_probability = 0.25;
 scenarios(4).sensor.position_sigma = 0.0030;
 
-% Very low friction, brake/pothole, camera/UART degradation and IMU bias.
+% Feasible combined case for the new +/-6 deg, 0.35 rad/s mechanism.
 scenarios(5) = scenarios(4);
 scenarios(5).contact.mu_static = 0.020;
 scenarios(5).contact.mu_kinetic = 0.012;
 scenarios(5).contact.rolling_resistance = 0.0005;
-scenarios(5).vehicle.axial_amplitude = 0.65;
+scenarios(5).vehicle.axial_amplitude = 0.45;
 scenarios(5).vehicle.events = [ ...
-    0.9, 0.55,  1.10, 0.5,  2.0*pi/180; ...
-    2.6, 0.80, -1.80, 3.0, -3.5*pi/180];
+    0.9, 0.55,  0.60, 0.5,  1.0*pi/180; ...
+    2.6, 0.80, -0.75, 2.0, -1.5*pi/180];
 scenarios(5).sensor.imu_pitch_bias = 0.25*pi/180;
 scenarios(5).sensor.imu_accel_bias = 0.08;
 scenarios(5).rs00.command_delay = 0.008;
 scenarios(5).actuator.delay = scenarios(5).rs00.command_delay;
 
-% Direct algorithm comparison on exactly the same worst-case disturbance.
+% Direct algorithm comparison on exactly the same feasible disturbance.
 scenarios(6) = scenarios(5);
 scenarios(6).controller.vehicle_feedforward_enabled = false;
 scenarios(6).controller.disturbance_observer_enabled = false;
 
-% Deliberately exceeds g*sin(8 deg) compensation authority.
-scenarios(7) = scenarios(5);
+% Preserve the former worst case as an explicit beyond-envelope test.
+scenarios(7) = scenarios(4);
+scenarios(7).contact.mu_static = 0.020;
+scenarios(7).contact.mu_kinetic = 0.012;
+scenarios(7).contact.rolling_resistance = 0.0005;
+scenarios(7).vehicle.axial_amplitude = 0.65;
 scenarios(7).vehicle.events = [ ...
+    0.9, 0.55,  1.10, 0.5,  2.0*pi/180; ...
+    2.6, 0.80, -1.80, 3.0, -3.5*pi/180];
+scenarios(7).sensor.imu_pitch_bias = 0.25*pi/180;
+scenarios(7).sensor.imu_accel_bias = 0.08;
+scenarios(7).rs00.command_delay = 0.008;
+scenarios(7).actuator.delay = scenarios(7).rs00.command_delay;
+
+% Deliberately exceeds the new +/-6 deg steady compensation authority.
+scenarios(8) = scenarios(7);
+scenarios(8).vehicle.events = [ ...
     2.0, 0.90, -3.00, 1.0, -4.0*pi/180];
-scenarios(7).sensor.vision_delay = 0.050;
-scenarios(7).sensor.dropout_probability = 0.05;
+scenarios(8).sensor.vision_delay = 0.050;
+scenarios(8).sensor.dropout_probability = 0.05;
+
+% Optional what-if override, e.g. a WIT link upgraded to 115200 bit/s and
+% configured for 200 Hz unique source groups. This does not change defaults.
+if exist('imu_source_rate_override_hz', 'var') ...
+        && ~isempty(imu_source_rate_override_hz)
+    for index = 1:numel(scenarios)
+        scenarios(index).sample.Ts_imu = 1/imu_source_rate_override_hz;
+        if exist('imu_delay_override', 'var') ...
+                && ~isempty(imu_delay_override)
+            scenarios(index).sensor.imu_delay = imu_delay_override;
+        end
+    end
+end
 
 if exist('vehicle_stress_selection', 'var') ...
         && ~isempty(vehicle_stress_selection)
@@ -154,8 +183,10 @@ for index = 1:numel(scenarios)
 end
 
 nexttile(1);
-yline(1e3*base.controller.position_limit, 'r--');
-yline(-1e3*base.controller.position_limit, 'r--');
+yline(1e3*base.controller.position_limit, 'r--', ...
+    'HandleVisibility', 'off');
+yline(-1e3*base.controller.position_limit, 'r--', ...
+    'HandleVisibility', 'off');
 grid on;
 ylabel('Ball position (mm)');
 legend('Location', 'eastoutside');

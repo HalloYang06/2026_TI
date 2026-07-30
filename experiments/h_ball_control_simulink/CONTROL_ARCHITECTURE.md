@@ -16,8 +16,8 @@ PSOC Edge E84
   └─ RS00 CAN 1 Mbit/s motion-mode command and feedback
 
 MSPM0G3507
-  ├─ 500 Hz IMU acquisition and attitude/acceleration estimate
-  └─ timestamped IMU packet + CRC
+  ├─ current WIT source: about 29.1 complete groups/s at 9600 bit/s
+  └─ source-sequenced/timestamped IMU publication
        │ dedicated SPI/UART/CAN-FD
        └──────────────────────────────► PSOC Edge E84
 ```
@@ -54,8 +54,8 @@ pipe_angle_command =
 It then passes through:
 
 1. predictive edge recovery;
-2. ±8 degree pipe-angle limit;
-3. 1.2 rad/s pipe command-rate limit;
+2. ±6 degree pipe-angle limit;
+3. 0.35 rad/s pipe command-rate limit;
 4. linkage inverse kinematics;
 5. RS00 position/speed/torque/temperature limits.
 
@@ -65,22 +65,37 @@ disturbance and can produce a limit cycle on the slippery pipe.
 
 ## Real-time task budget
 
-The MSPM0 IMU period is 2 ms. It timestamps the data-ready event, performs only
-the required attitude/axis preprocessing and sends a fixed-size packet to the
-PSOC.
+The current WIT UART is 9600 bit/s. Three 11-byte 8N1 frames require at least
+330 bits, so there can be at most about 29.1 complete accel/gyro/attitude
+groups per second. The MSPM0 timestamps and source-sequences those groups.
+A 200 Hz CAN mirror is publication scheduling, not a 5 ms IMU source period.
 
 | Device/task | Suggested method |
 |---|---|
-| MSPM0, 500 Hz | IMU SPI + DMA; timestamp at data-ready interrupt |
-| MSPM0, 500 Hz | gyro/accelerometer preprocessing and CRC packet |
-| PSOC, 500 Hz | consume latest timestamped IMU and RS00 CAN feedback |
+| MSPM0, source event ≈29 Hz | assemble WIT frames and timestamp the unique group |
+| MSPM0, CAN scheduler | publish source sequence/age; repeated mirrors do not refresh freshness |
+| PSOC, 200 Hz | consume the latest timestamped IMU sample with zero-order hold |
 | PSOC, 200 Hz | 3-state observer, LQI, feedforward and edge supervisor |
 | PSOC, 500 Hz | linkage conversion, command interpolation and safety limits |
 | PSOC, 500 Hz | pre-built RS00 CAN frame and transmit-deadline watchdog |
 
-Run the position observer/LQI at 200 Hz, but update the IMU state, motor
-feedback and RS00 safety layer at 500 Hz on the PSOC. A new camera sample is
-used only once, according to frame ID and capture timestamp.
+Run the position observer/LQI at 200 Hz and hold the latest unique IMU source
+sample between arrivals. Motor feedback and the RS00 safety layer can still
+run at 500 Hz. A new camera or IMU sample is used only once according to its
+source sequence and capture timestamp.
+
+The IMU is intentionally mounted on the chassis: it measures base pitch and
+base acceleration for feedforward. It does not measure pipe angle relative to
+the chassis. That angle comes from the RS00 encoder and four-bar forward
+kinematics:
+
+```text
+absolute_pipe_angle = linkage_angle(rs00_q) + vehicle_pitch
+```
+
+If linkage backlash or support compliance exceeds the calibration budget, add
+a direct angle encoder at hinge C. Do not treat the chassis IMU as a pipe-angle
+sensor.
 
 ## Communication packet
 
@@ -109,7 +124,7 @@ Recommended degradation:
 | <100 ms | observer prediction; freeze integration if actuator is saturated |
 | 100–250 ms | restrict vehicle acceleration and pipe command to ±5 degrees |
 | >250 ms | command controlled vehicle stop; enter ball-retention mode |
-| IMU stale >10 ms | stop vehicle acceleration; reject feedforward |
+| IMU source stale >100 ms | stop vehicle acceleration; reject feedforward |
 | RS00 stale >10 ms | PSOC stops motion demand and enters motor-safe state |
 
 ## Vehicle speed and map
@@ -120,10 +135,10 @@ The steady axial acceleration that can be cancelled by pipe tilt is bounded by:
 a_cancel ~= g*tan(available_pipe_angle)
 ```
 
-At 8 degrees this is about 1.38 m/s² before reserving angle for feedback and
-vehicle pitch. Normal route planning should reserve at least 3–4 degrees for
-ball feedback, so the planned acceleration should generally be lower than the
-raw 8-degree limit.
+At 6 degrees this is about 1.03 m/s² before reserving angle for feedback and
+vehicle pitch. Normal route planning should reserve about 2 degrees for ball
+feedback, so the planned acceleration should generally be no more than roughly
+0.4–0.6 m/s² until road tests identify a tighter bound.
 
 For a braking distance `distance`:
 
@@ -142,7 +157,7 @@ Replace these symbols with the competition's actual map dimensions, target
 speed, stop-zone length, turn radius and slope before final gain/trajectory
 tuning.
 
-## Current 500 Hz simulation result
+## Current measured-source-rate simulation result
 
 The existing stress-test `Pass` field is a mechanical-safety result:
 

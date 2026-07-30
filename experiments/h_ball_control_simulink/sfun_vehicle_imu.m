@@ -1,5 +1,7 @@
 function sfun_vehicle_imu(block)
 %SFUN_VEHICLE_IMU MSPM0-sampled chassis pitch/axial-acceleration sensor.
+% The current model sample time follows unique WIT source groups; a faster
+% CAN mirror is represented by the held output, not by extra noisy samples.
 %
 % Input:
 %   [true_vehicle_pitch; true_vehicle_axial_acceleration]

@@ -15,6 +15,6 @@ while :; do
 done
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 exec "$script_dir/build/ball_vision_sender" \
-  --camera "$camera_device" --width 640 --height 480 --fps 120 --stream-fps 60 --port 8080 \
+  --camera "$camera_device" --width 640 --height 480 --fps 100 --stream-fps 60 --port 8080 \
   --roi 60,225,560,75 \
   --threshold 170 --min-area 80 --max-area 650 --max-center-offset 18 --edge-ignore 28

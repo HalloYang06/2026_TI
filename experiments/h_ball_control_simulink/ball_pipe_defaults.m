@@ -10,7 +10,7 @@ function bp = ball_pipe_defaults()
 %   constants. Replace them with values identified on the real apparatus.
 
 bp.meta.model_name = 'ball_pipe_nonlinear';
-bp.meta.version = '1.2-measured-linkage';
+bp.meta.version = '1.3-measured-linkage-30hz-imu';
 
 % Physical geometry and gravity.
 bp.gravity = 9.80665;                 % m/s^2
@@ -71,35 +71,36 @@ bp.rs00.backlash_deadband = 0.05*pi/180; % rad, equivalent small-motion loss
 
 % Two-link closed mechanism:
 %
-%       B o---------------- water pipe (rocker), pivot C
-%         \  coupler
-%          o A
-%          |
-%          | crank
-%        O o  RS00 fixed output pivot
+%        A o----------o B==========================o C
+%         \             coupler       water pipe     fixed hinge
+%          \
+%         O o  RS00 fixed output pivot
 %
 % O and C are fixed in the same x-y frame. A is the end of the RS00 crank;
 % B is the attachment point on the pipe. The three moving bodies are the
 % motor crank, the coupler and the pipe rocker; it is commonly described as
 % a "two-link drive" because crank and coupler transmit motion to the pipe.
 %
-% OA, AB and BC below are user-provided dimensions. The recommended support
-% geometry uses an 82 mm pipe-hinge axis height, a 38 mm motor-axis height,
-% and places B 18 mm horizontally from O when the pipe is level.
+% OA, AB, BC and the fixed-pivot coordinates below are user-measured. C is
+% the right-side hinge and B lies to its left when the pipe is level. The
+% 300.1 mm linkage radius is distinct from the 250 mm usable ball path.
 bp.mechanism.type = 'four_bar_crank_rocker';
 bp.mechanism.motor_axis_height = 0.038;    % m, user-provided
-bp.mechanism.pipe_axis_height = 0.082;     % m, recommended support height
-bp.mechanism.neutral_B_minus_O_x = 0.018;  % m, recommended horizontal offset
+bp.mechanism.pipe_axis_height = 0.093;     % m, user-measured C hinge height
+bp.mechanism.fixed_pivot_horizontal_distance = 0.285; % m, O-to-C
 bp.mechanism.motor_pivot = [ ...
-    0.250-bp.mechanism.neutral_B_minus_O_x; ...
+    -bp.mechanism.fixed_pivot_horizontal_distance; ...
     bp.mechanism.motor_axis_height-bp.mechanism.pipe_axis_height]; % O relative C
 bp.mechanism.pipe_pivot = [0.000; 0.000];   % C: water-pipe hinge, m
-bp.mechanism.crank_length = 0.0515;         % |OA|, m, user-measured active link
-bp.mechanism.coupler_length = 0.0655;       % |AB|, m, user-measured blue link
-bp.mechanism.pipe_attachment_radius = 0.250;% |CB|, m, hinge to blue-link end
-bp.mechanism.assembly_branch = 1;           % +1/-1 selects physical assembly
-bp.mechanism.motor_angle_offset = 2.62585;  % rad; level-pipe assembly solution
-bp.mechanism.pipe_angle_offset = 0.0;       % rad; theta=0 means level pipe
+bp.mechanism.crank_length = 0.0350;         % |OA|, m, user-measured active link
+bp.mechanism.coupler_length = 0.0555;       % |AB|, m, user-measured blue link
+bp.mechanism.pipe_attachment_radius = 0.3001;% |CB|, m, hinge to blue-link end
+bp.mechanism.neutral_B_minus_O_x = ...
+    bp.mechanism.fixed_pivot_horizontal_distance ...
+    -bp.mechanism.pipe_attachment_radius;   % -15.1 mm: B is left of O
+bp.mechanism.assembly_branch = -1;          % physical branch in user's sketch
+bp.mechanism.motor_angle_offset = 3.051858578444; % rad; level-pipe solution
+bp.mechanism.pipe_angle_offset = pi;        % C-to-B points left at theta=0
 bp.mechanism.minimum_jacobian = 0.03;       % avoid toggle/dead-point operation
 bp.mechanism.inverse_tolerance = 1e-9;      % rad
 bp.mechanism.inverse_iterations = 15;
@@ -115,9 +116,11 @@ bp.mechanism.pipe_mass = 0.30;          % kg, PVC pipe + end bracket placeholder
 bp.mechanism.pipe_inertia_about_com = ...
     bp.mechanism.pipe_mass*bp.pipe.usable_length^2/12;
 bp.mechanism.extra_inertia = 0.001;     % kg*m^2, hinge/end bracket placeholder
-bp.mechanism.com_along_pipe = 0.125;    % m; end hinge to pipe/bracket COM
+% These 0.125 m lever arms assume C is at one end of the 250 mm usable
+% section. Re-measure if the 300.1 mm C-B radius includes an offset bracket.
+bp.mechanism.com_along_pipe = 0.125;    % m; C to pipe/bracket COM placeholder
 bp.mechanism.com_below_pivot = 0.0;     % m; positive gives restoring torque
-bp.mechanism.ball_origin_from_pivot = 0.125; % m; ball x=0 is pipe centre
+bp.mechanism.ball_origin_from_pivot = 0.125; % m; C to ball x=0 placeholder
 bp.mechanism.pipe_inertia_about_pivot = ...
     bp.mechanism.pipe_inertia_about_com ...
     + bp.mechanism.pipe_mass*( ...
@@ -134,15 +137,21 @@ bp.rs00.thermal.resistance = 1.7;        % degC/W, identify with a load test
 bp.rs00.thermal.capacitance = 180;       % J/degC, identify with a load test
 bp.rs00.thermal.loss_per_torque_sq = 1.2; % W/(N*m)^2, lumped placeholder
 
-% Pipe-angle safety constraints used by the ball controller.
-bp.actuator.max_angle = 8.0*pi/180;      % rad
-bp.actuator.max_rate = 1.20;             % pipe rad/s; respects example linkage
+% Pipe-angle safety constraints used by the ball controller. With the
+% measured 35/55.5/300.1 mm linkage, |theta| above about 6.5 deg approaches
+% the configured Jacobian dead-point guard. Keep the hard command inside
+% +/-6 deg and limit pipe rate below the worst-case RS00-speed mapping.
+bp.actuator.max_angle = 6.0*pi/180;      % rad, measured-linkage hard command
+bp.actuator.max_rate = 0.35;             % pipe rad/s, conservative at +/-6 deg
 bp.actuator.delay = bp.rs00.command_delay;
 
 % Camera and controller timing.
 bp.sample.Ts_control = 0.005;           % s, 200 Hz controller
 bp.sample.Ts_camera = 1/100;            % s, user-confirmed 100 Hz camera
-bp.sample.Ts_imu = 0.002;               % s, 500 Hz MSPM0 IMU acquisition task
+% Current WIT UART is 9600 bit/s. Three 11-byte 8N1 frames limit complete
+% accel/gyro/attitude groups to about 29.1 Hz. Use a 30 Hz grid approximation;
+% the 200 Hz CAN mirror repeats held data and is not a new-sample rate.
+bp.sample.Ts_imu = 1/30;                % s, current source-rate approximation
 bp.sensor.camera_pipeline_delay = 0.025; % s, exposure + Raspberry Pi vision
 bp.sensor.rpi_psoc_uart_delay = 0.010;   % s, framing + buffering + processing
 bp.sensor.vision_delay = ...
@@ -151,7 +160,7 @@ bp.sensor.position_sigma = 0.0015;      % m, 1-sigma camera noise
 bp.sensor.position_quantization = 0.0005; % m/pixel-equivalent
 bp.sensor.dropout_probability = 0.02;   % probability per camera frame
 bp.sensor.random_seed = 20260729;
-bp.sensor.imu_delay = 0.004;             % s, two 500 Hz samples incl. filtering
+bp.sensor.imu_delay = 0.035;             % s, serial group + processing estimate
 bp.sensor.imu_pitch_sigma = 0.10*pi/180; % rad
 bp.sensor.imu_accel_sigma = 0.04;        % m/s^2, gravity-compensated axis
 bp.sensor.imu_pitch_bias = 0.05*pi/180;  % rad
@@ -171,7 +180,7 @@ bp.vehicle.vertical_frequency = 0.0;     % Hz
 bp.vehicle.events = zeros(0,5);
 
 % Nonlinear plant initial state.
-bp.initial.position = 0.070;            % m
+bp.initial.position = 0.020;            % m, safe recovery demonstration
 bp.initial.velocity = 0.0;              % m/s
 bp.initial.omega = 0.0;                 % rad/s
 bp.initial.pipe_angle = 0.0;            % rad
@@ -185,7 +194,7 @@ bp.nominal.acceleration_gain = (5/7) * bp.gravity;
 bp.controller.position_limit = ...
     bp.pipe.usable_length/2 - bp.ball.radius;
 bp.controller.edge_margin = 0.045;      % m
-bp.controller.recovery_angle = 7.0*pi/180; % rad
+bp.controller.recovery_angle = 5.5*pi/180; % rad, inside measured workspace
 bp.controller.recovery_accel = ...
     bp.nominal.acceleration_gain * bp.controller.recovery_angle;
 bp.controller.integral_limit = 0.25;    % m*s
@@ -199,7 +208,7 @@ bp.controller.disturbance_compensation_limit = 2.5*pi/180; % rad
 bp.controller.design.position_scale = 0.040; % m
 bp.controller.design.velocity_scale = 0.35;  % m/s
 bp.controller.design.integral_scale = 0.12;  % m*s
-bp.controller.design.angle_scale = 7.0*pi/180; % rad
+bp.controller.design.angle_scale = 5.5*pi/180; % rad
 bp.controller.K = local_design_lqi(bp);
 
 % Kalman-filter covariance.
@@ -211,9 +220,9 @@ bp.kalman.disturbance_random_walk_sigma = 0.30; % m/s^3
 
 % Reference and simulation.
 bp.reference.time = [0; 2; 5; 8; 11; 14];
-bp.reference.position = [0; 0; 0.050; -0.050; 0; 0];
+bp.reference.position = [0; 0; 0.020; -0.020; 0; 0];
 bp.sim.stop_time = 14.0;
-bp.sim.fixed_step = 1/3000;             % s; common grid for 500/200/100 Hz
+bp.sim.fixed_step = 1/3000;             % s; common grid for 30/100/200/500 Hz tasks
 
 end
 

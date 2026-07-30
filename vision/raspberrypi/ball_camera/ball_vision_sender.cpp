@@ -30,7 +30,7 @@ struct Config {
   std::string camera = "/dev/v4l/by-id/usb-XHH-260128-A_2M-video-index0";
   int width = 640;
   int height = 480;
-  int fps = 120;
+  int fps = 100;
   int stream_fps = 60;
   int port = 8080;
   cv::Rect roi;
