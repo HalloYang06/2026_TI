@@ -1,6 +1,8 @@
 #include "hball_can.h"
 #include "hball_rate_meter.h"
 #include "hball_diagnostics_config.h"
+#include "hball_mission_arbiter.h"
+#include "hball_mission_can.h"
 #include "hball_rs00_control.h"
 #if HBALL_INTEGRATED_SHADOW
 #include "hball_m33_inputs.h"
@@ -34,6 +36,7 @@
 #define HBALL_BENCH_LOG_PERIOD_MS 1000U
 #define HBALL_BENCH_AUTO_PROBE_DELAY_MS 1000U
 #define HBALL_BENCH_RX_BUDGET 32U
+#define HBALL_MISSION_STATUS_PERIOD_MS 50U
 #define HBALL_RS00_READBACK_PERIOD_MS 20U
 #define HBALL_RS00_READBACK_TIMEOUT_MS 10U
 #define HBALL_RS00_MOTION_PARAMETER_FRESH_MS 250U
@@ -70,6 +73,15 @@ static rt_uint32_t g_hball_tx_total = 0U;
 static rt_uint32_t g_hball_tx_success = 0U;
 static rt_uint32_t g_hball_tx_failure = 0U;
 static hball_rate_meter_t g_hball_can_rx_rate;
+static hball_mission_arbiter_t g_hball_mission_arbiter;
+static hball_mission_chassis_status_t g_hball_mission_chassis;
+static rt_uint32_t g_hball_mission_intent_rx = 0U;
+static rt_uint32_t g_hball_mission_intent_invalid = 0U;
+static rt_uint32_t g_hball_mission_chassis_rx = 0U;
+static rt_uint32_t g_hball_mission_chassis_invalid = 0U;
+static rt_uint32_t g_hball_mission_status_tx = 0U;
+static rt_uint32_t g_hball_mission_status_tx_failure = 0U;
+static rt_uint32_t g_hball_mission_last_status_ms = 0U;
 #if HBALL_RS00_MOTION_TX_ENABLED
 typedef enum
 {
@@ -141,16 +153,26 @@ static rt_err_t hball_send_can_frame(const hball_can_frame_t *frame)
 {
     struct rt_can_msg message;
     rt_err_t result;
+    rt_bool_t allowed_extended;
+    rt_bool_t allowed_standard;
 
-    if ((frame == RT_NULL) || !g_hball_can_ready
-        || (frame->is_extended == 0U) || (frame->is_remote != 0U)
-        || (frame->dlc != 8U))
+    if (frame == RT_NULL)
+    {
+        return -RT_ERROR;
+    }
+    allowed_extended = frame->is_extended != 0U;
+    allowed_standard = (frame->is_extended == 0U)
+        && ((frame->id == HBALL_CAN_ID_MISSION_STATUS)
+            || (frame->id == HBALL_CAN_ID_MISSION_UI));
+    if (!g_hball_can_ready || (frame->is_remote != 0U)
+        || (frame->dlc != 8U)
+        || (!allowed_extended && !allowed_standard))
     {
         return -RT_ERROR;
     }
     rt_memset(&message, 0, sizeof(message));
     message.id = frame->id;
-    message.ide = RT_CAN_EXTID;
+    message.ide = allowed_extended ? RT_CAN_EXTID : RT_CAN_STDID;
     message.rtr = RT_CAN_DTR;
     message.len = frame->dlc;
     message.hdr_index = -1;
@@ -167,6 +189,39 @@ static rt_err_t hball_send_can_frame(const hball_can_frame_t *frame)
         g_hball_tx_failure++;
     }
     return result;
+}
+
+static rt_err_t hball_send_mission_frame(
+    const hball_mission_can_frame_t *frame
+)
+{
+    hball_can_frame_t can_frame;
+
+    if ((frame == RT_NULL)
+        || (frame->is_extended != 0U) || (frame->is_remote != 0U)
+        || (frame->dlc != HBALL_MISSION_CAN_DLC)
+        || ((frame->id != HBALL_CAN_ID_MISSION_STATUS)
+            && (frame->id != HBALL_CAN_ID_MISSION_UI)))
+    {
+        return -RT_ERROR;
+    }
+    rt_memset(&can_frame, 0, sizeof(can_frame));
+    can_frame.id = frame->id;
+    can_frame.dlc = frame->dlc;
+    rt_memcpy(can_frame.data, frame->data, frame->dlc);
+    return hball_send_can_frame(&can_frame);
+}
+
+static void hball_copy_to_mission_frame(
+    hball_mission_can_frame_t *target, const hball_can_frame_t *source
+)
+{
+    rt_memset(target, 0, sizeof(*target));
+    target->id = source->id;
+    target->is_extended = source->is_extended;
+    target->is_remote = source->is_remote;
+    target->dlc = source->dlc;
+    rt_memcpy(target->data, source->data, sizeof(target->data));
 }
 
 static void hball_poll_can(void)
@@ -240,20 +295,124 @@ static void hball_poll_can(void)
         }
         else
         {
-            const hball_msp_event_t event = hball_msp_monitor_accept(
-                &g_hball_msp, &frame, now_ms
-            );
+            if (frame.id == HBALL_CAN_ID_MISSION_INTENT)
+            {
+                hball_mission_can_frame_t mission_frame;
+                hball_mission_intent_t intent;
+
+                hball_copy_to_mission_frame(&mission_frame, &frame);
+                if (hball_mission_decode_intent(&mission_frame, &intent)
+                    && hball_mission_arbiter_accept_intent(
+                        &g_hball_mission_arbiter, &intent, now_ms))
+                {
+                    g_hball_mission_intent_rx++;
+                }
+                else
+                {
+                    g_hball_mission_intent_invalid++;
+                }
+            }
+            else if (frame.id == HBALL_CAN_ID_MISSION_CHASSIS_STATUS)
+            {
+                hball_mission_can_frame_t mission_frame;
+
+                hball_copy_to_mission_frame(&mission_frame, &frame);
+                if (hball_mission_decode_chassis_status(
+                        &mission_frame, &g_hball_mission_chassis))
+                {
+                    g_hball_mission_chassis_rx++;
+                }
+                else
+                {
+                    g_hball_mission_chassis_invalid++;
+                }
+            }
+            else
+            {
+                const hball_msp_event_t event = hball_msp_monitor_accept(
+                    &g_hball_msp, &frame, now_ms
+                );
 
 #if HBALL_INTEGRATED_SHADOW
-            if ((event >= HBALL_MSP_EVENT_HEARTBEAT)
-                && (event <= HBALL_MSP_EVENT_ATTITUDE))
-            {
-                (void)hball_m33_inputs_publish_msp(&g_hball_msp);
-            }
+                if ((event >= HBALL_MSP_EVENT_HEARTBEAT)
+                    && (event <= HBALL_MSP_EVENT_ATTITUDE))
+                {
+                    (void)hball_m33_inputs_publish_msp(&g_hball_msp);
+                }
 #else
-            RT_UNUSED(event);
+                RT_UNUSED(event);
 #endif
+            }
         }
+    }
+}
+
+static rt_uint16_t hball_mission_ready_mask(rt_uint32_t now_ms)
+{
+    rt_uint16_t ready = HBALL_MISSION_READY_M33_ALIVE;
+
+    if (hball_msp_monitor_heartbeat_fresh(&g_hball_msp, now_ms, 100U))
+    {
+        ready |= HBALL_MISSION_READY_MSP_LINK;
+        if ((g_hball_msp.status_flags & HBALL_MSP_STATUS_CHASSIS_READY) != 0U)
+        {
+            ready |= HBALL_MISSION_READY_CHASSIS;
+        }
+    }
+    if (hball_msp_monitor_imu_fresh(&g_hball_msp, now_ms, 20U)
+        && ((g_hball_msp.status_flags & HBALL_MSP_STATUS_IMU_VALID) != 0U))
+    {
+        ready |= HBALL_MISSION_READY_IMU;
+    }
+    if (hball_motor_monitor_feedback_fresh(
+            &g_hball_motor, now_ms, 20U))
+    {
+        ready |= HBALL_MISSION_READY_RS00_LINK;
+    }
+#if HBALL_INTEGRATED_SHADOW
+    {
+        hball_sensor_snapshot_t snapshot;
+
+        if (hball_m33_inputs_get_snapshot(&snapshot)
+            && ((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) != 0U))
+        {
+            ready |= HBALL_MISSION_READY_PI_USB;
+            ready |= HBALL_MISSION_READY_VISION;
+        }
+    }
+#endif
+    return ready;
+}
+
+static void hball_mission_tick(rt_uint32_t now_ms)
+{
+    hball_mission_status_t status;
+    hball_mission_can_frame_t frame;
+
+    hball_mission_arbiter_update_ready(
+        &g_hball_mission_arbiter,
+        hball_mission_ready_mask(now_ms),
+        now_ms
+    );
+    if ((rt_uint32_t)(now_ms - g_hball_mission_last_status_ms)
+        < HBALL_MISSION_STATUS_PERIOD_MS)
+    {
+        return;
+    }
+    g_hball_mission_last_status_ms = now_ms;
+    if (!hball_mission_arbiter_make_status(
+            &g_hball_mission_arbiter, &status)
+        || !hball_mission_encode_status(&status, &frame))
+    {
+        return;
+    }
+    if (hball_send_mission_frame(&frame) == RT_EOK)
+    {
+        g_hball_mission_status_tx++;
+    }
+    else
+    {
+        g_hball_mission_status_tx_failure++;
     }
 }
 
@@ -878,16 +1037,11 @@ static void hball_worker_entry(void *parameter)
     RT_UNUSED(parameter);
     while (1)
     {
-#if HBALL_BENCH_AUTO_PROBE5 || HBALL_PERIODIC_DIAGNOSTICS \
-    || HBALL_RS00_READBACK_TX_ENABLED || HBALL_RS00_MOTION_TX_ENABLED
         rt_uint32_t now_ms;
-#endif
 
         hball_poll_can();
-#if HBALL_BENCH_AUTO_PROBE5 || HBALL_PERIODIC_DIAGNOSTICS \
-    || HBALL_RS00_READBACK_TX_ENABLED || HBALL_RS00_MOTION_TX_ENABLED
         now_ms = hball_now_ms();
-#endif
+        hball_mission_tick(now_ms);
 #if HBALL_RS00_MOTION_TX_ENABLED
         hball_motion_tick(now_ms);
 #endif
@@ -1044,6 +1198,24 @@ static void hball_status(void)
         (int)g_hball_msp.attitude_valid,
         (int)g_hball_msp.wheel_valid,
         (unsigned)g_hball_msp.status_flags
+    );
+    rt_kprintf(
+        "[hball-mission] valid=%u epoch=%u q=%u state=%u ready=0x%04x required=0x%04x reason=%u intent=%lu/%lu chassis=%lu/%lu status_tx=%lu/%lu start=%lu/%lu ACTUATOR_TX=0\n",
+        (unsigned int)g_hball_mission_arbiter.context_valid,
+        (unsigned int)g_hball_mission_arbiter.epoch,
+        (unsigned int)g_hball_mission_arbiter.mission_id,
+        (unsigned int)g_hball_mission_arbiter.global_state,
+        (unsigned int)g_hball_mission_arbiter.ready_mask,
+        (unsigned int)g_hball_mission_arbiter.required_mask,
+        (unsigned int)g_hball_mission_arbiter.reason,
+        (unsigned long)g_hball_mission_intent_rx,
+        (unsigned long)g_hball_mission_intent_invalid,
+        (unsigned long)g_hball_mission_chassis_rx,
+        (unsigned long)g_hball_mission_chassis_invalid,
+        (unsigned long)g_hball_mission_status_tx,
+        (unsigned long)g_hball_mission_status_tx_failure,
+        (unsigned long)g_hball_mission_arbiter.start_accept_total,
+        (unsigned long)g_hball_mission_arbiter.start_reject_total
     );
     if (g_hball_last_rx_valid)
     {
@@ -1225,6 +1397,8 @@ static int hball_bench_start(void)
 {
     hball_motor_monitor_init(&g_hball_motor, HBALL_RS00_MOTOR_ID);
     hball_msp_monitor_init(&g_hball_msp);
+    hball_mission_arbiter_init(&g_hball_mission_arbiter);
+    rt_memset(&g_hball_mission_chassis, 0, sizeof(g_hball_mission_chassis));
     hball_rate_meter_init(&g_hball_can_rx_rate);
 #if HBALL_RS00_MOTION_TX_ENABLED
     hball_rs00_bench_init(&g_hball_motion);

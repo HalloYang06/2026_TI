@@ -14,6 +14,10 @@ usb_paths = [
 usb_depend = ['BSP_USING_USB']
 usb_only = os.environ.get('HBALL_USB_ONLY', '0') == '1'
 integrated_shadow = os.environ.get('HBALL_INTEGRATED_SHADOW', '0') == '1'
+mission_protocol_root = os.environ.get(
+    'HBALL_MISSION_PROTOCOL_ROOT',
+    os.path.join(project_root, 'shared', 'protocol'),
+)
 
 if usb_only:
     usb_only_src = [
@@ -39,6 +43,7 @@ elif integrated_shadow:
         os.path.join(cwd, 'src', 'hball_dualcore_platform.c'),
         os.path.join(cwd, 'src', 'hball_rate_meter.c'),
         os.path.join(cwd, 'src', 'hball_log_protocol.c'),
+        os.path.join(cwd, 'src', 'hball_mission_arbiter.c'),
         os.path.join(cwd, 'src', 'hball_rs00_control.c'),
         os.path.join(cwd, 'src', 'hball_sensor_fusion.c'),
         os.path.join(cwd, 'src', 'hball_usb_probe.c'),
@@ -48,6 +53,7 @@ elif integrated_shadow:
         os.path.join(cwd, 'rtthread', 'hball_m33_inputs.c'),
         os.path.join(cwd, 'rtthread', 'hball_usb_cdc.c'),
         os.path.join(cwd, 'rtthread', 'main.c'),
+        os.path.join(mission_protocol_root, 'hball_mission_can.c'),
     ]
     group = DefineGroup(
         'HBallEdgeTalkIntegratedShadow',
@@ -55,6 +61,7 @@ elif integrated_shadow:
         depend=usb_depend,
         CPPPATH=usb_paths + [
             os.path.join(project_root, 'libraries', 'HAL_Drivers'),
+            mission_protocol_root,
         ],
         CPPDEFINES=[
             'HBALL_INTEGRATED_SHADOW=1',
@@ -67,9 +74,11 @@ elif integrated_shadow:
 else:
     base_src = [
         os.path.join(cwd, 'src', 'hball_can.c'),
+        os.path.join(cwd, 'src', 'hball_mission_arbiter.c'),
         os.path.join(cwd, 'src', 'hball_rate_meter.c'),
         os.path.join(cwd, 'rtthread', 'hball_bench_app.c'),
         os.path.join(cwd, 'rtthread', 'main.c'),
+        os.path.join(mission_protocol_root, 'hball_mission_can.c'),
     ]
     cppdefines = ['BSP_CANFD0_RX_FIFO0_ELEMENTS=64U']
     if os.environ.get('HBALL_BENCH_AUTO_PROBE5', '0') == '1':
@@ -82,6 +91,7 @@ else:
         CPPPATH=[
             os.path.join(cwd, 'include'),
             os.path.join(project_root, 'libraries', 'HAL_Drivers'),
+            mission_protocol_root,
         ],
         CPPDEFINES=cppdefines,
     )
