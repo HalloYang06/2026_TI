@@ -85,6 +85,187 @@ static void test_invalid_or_wrong_host_frames_are_not_feedback(void)
     assert(monitor.rx_invalid == 1U);
 }
 
+static void hball_make_parameter_reply(
+    hball_can_frame_t *frame, uint16_t index, const uint8_t value[4]
+)
+{
+    memset(frame, 0, sizeof(*frame));
+    frame->id = hball_rs00_ext_id(
+        HBALL_RS00_TYPE_GET_SINGLE_PARAMETER,
+        HBALL_RS00_MOTOR_ID,
+        HBALL_RS00_MASTER_ID
+    );
+    frame->is_extended = 1U;
+    frame->dlc = 8U;
+    frame->data[0] = (uint8_t)index;
+    frame->data[1] = (uint8_t)(index >> 8U);
+    memcpy(frame->data + 4U, value, 4U);
+}
+
+static void test_parameter_read_request_is_strictly_whitelisted(void)
+{
+    static const uint16_t indexes[] = {
+        HBALL_RS00_INDEX_RUN_MODE,
+        HBALL_RS00_INDEX_MECH_POSITION,
+        HBALL_RS00_INDEX_FILTERED_IQ,
+        HBALL_RS00_INDEX_MECH_VELOCITY,
+        HBALL_RS00_INDEX_VBUS,
+        HBALL_RS00_INDEX_ROTATION,
+    };
+    hball_motor_monitor_t monitor;
+    hball_can_frame_t request;
+    size_t index;
+
+    hball_motor_monitor_init(&monitor, HBALL_RS00_MOTOR_ID);
+    assert(!hball_rs00_parameter_is_read_only(0x7016U));
+    assert(!hball_motor_monitor_make_parameter_read(
+        &monitor, 0x7016U, 1U, &request
+    ));
+
+    for (index = 0U; index < sizeof(indexes) / sizeof(indexes[0]); ++index)
+    {
+        assert(hball_rs00_parameter_is_read_only(indexes[index]));
+    }
+    assert(hball_motor_monitor_make_parameter_read(
+        &monitor, HBALL_RS00_INDEX_MECH_POSITION, 10U, &request
+    ));
+    assert(request.id == 0x1100FD05UL);
+    assert(request.is_extended == 1U);
+    assert(request.is_remote == 0U);
+    assert(request.dlc == 8U);
+    assert(request.data[0] == 0x19U);
+    assert(request.data[1] == 0x70U);
+    for (index = 2U; index < 8U; ++index)
+    {
+        assert(request.data[index] == 0U);
+    }
+    assert(monitor.parameter_pending);
+    assert(monitor.pending_parameter_index == HBALL_RS00_INDEX_MECH_POSITION);
+    assert(!hball_motor_monitor_make_parameter_read(
+        &monitor, HBALL_RS00_INDEX_VBUS, 11U, &request
+    ));
+}
+
+static void test_parameter_replies_decode_all_required_motor_data(void)
+{
+    static const uint16_t indexes[] = {
+        HBALL_RS00_INDEX_RUN_MODE,
+        HBALL_RS00_INDEX_MECH_POSITION,
+        HBALL_RS00_INDEX_FILTERED_IQ,
+        HBALL_RS00_INDEX_MECH_VELOCITY,
+        HBALL_RS00_INDEX_VBUS,
+        HBALL_RS00_INDEX_ROTATION,
+    };
+    static const uint8_t values[][4] = {
+        {0x05U, 0x00U, 0x00U, 0x00U},
+        {0x00U, 0x00U, 0xa0U, 0x3fU},
+        {0x00U, 0x00U, 0x20U, 0xc0U},
+        {0x00U, 0x00U, 0x70U, 0x40U},
+        {0x00U, 0x00U, 0x42U, 0x42U},
+        {0xfdU, 0xffU, 0x00U, 0x00U},
+    };
+    hball_motor_monitor_t monitor;
+    hball_can_frame_t request;
+    hball_can_frame_t reply;
+    size_t index;
+
+    hball_motor_monitor_init(&monitor, HBALL_RS00_MOTOR_ID);
+    for (index = 0U; index < sizeof(indexes) / sizeof(indexes[0]); ++index)
+    {
+        assert(hball_motor_monitor_make_parameter_read(
+            &monitor, indexes[index], (uint32_t)(100U + index), &request
+        ));
+        hball_make_parameter_reply(&reply, indexes[index], values[index]);
+        assert(hball_motor_monitor_accept(
+            &monitor, &reply, (uint32_t)(101U + index)
+        ) == HBALL_CAN_EVENT_PARAMETER);
+        assert(!monitor.parameter_pending);
+    }
+
+    assert(monitor.parameters.valid_flags == HBALL_RS00_PARAMETER_VALID_ALL);
+    assert(monitor.parameters.run_mode == 5U);
+    assert(fabsf(monitor.parameters.mech_position_rad - 1.25F) < 1.0e-7F);
+    assert(fabsf(monitor.parameters.filtered_iq_a - (-2.5F)) < 1.0e-7F);
+    assert(fabsf(monitor.parameters.mech_velocity_rad_s - 3.75F) < 1.0e-7F);
+    assert(fabsf(monitor.parameters.vbus_v - 48.5F) < 1.0e-7F);
+    assert(monitor.parameters.rotation == -3);
+    assert(monitor.parameter_rx_total == 6U);
+    assert(hball_motor_monitor_parameters_fresh(&monitor, 110U, 20U));
+    assert(!hball_motor_monitor_parameters_fresh(&monitor, 130U, 20U));
+}
+
+static void test_parameter_reply_validation_and_timeout_fail_closed(void)
+{
+    const uint8_t value[4] = {0x00U, 0x00U, 0x80U, 0x3fU};
+    hball_motor_monitor_t monitor;
+    hball_can_frame_t request;
+    hball_can_frame_t reply;
+
+    hball_motor_monitor_init(&monitor, HBALL_RS00_MOTOR_ID);
+    assert(hball_motor_monitor_make_parameter_read(
+        &monitor, HBALL_RS00_INDEX_MECH_POSITION, 10U, &request
+    ));
+    hball_make_parameter_reply(
+        &reply, HBALL_RS00_INDEX_MECH_POSITION, value
+    );
+    reply.id = hball_rs00_ext_id(
+        HBALL_RS00_TYPE_GET_SINGLE_PARAMETER, HBALL_RS00_MOTOR_ID, 0xaaU
+    );
+    assert(hball_motor_monitor_accept(&monitor, &reply, 11U)
+        == HBALL_CAN_EVENT_IGNORED);
+    assert(monitor.parameter_pending);
+
+    reply.id = hball_rs00_ext_id(
+        HBALL_RS00_TYPE_GET_SINGLE_PARAMETER,
+        HBALL_RS00_MOTOR_ID,
+        HBALL_RS00_MASTER_ID
+    );
+    reply.dlc = 7U;
+    assert(hball_motor_monitor_accept(&monitor, &reply, 12U)
+        == HBALL_CAN_EVENT_INVALID);
+    assert(monitor.parameter_pending);
+
+    reply.dlc = 8U;
+    reply.data[0] = 0x16U;
+    assert(hball_motor_monitor_accept(&monitor, &reply, 13U)
+        == HBALL_CAN_EVENT_INVALID);
+    assert(monitor.parameter_pending);
+
+    assert(!hball_motor_monitor_expire_parameter_request(
+        &monitor, 19U, 10U
+    ));
+    assert(hball_motor_monitor_expire_parameter_request(
+        &monitor, 21U, 10U
+    ));
+    assert(!monitor.parameter_pending);
+    assert(monitor.parameter_timeout_total == 1U);
+}
+
+static void test_unknown_error_contract_is_preserved_as_raw_bytes(void)
+{
+    hball_motor_monitor_t monitor;
+    hball_can_frame_t frame;
+    const uint8_t raw[8] = {0xdeU, 0xadU, 0xbeU, 0xefU, 1U, 2U, 3U, 4U};
+
+    hball_motor_monitor_init(&monitor, HBALL_RS00_MOTOR_ID);
+    memset(&frame, 0, sizeof(frame));
+    frame.id = hball_rs00_ext_id(
+        HBALL_RS00_TYPE_ERROR_FEEDBACK,
+        HBALL_RS00_MOTOR_ID,
+        HBALL_RS00_MASTER_ID
+    );
+    frame.is_extended = 1U;
+    frame.dlc = 8U;
+    memcpy(frame.data, raw, sizeof(raw));
+
+    assert(hball_motor_monitor_accept(&monitor, &frame, 1U)
+        == HBALL_CAN_EVENT_ERROR_RAW);
+    assert(monitor.error_raw_total == 1U);
+    assert(monitor.last_error_raw_id == frame.id);
+    assert(monitor.last_error_raw_dlc == 8U);
+    assert(memcmp(monitor.last_error_raw_data, raw, sizeof(raw)) == 0);
+}
+
 static void test_mspm0_imu_frames_decode_fixed_point_si_units(void)
 {
     hball_msp_monitor_t monitor;
@@ -273,6 +454,10 @@ int main(void)
     test_get_id_frame_and_probe_reply();
     test_feedback_decode_and_freshness();
     test_invalid_or_wrong_host_frames_are_not_feedback();
+    test_parameter_read_request_is_strictly_whitelisted();
+    test_parameter_replies_decode_all_required_motor_data();
+    test_parameter_reply_validation_and_timeout_fail_closed();
+    test_unknown_error_contract_is_preserved_as_raw_bytes();
     test_mspm0_imu_frames_decode_fixed_point_si_units();
     test_mspm0_heartbeat_and_wheel_frames_decode_without_motion_output();
     test_mspm0_rejects_extended_remote_or_wrong_length_frames();

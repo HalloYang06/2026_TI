@@ -1,5 +1,6 @@
 #include "hball_can.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -21,6 +22,15 @@ static uint32_t hball_u32_from_le(const uint8_t *data)
         | ((uint32_t)data[1] << 8U)
         | ((uint32_t)data[2] << 16U)
         | ((uint32_t)data[3] << 24U);
+}
+
+static float hball_float_from_le(const uint8_t *data)
+{
+    const uint32_t bits = hball_u32_from_le(data);
+    float value;
+
+    memcpy(&value, &bits, sizeof(value));
+    return value;
 }
 
 static float hball_i16_milli_to_float(const uint8_t *data)
@@ -69,6 +79,80 @@ bool hball_motor_monitor_make_probe(
     frame->dlc = 8U;
     monitor->probe_pending = true;
     monitor->probe_valid = false;
+    return true;
+}
+
+static int hball_rs00_parameter_slot(uint16_t index)
+{
+    switch (index)
+    {
+    case HBALL_RS00_INDEX_RUN_MODE:
+        return 0;
+    case HBALL_RS00_INDEX_MECH_POSITION:
+        return 1;
+    case HBALL_RS00_INDEX_FILTERED_IQ:
+        return 2;
+    case HBALL_RS00_INDEX_MECH_VELOCITY:
+        return 3;
+    case HBALL_RS00_INDEX_VBUS:
+        return 4;
+    case HBALL_RS00_INDEX_ROTATION:
+        return 5;
+    default:
+        return -1;
+    }
+}
+
+bool hball_rs00_parameter_is_read_only(uint16_t index)
+{
+    return hball_rs00_parameter_slot(index) >= 0;
+}
+
+bool hball_motor_monitor_make_parameter_read(
+    hball_motor_monitor_t *monitor,
+    uint16_t index,
+    uint32_t now_ms,
+    hball_can_frame_t *frame
+)
+{
+    if ((monitor == NULL) || (frame == NULL) || (monitor->motor_id == 0U)
+        || monitor->parameter_pending
+        || !hball_rs00_parameter_is_read_only(index))
+    {
+        return false;
+    }
+
+    memset(frame, 0, sizeof(*frame));
+    frame->id = hball_rs00_ext_id(
+        HBALL_RS00_TYPE_GET_SINGLE_PARAMETER,
+        HBALL_RS00_MASTER_ID,
+        monitor->motor_id
+    );
+    frame->is_extended = 1U;
+    frame->dlc = 8U;
+    frame->data[0] = (uint8_t)index;
+    frame->data[1] = (uint8_t)(index >> 8U);
+    monitor->parameter_pending = true;
+    monitor->pending_parameter_index = index;
+    monitor->last_parameter_request_ms = now_ms;
+    return true;
+}
+
+bool hball_motor_monitor_expire_parameter_request(
+    hball_motor_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+)
+{
+    if ((monitor == NULL) || !monitor->parameter_pending
+        || ((uint32_t)(now_ms - monitor->last_parameter_request_ms)
+            <= timeout_ms))
+    {
+        return false;
+    }
+    monitor->parameter_pending = false;
+    monitor->pending_parameter_index = 0U;
+    monitor->parameter_timeout_total++;
     return true;
 }
 
@@ -149,6 +233,108 @@ static hball_can_event_t hball_accept_feedback(
     return HBALL_CAN_EVENT_FEEDBACK;
 }
 
+static hball_can_event_t hball_accept_parameter_reply(
+    hball_motor_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint16_t data2,
+    uint32_t now_ms
+)
+{
+    const uint8_t host_id = (uint8_t)(frame->id & 0xFFU);
+    const uint8_t motor_id = (uint8_t)(data2 & 0xFFU);
+    uint16_t index;
+    int slot;
+    float float_value = 0.0F;
+
+    if ((host_id != HBALL_RS00_MASTER_ID) || (motor_id != monitor->motor_id))
+    {
+        return HBALL_CAN_EVENT_IGNORED;
+    }
+    if (frame->dlc != 8U)
+    {
+        return HBALL_CAN_EVENT_INVALID;
+    }
+    index = hball_u16_from_le(frame->data);
+    slot = hball_rs00_parameter_slot(index);
+    if (slot < 0)
+    {
+        return HBALL_CAN_EVENT_INVALID;
+    }
+    if (!monitor->parameter_pending
+        || (index != monitor->pending_parameter_index))
+    {
+        return HBALL_CAN_EVENT_IGNORED;
+    }
+    if ((index != HBALL_RS00_INDEX_RUN_MODE)
+        && (index != HBALL_RS00_INDEX_ROTATION))
+    {
+        float_value = hball_float_from_le(frame->data + 4U);
+        if (!isfinite(float_value))
+        {
+            return HBALL_CAN_EVENT_INVALID;
+        }
+    }
+
+    switch (index)
+    {
+    case HBALL_RS00_INDEX_RUN_MODE:
+        if (frame->data[4] > 5U)
+        {
+            return HBALL_CAN_EVENT_INVALID;
+        }
+        monitor->parameters.run_mode = frame->data[4];
+        break;
+    case HBALL_RS00_INDEX_MECH_POSITION:
+        monitor->parameters.mech_position_rad = float_value;
+        break;
+    case HBALL_RS00_INDEX_FILTERED_IQ:
+        monitor->parameters.filtered_iq_a = float_value;
+        break;
+    case HBALL_RS00_INDEX_MECH_VELOCITY:
+        monitor->parameters.mech_velocity_rad_s = float_value;
+        break;
+    case HBALL_RS00_INDEX_VBUS:
+        monitor->parameters.vbus_v = float_value;
+        break;
+    default:
+        monitor->parameters.rotation = (int16_t)hball_u16_from_le(
+            frame->data + 4U
+        );
+        break;
+    }
+    monitor->parameters.valid_flags |= (uint8_t)(UINT8_C(1) << slot);
+    monitor->parameters.last_update_ms[slot] = now_ms;
+    monitor->parameter_pending = false;
+    monitor->pending_parameter_index = 0U;
+    monitor->parameter_rx_total++;
+    return HBALL_CAN_EVENT_PARAMETER;
+}
+
+static hball_can_event_t hball_accept_error_raw(
+    hball_motor_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint16_t data2
+)
+{
+    const uint8_t host_id = (uint8_t)(frame->id & 0xFFU);
+    const uint8_t motor_id = (uint8_t)(data2 & 0xFFU);
+
+    if ((host_id != HBALL_RS00_MASTER_ID) || (motor_id != monitor->motor_id))
+    {
+        return HBALL_CAN_EVENT_IGNORED;
+    }
+    if (frame->dlc > 8U)
+    {
+        return HBALL_CAN_EVENT_INVALID;
+    }
+    monitor->last_error_raw_id = frame->id;
+    monitor->last_error_raw_dlc = frame->dlc;
+    memset(monitor->last_error_raw_data, 0, sizeof(monitor->last_error_raw_data));
+    memcpy(monitor->last_error_raw_data, frame->data, frame->dlc);
+    monitor->error_raw_total++;
+    return HBALL_CAN_EVENT_ERROR_RAW;
+}
+
 hball_can_event_t hball_motor_monitor_accept(
     hball_motor_monitor_t *monitor,
     const hball_can_frame_t *frame,
@@ -182,6 +368,14 @@ hball_can_event_t hball_motor_monitor_accept(
     {
         event = hball_accept_feedback(monitor, frame, data2, now_ms);
     }
+    else if (comm_type == HBALL_RS00_TYPE_GET_SINGLE_PARAMETER)
+    {
+        event = hball_accept_parameter_reply(monitor, frame, data2, now_ms);
+    }
+    else if (comm_type == HBALL_RS00_TYPE_ERROR_FEEDBACK)
+    {
+        event = hball_accept_error_raw(monitor, frame, data2);
+    }
     else
     {
         event = HBALL_CAN_EVENT_IGNORED;
@@ -207,6 +401,42 @@ bool hball_motor_monitor_feedback_fresh(
     return (monitor != NULL)
         && monitor->feedback_valid
         && ((uint32_t)(now_ms - monitor->last_feedback_ms) <= timeout_ms);
+}
+
+bool hball_motor_monitor_parameters_fresh(
+    const hball_motor_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+)
+{
+    return (monitor != NULL)
+        && hball_motor_parameters_fresh(
+            &monitor->parameters, now_ms, timeout_ms
+        );
+}
+
+bool hball_motor_parameters_fresh(
+    const hball_motor_parameters_t *parameters,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+)
+{
+    uint8_t slot;
+
+    if ((parameters == NULL)
+        || (parameters->valid_flags != HBALL_RS00_PARAMETER_VALID_ALL))
+    {
+        return false;
+    }
+    for (slot = 0U; slot < HBALL_RS00_PARAMETER_COUNT; ++slot)
+    {
+        if ((uint32_t)(now_ms - parameters->last_update_ms[slot])
+            > timeout_ms)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 void hball_msp_monitor_init(hball_msp_monitor_t *monitor)

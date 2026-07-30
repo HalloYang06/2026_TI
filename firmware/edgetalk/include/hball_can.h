@@ -15,7 +15,25 @@ extern "C" {
 
 #define HBALL_RS00_TYPE_GET_ID 0x00U
 #define HBALL_RS00_TYPE_FEEDBACK 0x02U
+#define HBALL_RS00_TYPE_GET_SINGLE_PARAMETER 0x11U
+#define HBALL_RS00_TYPE_ERROR_FEEDBACK 0x15U
 #define HBALL_RS00_TYPE_ACTIVE_REPORT 0x18U
+
+#define HBALL_RS00_INDEX_RUN_MODE 0x7005U
+#define HBALL_RS00_INDEX_MECH_POSITION 0x7019U
+#define HBALL_RS00_INDEX_FILTERED_IQ 0x701AU
+#define HBALL_RS00_INDEX_MECH_VELOCITY 0x701BU
+#define HBALL_RS00_INDEX_VBUS 0x701CU
+#define HBALL_RS00_INDEX_ROTATION 0x701DU
+
+#define HBALL_RS00_PARAMETER_VALID_RUN_MODE (UINT8_C(1) << 0)
+#define HBALL_RS00_PARAMETER_VALID_MECH_POSITION (UINT8_C(1) << 1)
+#define HBALL_RS00_PARAMETER_VALID_FILTERED_IQ (UINT8_C(1) << 2)
+#define HBALL_RS00_PARAMETER_VALID_MECH_VELOCITY (UINT8_C(1) << 3)
+#define HBALL_RS00_PARAMETER_VALID_VBUS (UINT8_C(1) << 4)
+#define HBALL_RS00_PARAMETER_VALID_ROTATION (UINT8_C(1) << 5)
+#define HBALL_RS00_PARAMETER_VALID_ALL UINT8_C(0x3f)
+#define HBALL_RS00_PARAMETER_COUNT 6U
 
 #define HBALL_MSP_CAN_ID_HEARTBEAT 0x080U
 #define HBALL_MSP_CAN_ID_ACCEL 0x100U
@@ -30,10 +48,10 @@ extern "C" {
 
 #define HBALL_RS00_POSITION_MIN_RAD (-12.57F)
 #define HBALL_RS00_POSITION_MAX_RAD (12.57F)
-#define HBALL_RS00_VELOCITY_MIN_RAD_S (-33.0F)
-#define HBALL_RS00_VELOCITY_MAX_RAD_S (33.0F)
-#define HBALL_RS00_TORQUE_MIN_NM (-14.0F)
-#define HBALL_RS00_TORQUE_MAX_NM (14.0F)
+#define HBALL_RS00_VELOCITY_MIN_RAD_S (-50.0F)
+#define HBALL_RS00_VELOCITY_MAX_RAD_S (50.0F)
+#define HBALL_RS00_TORQUE_MIN_NM (-17.0F)
+#define HBALL_RS00_TORQUE_MAX_NM (17.0F)
 
 typedef struct
 {
@@ -55,12 +73,26 @@ typedef struct
     float temperature_c;
 } hball_motor_feedback_t;
 
+typedef struct
+{
+    uint8_t valid_flags;
+    uint8_t run_mode;
+    int16_t rotation;
+    float mech_position_rad;
+    float filtered_iq_a;
+    float mech_velocity_rad_s;
+    float vbus_v;
+    uint32_t last_update_ms[HBALL_RS00_PARAMETER_COUNT];
+} hball_motor_parameters_t;
+
 typedef enum
 {
     HBALL_CAN_EVENT_IGNORED = 0,
     HBALL_CAN_EVENT_INVALID,
     HBALL_CAN_EVENT_PROBE_REPLY,
     HBALL_CAN_EVENT_FEEDBACK,
+    HBALL_CAN_EVENT_PARAMETER,
+    HBALL_CAN_EVENT_ERROR_RAW,
 } hball_can_event_t;
 
 typedef struct
@@ -69,13 +101,23 @@ typedef struct
     bool probe_pending;
     bool probe_valid;
     bool feedback_valid;
+    bool parameter_pending;
     uint64_t unique_id;
     hball_motor_feedback_t feedback;
+    hball_motor_parameters_t parameters;
+    uint16_t pending_parameter_index;
     uint32_t last_probe_ms;
     uint32_t last_feedback_ms;
+    uint32_t last_parameter_request_ms;
     uint32_t rx_total;
     uint32_t rx_invalid;
     uint32_t rx_ignored;
+    uint32_t parameter_rx_total;
+    uint32_t parameter_timeout_total;
+    uint32_t error_raw_total;
+    uint32_t last_error_raw_id;
+    uint8_t last_error_raw_dlc;
+    uint8_t last_error_raw_data[8];
 } hball_motor_monitor_t;
 
 typedef enum
@@ -130,6 +172,18 @@ void hball_motor_monitor_init(hball_motor_monitor_t *monitor, uint8_t motor_id);
 bool hball_motor_monitor_make_probe(
     hball_motor_monitor_t *monitor, hball_can_frame_t *frame
 );
+bool hball_rs00_parameter_is_read_only(uint16_t index);
+bool hball_motor_monitor_make_parameter_read(
+    hball_motor_monitor_t *monitor,
+    uint16_t index,
+    uint32_t now_ms,
+    hball_can_frame_t *frame
+);
+bool hball_motor_monitor_expire_parameter_request(
+    hball_motor_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+);
 hball_can_event_t hball_motor_monitor_accept(
     hball_motor_monitor_t *monitor,
     const hball_can_frame_t *frame,
@@ -137,6 +191,16 @@ hball_can_event_t hball_motor_monitor_accept(
 );
 bool hball_motor_monitor_feedback_fresh(
     const hball_motor_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+);
+bool hball_motor_monitor_parameters_fresh(
+    const hball_motor_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+);
+bool hball_motor_parameters_fresh(
+    const hball_motor_parameters_t *parameters,
     uint32_t now_ms,
     uint32_t timeout_ms
 );
