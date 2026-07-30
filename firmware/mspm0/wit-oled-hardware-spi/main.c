@@ -1666,8 +1666,8 @@ static void lap_test(void)
     RIGHT.Error1 = 0.0f;
     RIGHT.ErrorInt = 0.0f;
 
-    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-    motor_pwm_set((float)commanded_duty_left, (float)commanded_duty_right);
+    motor_start_synchronized((float)commanded_duty_left,
+                             (float)commanded_duty_right);
     run_start_ms = tick_ms;
     last_speed_control_ms = run_start_ms;
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);

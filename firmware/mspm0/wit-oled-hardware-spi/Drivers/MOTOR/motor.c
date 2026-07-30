@@ -16,6 +16,16 @@ void motor_stop(void)
     BIN2_RESET;
     
 }
+
+void motor_start_synchronized(float pwm1,float pwm2)
+{
+    /* Keep both H-bridges disabled until both directions and PWM are ready. */
+    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    motor_stop();
+    motor_pwm_set(pwm1, pwm2);
+    __DSB();
+    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+}
 	
 void set_motor_speed(float duty,uint8_t motor)
 {
@@ -76,31 +86,27 @@ void motor_pwm_set(float pwm1,float pwm2)
 {
     int val1 = (int )pwm1;
     int val2 = (int )-pwm2;
-		//motor_stop();
-		//HAL_Delay(1);
     pwm_limiting(&val1,&val2);
-    
-    if (val1 >= 0) 
+
+    if (val1 >= 0)
     {
-        left_motor_dir(1);                              /* Õý×ª */
-        set_motor_speed(val1,(uint8_t)left_motor);
-    } 
-    else 
-    {
-        left_motor_dir(0);                              /* ·´×ª */
-        set_motor_speed(-val1,(uint8_t)left_motor);
+        left_motor_dir(1);
+        set_motor_speed((float)val1, (uint8_t)left_motor);
     }
-    
-    
-    if (val2 >= 0) 
+    else
     {
-        right_motor_dir(1);                              /* Õý×ª */
-        set_motor_speed(val2,(uint8_t)right_motor);
-    } 
-    else 
-    {
-        right_motor_dir(0);                              /* ·´×ª */
-        set_motor_speed(-val2,(uint8_t)right_motor);
+        left_motor_dir(0);
+        set_motor_speed((float)-val1, (uint8_t)left_motor);
     }
-    
+
+    if (val2 >= 0)
+    {
+        right_motor_dir(1);
+        set_motor_speed((float)val2, (uint8_t)right_motor);
+    }
+    else
+    {
+        right_motor_dir(0);
+        set_motor_speed((float)-val2, (uint8_t)right_motor);
+    }
 }
