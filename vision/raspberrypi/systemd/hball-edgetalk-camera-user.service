@@ -1,0 +1,18 @@
+[Unit]
+Description=H-ball real camera measurements to EdgeTalk USB CDC
+After=network.target local-fs.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/hball/edgetalk-camera.env
+ExecStart=/usr/bin/env python3 -u "${HBALL_CAMERA_BRIDGE}" --source-url "${HBALL_CAMERA_SOURCE_URL}" --lock-file %t/hball-edgetalk-usb.lock
+Restart=always
+RestartSec=1s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+
+[Install]
+WantedBy=default.target

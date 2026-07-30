@@ -28,6 +28,18 @@ RS00协议参考，不迁移机械臂业务、零点或运动参数。
 
 当前分支为`prep/2026`，未创建或填充`main`。所有自动任务保持`ACTUATOR_TX=0`，M55只允许`SHADOW_ONLY`。M33另有开机禁用、FinSH口令触发的人工CSP台架路径；已经发送enable和有界位置目标，但从未发送set-zero、速度、Iq或力矩命令。
 
+## 2026-07-31变更、验证与继续入口
+
+本次主要变更文件：
+
+- `firmware/edgetalk/include/hball_rs00_control.h`与`src/hball_rs00_control.c`：CSP白名单编码和纯C台架状态机。
+- `firmware/edgetalk/rtthread/hball_bench_app.c`：FinSH人工命令、单worker发送、100 Hz定向读回、回位/超时stop。
+- `shared/protocol/RS00_CSP_BENCH_V1.md`：精确帧合同和实测结果。
+- `docs/decisions/ADR-007-rs00-manual-csp-commissioning.md`：人工验收层与正式M55控制边界。
+- `vision/raspberrypi/systemd/hball-edgetalk-camera-user.service`：真实相机桥接的无身份硬编码用户服务，替换PING-only守护。
+
+验证为58项EdgeTalk/树莓派主机测试通过，GCC 13.3 ARM链接`text=133552/data=2152/bss=256449`，SMIF raw/XIP校验通过，以及实物`1.684 -> 1.694 -> 1.687 rad -> stop`。真实相机桥接5.8 s收到682帧，约117.6 Hz；并发微动时视觉位置有效、MSPM0约778.7 frame/s、RS00到达目标，CAN/USB均零失败。当前风险是H题机构零点/方向/传动比/机械限位未标定，M33/M55共享地址仍不一致，视觉置信度还是临时常数。下一步先做`+-10/20 mrad`阶跃辨识，再冻结正式200 Hz M33 CSP发布器；不要直接把M55 shadow目标接入人工台架API。
+
 ## 当前数据路径
 
 ```text

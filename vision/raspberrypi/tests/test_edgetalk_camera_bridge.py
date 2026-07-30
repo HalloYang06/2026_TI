@@ -10,6 +10,9 @@ VISION_DIR = ROOT / "vision" / "raspberrypi"
 MODULE_PATH = VISION_DIR / "edgetalk_camera_bridge.py"
 CAMERA_SOURCE_PATH = VISION_DIR / "ball_camera" / "ball_vision_sender.cpp"
 CAMERA_START_PATH = VISION_DIR / "ball_camera" / "start_ball_camera.sh"
+CAMERA_USER_SERVICE_PATH = (
+    VISION_DIR / "systemd" / "hball-edgetalk-camera-user.service"
+)
 
 
 def load_bridge_module():
@@ -60,3 +63,16 @@ def test_real_camera_defaults_match_the_frozen_100_hz_target():
     assert "int fps = 100;" in source
     assert "--fps 100" in start_script
     assert "--fps 120" not in start_script
+
+
+def test_real_camera_user_service_is_restartable_and_identity_neutral():
+    service = CAMERA_USER_SERVICE_PATH.read_text(encoding="utf-8")
+
+    assert "Restart=always" in service
+    assert "EnvironmentFile=%h/.config/hball/edgetalk-camera.env" in service
+    assert "${HBALL_CAMERA_BRIDGE}" in service
+    assert "${HBALL_CAMERA_SOURCE_URL}" in service
+    assert "%t/hball-edgetalk-usb.lock" in service
+    assert "User=" not in service
+    for forbidden in ("halloyang", "192.168.", "ttyACM", "password"):
+        assert forbidden not in service

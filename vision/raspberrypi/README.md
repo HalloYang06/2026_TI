@@ -47,9 +47,21 @@ python3 edgetalk_camera_bridge.py
 ```
 
 它优先使用唯一的`/dev/serial/by-id/`设备；存在多个设备时必须用`--port`传入明确的稳定路径。
-发送端有独占锁，不能与仅握手的`edgetalk_usb_daemon.py`同时占用同一个CDC设备。调试完成后可
-将`systemd/hball-edgetalk-camera.service`复制到`/etc/systemd/system/`并启用；该服务只发送视觉
-测量帧，不会启用电机、发送CAN或产生运动命令。
+发送端有独占锁，不能与仅握手的`edgetalk_usb_daemon.py`同时占用同一个CDC设备。正式接管建议
+使用不硬编码用户身份的`systemd/hball-edgetalk-camera-user.service`：
+
+```bash
+mkdir -p ~/.config/hball ~/.config/systemd/user
+cp systemd/edgetalk-camera.env.example ~/.config/hball/edgetalk-camera.env
+cp systemd/hball-edgetalk-camera-user.service ~/.config/systemd/user/
+# 编辑HBALL_CAMERA_BRIDGE为本机脚本绝对路径
+systemctl --user disable --now hball-edgetalk-usb.service
+systemctl --user daemon-reload
+systemctl --user enable --now hball-edgetalk-camera-user.service
+```
+
+若要退回PING-only探针，先禁用真实相机服务，再启用`hball-edgetalk-usb.service`。两者使用同一个
+进程锁，不能同时运行。真实相机服务只发送视觉测量帧，不会启用电机、发送CAN或产生运动命令。
 
 球速不由树莓派用相邻两帧直接差分后作为控制量。EdgeTalk根据100 Hz带时间戳位置，
 在OOSM Kalman中估计球速和扰动。
