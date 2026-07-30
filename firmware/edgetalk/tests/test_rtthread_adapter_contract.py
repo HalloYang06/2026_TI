@@ -57,3 +57,15 @@ def test_bench_auto_probe_is_explicit_build_opt_in():
     assert "HBALL_RS00_READBACK_TX_ENABLED=1" in sconscript
     assert "HBALL_RS00_MOTION_TX_ENABLED=1" in sconscript
     assert "hball_rs00_control.c" in sconscript
+
+
+def test_manual_csp_session_uses_targeted_100_hz_position_velocity_readback():
+    source = ADAPTER.read_text(encoding="utf-8")
+
+    assert "#define HBALL_RS00_MOTION_READBACK_PERIOD_MS 10U" in source
+    assert "HBALL_RS00_INDEX_MECH_POSITION" in source
+    assert "HBALL_RS00_INDEX_MECH_VELOCITY" in source
+    assert "hball_motion_poll_readback(now_ms);" in source
+    assert "g_hball_motor.parameters.mech_position_rad" in source
+    assert "g_hball_motor.parameters.mech_velocity_rad_s" in source
+    assert "HBALL_RS00_BENCH_RETURNING" in source
