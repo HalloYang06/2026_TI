@@ -115,7 +115,7 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
       const double along = delta.dot(axis.direction);
       const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
       if (lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
-          std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
+          std::abs(along) > axis.length * 0.24F) continue;
       const double fraction = (along + axis.length / 2) / axis.length;
       if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.10) continue;
       double score = lateral + 0.5 * std::abs(circle[2] - 10.0F);
@@ -150,7 +150,7 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
     const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
     if (area < cfg.min_area || area > cfg.max_area ||
         lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
-        std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
+        std::abs(along) > axis.length * 0.24F) continue;
     const double radius = std::sqrt(area / CV_PI);
     const double fraction = (along + axis.length / 2) / axis.length;
     if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.10) continue;
@@ -231,42 +231,41 @@ std::optional<cv::Rect> find_pipe_roi(const cv::Mat& image, const Config& cfg) {
   return padded & cv::Rect(0, 0, image.cols, image.rows);
 }
 
+cv::Mat rectify_pipe(const cv::Mat& image) {
+  // Four corners of the pipe marked in the current 640x480 installation view.
+  const std::vector<cv::Point2f> source{{59.0F, 205.0F}, {596.0F, 235.0F},
+                                         {596.0F, 264.0F}, {59.0F, 242.0F}};
+  const std::vector<cv::Point2f> destination{{50.0F, 215.0F}, {590.0F, 215.0F},
+                                              {590.0F, 260.0F}, {50.0F, 260.0F}};
+  cv::Mat rectified;
+  cv::warpPerspective(image, rectified, cv::getPerspectiveTransform(source, destination),
+                      image.size(), cv::INTER_LINEAR, cv::BORDER_REPLICATE);
+  return rectified;
+}
+
 void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processing_fps,
               uint64_t capture_time_us) {
   const auto processing_started = std::chrono::steady_clock::now();
   const cv::Rect image_rect(0, 0, image.cols, image.rows);
-  const cv::Rect fallback_roi = cfg.roi.area() ? (cfg.roi & image_rect) : image_rect;
-  static cv::Rect tracked_roi;
-  static std::optional<PipeAxis> tracked_axis;
+  // The perspective destination above is the calibrated pipe itself.  Do not
+  // run a second bright-contour search here: it can lock onto the chassis.
+  const cv::Rect roi = cv::Rect(50, 215, 540, 45) & image_rect;
+  const PipeAxis axis{{320.0F, 237.5F}, {1.0F, 0.0F}, 540.0F, 22.5F};
   static std::optional<double> previous_fraction;
   static int missed_frames = 0;
-  static int pipe_refresh_counter = 0;
-  std::optional<cv::Rect> measured_roi;
-  std::optional<PipeAxis> measured_axis;
-  if (pipe_refresh_counter++ % 8 == 0 || tracked_roi.empty() || !tracked_axis) {
-    measured_roi = find_pipe_roi(image, cfg);
-    measured_axis = find_pipe_axis(image, cfg);
-  }
-  if (measured_roi) {
-    if (tracked_roi.empty() || std::abs(measured_roi->x - tracked_roi.x) > tracked_roi.width / 3 ||
-        std::abs(measured_roi->y - tracked_roi.y) > tracked_roi.height / 2) {
-      tracked_roi = *measured_roi;
-    } else {
-      constexpr double alpha = 0.2;
-      tracked_roi.x = cvRound((1 - alpha) * tracked_roi.x + alpha * measured_roi->x);
-      tracked_roi.y = cvRound((1 - alpha) * tracked_roi.y + alpha * measured_roi->y);
-      tracked_roi.width = cvRound((1 - alpha) * tracked_roi.width + alpha * measured_roi->width);
-      tracked_roi.height = cvRound((1 - alpha) * tracked_roi.height + alpha * measured_roi->height);
-    }
-  } else if (tracked_roi.empty()) {
-    tracked_roi = fallback_roi;
-  }
-  const cv::Rect roi = tracked_roi & image_rect;
-  if (measured_axis) tracked_axis = measured_axis;
-  const PipeAxis axis = tracked_axis.value_or(
-      PipeAxis{{roi.x + roi.width / 2.0F, roi.y + roi.height / 2.0F}, {1.0F, 0.0F},
-               static_cast<float>(roi.width), static_cast<float>(roi.height) / 2.0F});
-  cv::rectangle(image, roi, cv::Scalar(255, 180, 0), 2);
+  const cv::Point2f normal(-axis.direction.y, axis.direction.x);
+  const float active_half_length = axis.length * 0.24F;
+  const float active_half_width = std::min(axis.half_width, static_cast<float>(cfg.max_center_offset));
+  const std::vector<cv::Point> active_band{
+      cv::Point(cvRound(axis.centre.x - axis.direction.x * active_half_length - normal.x * active_half_width),
+                cvRound(axis.centre.y - axis.direction.y * active_half_length - normal.y * active_half_width)),
+      cv::Point(cvRound(axis.centre.x + axis.direction.x * active_half_length - normal.x * active_half_width),
+                cvRound(axis.centre.y + axis.direction.y * active_half_length - normal.y * active_half_width)),
+      cv::Point(cvRound(axis.centre.x + axis.direction.x * active_half_length + normal.x * active_half_width),
+                cvRound(axis.centre.y + axis.direction.y * active_half_length + normal.y * active_half_width)),
+      cv::Point(cvRound(axis.centre.x - axis.direction.x * active_half_length + normal.x * active_half_width),
+                cvRound(axis.centre.y - axis.direction.y * active_half_length + normal.y * active_half_width))};
+  cv::polylines(image, active_band, true, cv::Scalar(255, 180, 0), 2);
   const auto circle = find_ball(image(roi), cfg, previous_fraction, axis, roi);
   bool found = false;
   double position_cm = 0.0;
@@ -349,7 +348,7 @@ void capture_loop(const Config& cfg, Frames& frames) {
       const double instant_fps = 1.0 / seconds;
       processing_fps = processing_fps == 0.0 ? instant_fps : 0.9 * processing_fps + 0.1 * instant_fps;
     }
-    cv::Mat detected = raw.clone();
+    cv::Mat detected = rectify_pipe(raw);
     annotate(detected, cfg, frames, processing_fps, capture_time_us);
     std::vector<uchar> raw_jpeg, detected_jpeg;
     cv::imencode(".jpg", raw, raw_jpeg, params);
