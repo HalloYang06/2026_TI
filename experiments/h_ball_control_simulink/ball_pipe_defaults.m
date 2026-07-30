@@ -14,12 +14,14 @@ bp.meta.version = '1.4-measured-linkage-115200-200hz-imu';
 
 % Physical geometry and gravity.
 bp.gravity = 9.80665;                 % m/s^2
-bp.ball.radius = 0.005;               % m, approx. 10 mm measured diameter
-bp.ball.density = 7850;               % kg/m^3, typical carbon/bearing steel
-bp.ball.mass = (4/3) * pi * bp.ball.radius^3 * bp.ball.density;
+bp.ball.radius = 0.005;               % m, user-confirmed 10 mm diameter
+bp.ball.mass = 0.00411;               % kg, user-measured
+bp.ball.density = bp.ball.mass / ((4/3) * pi * bp.ball.radius^3);
 bp.ball.inertia = (2/5) * bp.ball.mass * bp.ball.radius^2;
 bp.pipe.usable_length = 0.224;        % m, physical ball path: +/-112 mm
-bp.pipe.inner_diameter = 0.050;       % m, documented for later geometry upgrades
+bp.pipe.inner_radius = 0.0065;        % m, user-confirmed semicircular trough
+bp.pipe.inner_diameter = 2*bp.pipe.inner_radius; % 13 mm before axial half-cut
+bp.pipe.radial_clearance = bp.pipe.inner_radius - bp.ball.radius; % 1.5 mm
 
 % Steel/PVC contact model.
 % mu_s and mu_k act on BALL-PIPE SLIP velocity, not directly on rolling speed.
