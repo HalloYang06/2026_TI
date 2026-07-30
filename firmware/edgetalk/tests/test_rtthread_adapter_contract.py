@@ -22,6 +22,9 @@ def test_rtthread_adapter_exposes_only_read_only_shell_commands():
     assert "hball_lqg_command" not in source
     assert "hball_rate_meter_accept(" in source
     assert "can_rate_x10=" in source
+    assert "#define HBALL_RS00_READBACK_TX_ENABLED 0" in source
+    assert "HBALL_RS00_READBACK_PERIOD_MS 20U" in source
+    assert "hball_motor_monitor_make_parameter_read(" in source
 
 
 def test_bench_auto_probe_is_explicit_build_opt_in():
@@ -34,3 +37,4 @@ def test_bench_auto_probe_is_explicit_build_opt_in():
     assert "hball_lqg.c" not in sconscript
     assert "hball_runtime.c" not in sconscript
     assert "hball_rate_meter.c" in sconscript
+    assert "HBALL_RS00_READBACK_TX_ENABLED=1" in sconscript

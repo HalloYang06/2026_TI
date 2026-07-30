@@ -17,6 +17,9 @@ bool hball_m33_inputs_publish_msp(const hball_msp_monitor_t *monitor);
 bool hball_m33_inputs_publish_motor(
     const hball_motor_feedback_t *feedback, uint32_t receive_ms
 );
+bool hball_m33_inputs_publish_motor_parameters(
+    const hball_motor_parameters_t *parameters
+);
 bool hball_m33_inputs_get_snapshot(hball_sensor_snapshot_t *snapshot);
 
 #ifdef __cplusplus

@@ -14,15 +14,21 @@
 #define HBALL_BENCH_AUTO_PROBE5 0
 #endif
 
+#ifndef HBALL_RS00_READBACK_TX_ENABLED
+#define HBALL_RS00_READBACK_TX_ENABLED 0
+#endif
+
 #if HBALL_INTEGRATED_SHADOW
-#define HBALL_BENCH_VERSION "0.3.0-m33-integrated-shadow"
+#define HBALL_BENCH_VERSION "0.4.0-m33-integrated-readback"
 #else
-#define HBALL_BENCH_VERSION "0.2.0-m33-can-only"
+#define HBALL_BENCH_VERSION "0.3.0-m33-can-readback"
 #endif
 #define HBALL_BENCH_PERIOD_MS 1U
 #define HBALL_BENCH_LOG_PERIOD_MS 1000U
 #define HBALL_BENCH_AUTO_PROBE_DELAY_MS 1000U
 #define HBALL_BENCH_RX_BUDGET 32U
+#define HBALL_RS00_READBACK_PERIOD_MS 20U
+#define HBALL_RS00_READBACK_TIMEOUT_MS 10U
 
 #ifndef BSP_CANFD0_RX_FIFO0_ELEMENTS
 #error "H-ball CAN build must define the RX FIFO depth"
@@ -44,6 +50,18 @@ static rt_uint32_t g_hball_tx_total = 0U;
 static rt_uint32_t g_hball_tx_success = 0U;
 static rt_uint32_t g_hball_tx_failure = 0U;
 static hball_rate_meter_t g_hball_can_rx_rate;
+#if HBALL_RS00_READBACK_TX_ENABLED
+static const uint16_t g_hball_rs00_readback_indexes[] = {
+    HBALL_RS00_INDEX_RUN_MODE,
+    HBALL_RS00_INDEX_MECH_POSITION,
+    HBALL_RS00_INDEX_FILTERED_IQ,
+    HBALL_RS00_INDEX_MECH_VELOCITY,
+    HBALL_RS00_INDEX_VBUS,
+    HBALL_RS00_INDEX_ROTATION,
+};
+static rt_uint8_t g_hball_rs00_readback_next = 0U;
+static rt_uint32_t g_hball_rs00_readback_last_ms = 0U;
+#endif
 
 static rt_uint32_t hball_now_ms(void)
 {
@@ -71,6 +89,38 @@ static void hball_copy_from_rt_can(
     }
 }
 
+static rt_err_t hball_send_read_only_frame(const hball_can_frame_t *frame)
+{
+    struct rt_can_msg message;
+    rt_err_t result;
+
+    if ((frame == RT_NULL) || !g_hball_can_ready
+        || (frame->is_extended == 0U) || (frame->is_remote != 0U)
+        || (frame->dlc != 8U))
+    {
+        return -RT_ERROR;
+    }
+    rt_memset(&message, 0, sizeof(message));
+    message.id = frame->id;
+    message.ide = RT_CAN_EXTID;
+    message.rtr = RT_CAN_DTR;
+    message.len = frame->dlc;
+    message.hdr_index = -1;
+    rt_memcpy(message.data, frame->data, frame->dlc);
+
+    result = ifx_can_direct_send(&message);
+    g_hball_tx_total++;
+    if (result == RT_EOK)
+    {
+        g_hball_tx_success++;
+    }
+    else
+    {
+        g_hball_tx_failure++;
+    }
+    return result;
+}
+
 static void hball_poll_can(void)
 {
     struct rt_can_msg message;
@@ -80,16 +130,18 @@ static void hball_poll_can(void)
     while ((drained < HBALL_BENCH_RX_BUDGET)
         && (ifx_can_direct_recv(&message) == (rt_ssize_t)sizeof(message)))
     {
+        const rt_uint32_t now_ms = hball_now_ms();
+
         drained++;
         hball_copy_from_rt_can(&frame, &message);
         g_hball_last_rx = frame;
         g_hball_last_rx_valid = RT_TRUE;
         g_hball_raw_rx_total++;
-        hball_rate_meter_accept(&g_hball_can_rx_rate, hball_now_ms());
+        hball_rate_meter_accept(&g_hball_can_rx_rate, now_ms);
         if (frame.is_extended != 0U)
         {
             const hball_can_event_t event = hball_motor_monitor_accept(
-                &g_hball_motor, &frame, hball_now_ms()
+                &g_hball_motor, &frame, now_ms
             );
 
             if (event == HBALL_CAN_EVENT_PROBE_REPLY)
@@ -105,7 +157,15 @@ static void hball_poll_can(void)
             {
 #if HBALL_INTEGRATED_SHADOW
                 (void)hball_m33_inputs_publish_motor(
-                    &g_hball_motor.feedback, hball_now_ms()
+                    &g_hball_motor.feedback, now_ms
+                );
+#endif
+            }
+            else if (event == HBALL_CAN_EVENT_PARAMETER)
+            {
+#if HBALL_INTEGRATED_SHADOW
+                (void)hball_m33_inputs_publish_motor_parameters(
+                    &g_hball_motor.parameters
                 );
 #endif
             }
@@ -113,7 +173,7 @@ static void hball_poll_can(void)
         else
         {
             const hball_msp_event_t event = hball_msp_monitor_accept(
-                &g_hball_msp, &frame, hball_now_ms()
+                &g_hball_msp, &frame, now_ms
             );
 
 #if HBALL_INTEGRATED_SHADOW
@@ -129,10 +189,50 @@ static void hball_poll_can(void)
     }
 }
 
+#if HBALL_RS00_READBACK_TX_ENABLED
+static void hball_poll_rs00_readback(rt_uint32_t now_ms)
+{
+    hball_can_frame_t frame;
+    rt_err_t result;
+    const uint16_t index = g_hball_rs00_readback_indexes[
+        g_hball_rs00_readback_next
+    ];
+
+    (void)hball_motor_monitor_expire_parameter_request(
+        &g_hball_motor, now_ms, HBALL_RS00_READBACK_TIMEOUT_MS
+    );
+    if (g_hball_motor.parameter_pending
+        || ((rt_uint32_t)(now_ms - g_hball_rs00_readback_last_ms)
+            < HBALL_RS00_READBACK_PERIOD_MS))
+    {
+        return;
+    }
+    g_hball_rs00_readback_last_ms = now_ms;
+    if (!hball_motor_monitor_make_parameter_read(
+            &g_hball_motor, index, now_ms, &frame))
+    {
+        return;
+    }
+    result = hball_send_read_only_frame(&frame);
+    if (result == RT_EOK)
+    {
+        g_hball_rs00_readback_next = (rt_uint8_t)(
+            (g_hball_rs00_readback_next + 1U)
+            % (sizeof(g_hball_rs00_readback_indexes)
+                / sizeof(g_hball_rs00_readback_indexes[0]))
+        );
+    }
+    else
+    {
+        g_hball_motor.parameter_pending = false;
+        g_hball_motor.pending_parameter_index = 0U;
+    }
+}
+#endif
+
 static rt_err_t hball_send_probe5_once(void)
 {
     hball_can_frame_t frame;
-    struct rt_can_msg message;
     rt_err_t result;
 
     if (!g_hball_can_ready)
@@ -145,23 +245,9 @@ static rt_err_t hball_send_probe5_once(void)
         return -RT_ERROR;
     }
 
-    rt_memset(&message, 0, sizeof(message));
-    message.id = frame.id;
-    message.ide = RT_CAN_EXTID;
-    message.rtr = RT_CAN_DTR;
-    message.len = frame.dlc;
-    message.hdr_index = -1;
-    rt_memcpy(message.data, frame.data, frame.dlc);
-
-    result = ifx_can_direct_send(&message);
-    g_hball_tx_total++;
-    if (result == RT_EOK)
+    result = hball_send_read_only_frame(&frame);
+    if (result != RT_EOK)
     {
-        g_hball_tx_success++;
-    }
-    else
-    {
-        g_hball_tx_failure++;
         g_hball_motor.probe_pending = false;
     }
     rt_kprintf(
@@ -186,13 +272,18 @@ static void hball_worker_entry(void *parameter)
     RT_UNUSED(parameter);
     while (1)
     {
-#if HBALL_BENCH_AUTO_PROBE5 || HBALL_PERIODIC_DIAGNOSTICS
+#if HBALL_BENCH_AUTO_PROBE5 || HBALL_PERIODIC_DIAGNOSTICS \
+    || HBALL_RS00_READBACK_TX_ENABLED
         rt_uint32_t now_ms;
 #endif
 
         hball_poll_can();
-#if HBALL_BENCH_AUTO_PROBE5 || HBALL_PERIODIC_DIAGNOSTICS
+#if HBALL_BENCH_AUTO_PROBE5 || HBALL_PERIODIC_DIAGNOSTICS \
+    || HBALL_RS00_READBACK_TX_ENABLED
         now_ms = hball_now_ms();
+#endif
+#if HBALL_RS00_READBACK_TX_ENABLED
+        hball_poll_rs00_readback(now_ms);
 #endif
 #if HBALL_BENCH_AUTO_PROBE5
         if (!auto_probe_done
@@ -273,6 +364,35 @@ static void hball_status(void)
         (unsigned long)g_hball_motor.rx_ignored
     );
     rt_kprintf(
+        "[hball-m33] rs00_readback enabled=%u pending=%d index=0x%04x valid=0x%02x rx=%lu timeout=%lu mode=%u rotation=%d pos_mrad=%ld vel_mrad_s=%ld iq_ma=%ld vbus_mv=%ld\n",
+        (unsigned int)HBALL_RS00_READBACK_TX_ENABLED,
+        (int)g_hball_motor.parameter_pending,
+        (unsigned int)g_hball_motor.pending_parameter_index,
+        (unsigned int)g_hball_motor.parameters.valid_flags,
+        (unsigned long)g_hball_motor.parameter_rx_total,
+        (unsigned long)g_hball_motor.parameter_timeout_total,
+        (unsigned int)g_hball_motor.parameters.run_mode,
+        (int)g_hball_motor.parameters.rotation,
+        (long)(g_hball_motor.parameters.mech_position_rad * 1000.0F),
+        (long)(g_hball_motor.parameters.mech_velocity_rad_s * 1000.0F),
+        (long)(g_hball_motor.parameters.filtered_iq_a * 1000.0F),
+        (long)(g_hball_motor.parameters.vbus_v * 1000.0F)
+    );
+    rt_kprintf(
+        "[hball-m33] rs00_feedback valid=%d age_ms=%lu mode=%u fault=0x%02x pos_mrad=%ld vel_mrad_s=%ld torque_mnm=%ld temp_dc=%ld error_raw=%lu last_error_id=0x%08lx dlc=%u\n",
+        (int)g_hball_motor.feedback_valid,
+        (unsigned long)(hball_now_ms() - g_hball_motor.last_feedback_ms),
+        (unsigned int)g_hball_motor.feedback.mode_state,
+        (unsigned int)g_hball_motor.feedback.fault_summary,
+        (long)(g_hball_motor.feedback.position_rad * 1000.0F),
+        (long)(g_hball_motor.feedback.velocity_rad_s * 1000.0F),
+        (long)(g_hball_motor.feedback.torque_nm * 1000.0F),
+        (long)(g_hball_motor.feedback.temperature_c * 10.0F),
+        (unsigned long)g_hball_motor.error_raw_total,
+        (unsigned long)g_hball_motor.last_error_raw_id,
+        (unsigned int)g_hball_motor.last_error_raw_dlc
+    );
+    rt_kprintf(
         "[hball-m33] msp_rx=%lu invalid=%lu ignored=%lu dup=%lu ooo=%lu gap=%lu reboot=%lu hb=%d accel=%d gyro=%d attitude=%d wheel=%d status=0x%04x\n",
         (unsigned long)g_hball_msp.rx_total,
         (unsigned long)g_hball_msp.rx_invalid,
@@ -345,7 +465,8 @@ static int hball_bench_start(void)
     hball_msp_monitor_init(&g_hball_msp);
     hball_rate_meter_init(&g_hball_can_rx_rate);
     rt_kprintf(
-        "[hball-m33] SAFETY CAN-only: no enable, zero, position, speed or torque TX\n"
+        "[hball-m33] SAFETY read-only: RS00 parameter reads=%u; no enable, zero, mode, position, speed, current or torque TX\n",
+        (unsigned int)HBALL_RS00_READBACK_TX_ENABLED
     );
     hball_init();
     if (!g_hball_can_ready)

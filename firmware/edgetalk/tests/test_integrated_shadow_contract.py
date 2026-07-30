@@ -34,6 +34,10 @@ def test_usb_and_can_publish_only_validated_measurements_to_m33_inputs():
     assert "hball_msp_monitor_accept(" in can
     assert "hball_m33_inputs_publish_msp(" in can
     assert "hball_m33_inputs_publish_motor(" in can
+    assert "hball_m33_inputs_publish_motor_parameters(" in can
+    assert "HBALL_RS00_READBACK_TX_ENABLED=1" in SCONSCRIPT.read_text(
+        encoding="utf-8"
+    )
     assert "MOTOR_COMMAND_TX=0" in can
 
 
@@ -41,7 +45,7 @@ def test_can_diagnostics_identify_the_integrated_shadow_image():
     can = CAN.read_text(encoding="utf-8")
 
     assert "#if HBALL_INTEGRATED_SHADOW" in can
-    assert 'HBALL_BENCH_VERSION "0.3.0-m33-integrated-shadow"' in can
+    assert 'HBALL_BENCH_VERSION "0.4.0-m33-integrated-readback"' in can
 
 
 def test_m33_input_hub_uses_mutex_and_200_hz_read_only_snapshots():

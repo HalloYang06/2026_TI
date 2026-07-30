@@ -75,6 +75,21 @@ bool hball_m33_inputs_publish_motor(
     return true;
 }
 
+bool hball_m33_inputs_publish_motor_parameters(
+    const hball_motor_parameters_t *parameters
+)
+{
+    if ((parameters == RT_NULL) || !hball_m33_inputs_lock())
+    {
+        return false;
+    }
+    hball_sensor_fusion_set_motor_parameters(
+        &g_hball_sensor_fusion, parameters
+    );
+    hball_m33_inputs_unlock();
+    return true;
+}
+
 bool hball_m33_inputs_get_snapshot(hball_sensor_snapshot_t *snapshot)
 {
     if ((snapshot == RT_NULL) || !hball_m33_inputs_lock())

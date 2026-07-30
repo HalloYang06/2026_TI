@@ -56,6 +56,7 @@ elif integrated_shadow:
         CPPDEFINES=[
             'HBALL_INTEGRATED_SHADOW=1',
             'HBALL_BENCH_AUTO_PROBE5=0',
+            'HBALL_RS00_READBACK_TX_ENABLED=1',
             'BSP_CANFD0_RX_FIFO0_ELEMENTS=64U',
         ],
     )
