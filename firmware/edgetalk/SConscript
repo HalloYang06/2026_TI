@@ -37,6 +37,7 @@ elif integrated_shadow:
         os.path.join(cwd, 'src', 'hball_dualcore_ipc.c'),
         os.path.join(cwd, 'src', 'hball_dualcore_platform.c'),
         os.path.join(cwd, 'src', 'hball_rate_meter.c'),
+        os.path.join(cwd, 'src', 'hball_rs00_control.c'),
         os.path.join(cwd, 'src', 'hball_sensor_fusion.c'),
         os.path.join(cwd, 'src', 'hball_usb_probe.c'),
         os.path.join(cwd, 'src', 'hball_vision_protocol.c'),
@@ -57,6 +58,7 @@ elif integrated_shadow:
             'HBALL_INTEGRATED_SHADOW=1',
             'HBALL_BENCH_AUTO_PROBE5=0',
             'HBALL_RS00_READBACK_TX_ENABLED=1',
+            'HBALL_RS00_MOTION_TX_ENABLED=1',
             'BSP_CANFD0_RX_FIFO0_ELEMENTS=64U',
         ],
     )

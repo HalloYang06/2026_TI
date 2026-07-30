@@ -7,11 +7,21 @@ ADAPTER = ROOT / "firmware" / "edgetalk" / "rtthread" / "hball_bench_app.c"
 SCONSCRIPT = ROOT / "firmware" / "edgetalk" / "SConscript"
 
 
-def test_rtthread_adapter_exposes_only_read_only_shell_commands():
+def test_rtthread_adapter_exposes_bounded_manual_motion_shell_commands():
     source = ADAPTER.read_text(encoding="utf-8")
-    exported = re.findall(r"MSH_CMD_EXPORT\((\w+),", source)
+    exported = re.findall(r"MSH_CMD_EXPORT\(\s*(\w+),", source)
 
-    assert exported == ["hball_init", "hball_status", "hball_probe5"]
+    assert exported == [
+        "hball_init",
+        "hball_status",
+        "hball_probe5",
+        "hball_motor_prepare5",
+        "hball_motor_arm5",
+        "hball_motor_step5",
+        "hball_motor_return5",
+        "hball_motor_stop5",
+        "hball_motor_status5",
+    ]
     assert source.count("ifx_can_direct_send(") == 1
     assert source.count("ifx_can_direct_recv(") == 1
     assert "hball_motor_monitor_make_probe" in source
@@ -25,6 +35,13 @@ def test_rtthread_adapter_exposes_only_read_only_shell_commands():
     assert "#define HBALL_RS00_READBACK_TX_ENABLED 0" in source
     assert "HBALL_RS00_READBACK_PERIOD_MS 20U" in source
     assert "hball_motor_monitor_make_parameter_read(" in source
+    assert "#define HBALL_RS00_MOTION_TX_ENABLED 0" in source
+    assert 'HBALL_RS00_CONFIRM_TOKEN "CONFIRM_NO_LOAD"' in source
+    assert "hball_rs00_control_make_enable(" in source
+    assert "hball_rs00_control_make_position_reference(" in source
+    assert "hball_rs00_control_make_stop(" in source
+    assert "set_zero" not in source.lower()
+    assert "ACTUATOR_TX=0" in source
 
 
 def test_bench_auto_probe_is_explicit_build_opt_in():
@@ -38,3 +55,5 @@ def test_bench_auto_probe_is_explicit_build_opt_in():
     assert "hball_runtime.c" not in sconscript
     assert "hball_rate_meter.c" in sconscript
     assert "HBALL_RS00_READBACK_TX_ENABLED=1" in sconscript
+    assert "HBALL_RS00_MOTION_TX_ENABLED=1" in sconscript
+    assert "hball_rs00_control.c" in sconscript
