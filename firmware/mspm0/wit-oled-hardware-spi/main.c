@@ -54,8 +54,6 @@
 #define CAR_TASK_LAP_STOP        1U
 #define CAR_TASK_TIMED_RUN       2U
 #define CAR_TASK_STABLE_LAP      3U
-#define TASK_DOUBLE_CLICK_MS     350U
-
 #define SPEED_PID_DISABLED 0U
 #define SPEED_PID_ENABLED  1U
 #define GYRO_LCD_REFRESH_MS 100U
@@ -879,7 +877,7 @@ static void format_lap_time(uint32_t elapsed_ms, char text[8])
 static uint8_t select_car_task(void)
 {
     uint8_t selected_task = CAR_TASK_LAP_STOP;
-    uint32_t first_release_ms;
+    task_key_event_t key_event;
 
     while (1)
     {
@@ -892,41 +890,26 @@ static uint8_t select_car_task(void)
         } else {
             LCD_ShowString(4, 52, (const unsigned char *)"TASK3 RUN 28S", MAGENTA, BLACK, 32, 0);
         }
-        LCD_ShowString(4, 100, (const unsigned char *)"1CLICK CHANGE", YELLOW, BLACK, 24, 0);
-        LCD_ShowString(4, 136, (const unsigned char *)"2CLICK START", YELLOW, BLACK, 24, 0);
+        LCD_ShowString(4, 100, (const unsigned char *)"SW3 CHANGE", YELLOW, BLACK, 24, 0);
+        LCD_ShowString(4, 136, (const unsigned char *)"SW1 START", YELLOW, BLACK, 24, 0);
 
-        while (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) != 0U) {
+        do {
+            key_event = get_task_key_event();
             delay_cycles(CPUCLK_FREQ / 200U);
-        }
-        delay_cycles(CPUCLK_FREQ / 50U);
-        if (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) != 0U) {
-            continue;
+        } while (key_event == TASK_KEY_EVENT_NONE);
+
+        if (key_event == TASK_KEY_EVENT_EXECUTE) {
+            beep();
+            return selected_task;
         }
 
-        while (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U) {
-            delay_cycles(CPUCLK_FREQ / 200U);
-        }
-        first_release_ms = tick_ms;
-
-        while ((uint32_t)(tick_ms - first_release_ms) < TASK_DOUBLE_CLICK_MS)
+        if (key_event == TASK_KEY_EVENT_SELECT)
         {
-            if (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U)
-            {
-                delay_cycles(CPUCLK_FREQ / 50U);
-                if (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U)
-                {
-                    while (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U) {
-                        delay_cycles(CPUCLK_FREQ / 200U);
-                    }
-                    return selected_task;
-                }
+            beep();
+            selected_task++;
+            if (selected_task > CAR_TASK_STABLE_LAP) {
+                selected_task = CAR_TASK_LAP_STOP;
             }
-            delay_cycles(CPUCLK_FREQ / 200U);
-        }
-
-        selected_task++;
-        if (selected_task > CAR_TASK_STABLE_LAP) {
-            selected_task = CAR_TASK_LAP_STOP;
         }
     }
 }
