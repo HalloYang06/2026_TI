@@ -1,6 +1,8 @@
 # 2026 TI 电赛备赛：H题车载平衡滚球
 
-本仓库用于 H 题“车载平衡滚球运动控制系统”的独立方案、算法仿真和后续固件实现。当前工作分支为 `prep/2026`；在实物参数和引脚确认前，控制代码只保留在可离线验证的 `experiments/`，不会自动使能电机或底盘。
+本仓库用于 H 题“车载平衡滚球运动控制系统”的独立方案、算法仿真和固件实现。当前工作分支为
+`prep/2026`；EdgeTalk、MSPM0与树莓派已完成只读通信和shadow链路，但所有自动任务仍保持
+`ACTUATOR_TX=0`，不会使能RS00或发起底盘运动。
 
 ## 当前结论
 
@@ -8,18 +10,23 @@
 
 | 板卡 | 正式职责 | 建议频率 |
 |---|---|---:|
-| 天猛星 MSPM0G3507 | 红外循迹、底盘速度/差速环、IMU UART DMA采集、底盘状态发布 | 1 kHz / 500 Hz / 200 Hz |
-| 树莓派 | 灰度ROI、轮廓筛选、钢球定位、比赛视频显示与存储 | 120 Hz |
-| Infineon EdgeTalk | M33通信/安全门、M55滚球观测与LQG、RS00受限目标接口 | 200 Hz LQG / 1 kHz安全门 / 200 Hz目标 |
+| 天猛星 MSPM0G3507 | 红外循迹、底盘速度/差速环、IMU采集和带时间信息的底盘状态发布；不运行滚球算法 | IMU目标500 Hz，发布频率待接口冻结 |
+| 树莓派 | 钢球视觉定位、置信度、帧号和采集/处理时延 | 100 Hz |
+| Infineon EdgeTalk | M33通信/1 kHz安全门，M55 200 Hz滚球shadow；两连杆逆解和RS00执行仍待接入 | 200 Hz估计控制 / 200 Hz目标（当前TX关闭） |
 
-F407 和 NanoPi M5 暂不进入正式链路，分别保留作 MCU 与视觉计算备选。滚球主算法为“非线性可测扰动前馈 + 延迟鲁棒 LQG”，当前增益为 `K=[14.56338, 3.31547, 0.58093]`。
+F407 和 NanoPi M5 暂不进入正式链路，分别保留作 MCU 与视觉计算备选。当前可部署目标算法为
+“历史回溯卡尔曼 + LQI + IMU前馈 + 端部保护”；现有M55只运行旧LQG的`SHADOW_ONLY`回归。
+仓库原Python仿真的
+`K=[14.56338, 3.31547, 0.58093]`是较早的60 Hz/通用执行器回归基线，不是当前
+RS00两连杆系统的部署增益。最新事实、未决项和部署顺序见
+[`docs/ai-handoffs/h-ball-control.md`](docs/ai-handoffs/h-ball-control.md)。
 
 ```mermaid
 flowchart LR
-    M["MSPM0G3507<br/>IMU、红外、底盘"] -->|"200 Hz 时间戳状态包"| E["EdgeTalk<br/>200 Hz LQG"]
-    P["树莓派<br/>120 Hz 钢球视觉"] -->|"64 B位置测量、置信度、采集时刻"| E
-    E -->|"1 kHz安全门<br/>200 Hz CSP目标，当前TX关闭"| B["5号RS00<br/>内部位置环/FOC"]
-    B -->|"250~500 Hz角度、速度、故障"| E
+    M["MSPM0G3507<br/>IMU、红外、底盘"] -->|"200 Hz CAN遥测"| E["EdgeTalk M33/M55<br/>200 Hz shadow"]
+    P["树莓派<br/>100 Hz 钢球视觉"] -->|"64 B位置、置信度、采集时刻"| E
+    E -->|"1 kHz安全门<br/>200 Hz目标，当前TX关闭"| B["RS00与两连杆<br/>内部位置环/FOC"]
+    B -->|"250~500 Hz反馈，待实测"| E
     E -->|"降级/限速状态"| M
 ```
 
@@ -28,16 +35,22 @@ flowchart LR
 - 29 项模型、观测器、控制器和压力战役测试通过。
 - 静止 `0 -> +5 cm -> -5 cm` 均在 5 s 内进入并保持 `+-1 cm` 误差带。
 - 72 组分级压力测试中，2级干扰 `12/12` 通过，最坏峰值误差 `6.48 mm`；3级首次失效。
-- 这些结果仅证明数值可行性，不代替摄像头、机构、电机和实车标定。
+- 上述三项来自较早Python基线。当前RS00两连杆Simulink基线已按100 Hz视觉重跑：
+  两组从`+5 mm`开始的车辆扰动测试均全程处于`+-10 mm`，组合最差恢复场景未掉球，
+  人为`3.0 m/s^2`轴向过载首次越过机械安全门槛。
+- 所有结果只证明数值可行性，不代替摄像头、机构、电机和实车标定，也不等于实机已满足1 cm。
 
 ## 仓库导航
 
+- `docs/ai-handoffs/h-ball-control.md`：后续AI首先阅读的当前部署交接。
 - `docs/architecture/system-overview.md`：三板结构、闭环量、频率和降级策略。
 - `docs/hardware/measured-parameters.md`：钢球等实物参数、计算值和待测不确定度。
 - `docs/decisions/ADR-001-h-ball-control-architecture.md`：方案和备选算法决策。
 - `docs/decisions/ADR-004-edgetalk-runtime-and-stream-boundaries.md`：当前树莓派/USB/CAN、双核运行时、CSP电机模式和安全边界。
+- `docs/decisions/ADR-006-rs00-two-link-deployment-baseline.md`：100 Hz视觉、RS00与两连杆部署基线。
 - `docs/reference/infineon-edgetalk-motor5.md`：从参考仓库提取的 EdgeTalk、5号电机、编译与烧录经验。
 - `experiments/h_ball_control_sim/`：LQG模型、多速率仿真、72组压力测试和输出图表。
+- `experiments/h_ball_control_simulink/`：RS00、两连杆、滚滑摩擦、100 Hz视觉和整车扰动Simulink基线。
 - `firmware/edgetalk/`、`firmware/mspm0/`、`vision/raspberrypi/`：待引脚和硬件版本确认后落地的子系统边界。
 - `shared/protocol/`：跨板时间戳、状态量和故障语义草案。
 
@@ -51,6 +64,17 @@ python experiments\h_ball_control_sim\run_stress_campaign.py
 ```
 
 以上命令均为纯数值计算，不连接、解锁或驱动任何硬件。
+
+MATLAB/Simulink模型在MATLAB R2025b中已验证，可在
+`experiments\h_ball_control_simulink`目录运行：
+
+```matlab
+run_camera_rate_comparison
+run_vehicle_stress_test
+analyze_two_link_mechanism
+run_ball_pipe_demo
+run_ball_pipe_sweep
+```
 
 ## 参考关系
 

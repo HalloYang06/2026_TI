@@ -89,8 +89,10 @@ python3 vision/raspberrypi/edgetalk_vision_stream.py --duration 30 --rate 240
 
 ## 计划职责
 
-- 200 Hz：读取带采集时间戳的 MSPM0状态和树莓派视觉测量，运行非线性预测、Kalman更新、5帧球速估计与LQR。
-- 1 kHz：M33检查M55 shadow的freshness、有限值、`+-4 deg`限幅、`80 deg/s`斜率限制和故障状态；当前只观察，不发送。
+- 当前200 Hz M55 shadow：读取MSPM0状态和100 Hz带时间戳视觉，运行旧LQG回归；后续按
+  RS00两连杆基线替换为OOSM Kalman、LQI、IMU前馈和端部保护。
+- 1 kHz：M33检查M55 shadow的freshness、有限值和故障状态；部署前把仿真的正常`+-5 deg`、
+  恢复约`+-7 deg`、硬限位`+-8 deg`以及两连杆逆解加入安全门；当前只观察，不发送。
 - 200 Hz电机目标：正式方案采用RS00 CSP位置模式，写入经安全门批准的`loc_ref`并配置保守`limit_spd/limit_cur`；当前`ACTUATOR_TX=0`，发送适配器尚未实现。
 - 250~500 Hz电机反馈：读取角度、速度、温度、故障和跟随误差；具体周期以台架实测为准。
 - 位置环与FOC：留在RS00内部驱动器，频率在取得厂家资料或实测前不假定，M33不重复实现三相电流环。MIT位置-速度阻抗模式仅作为CSP带宽不足时的备选。

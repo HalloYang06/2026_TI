@@ -32,7 +32,7 @@ EdgeTalk双核之间的H题专用256字节共享快照已冻结为 [EDGETALK_DUA
 | 类型 | 方向 | 频率 | 最小内容 |
 |---|---|---:|---|
 | `CHASSIS_STATE` | MSPM0 -> EdgeTalk | 200 Hz | `ax, ay, pitch, yaw_rate, wheel_l, wheel_r, status` |
-| `BALL_MEASUREMENT` | 树莓派 -> EdgeTalk | 120 Hz | 固定64字节；圆心、半径、米制位置、置信度、ROI元数据、曝光和采集时间 |
+| `BALL_MEASUREMENT` | 树莓派 -> EdgeTalk | 100 Hz | 固定64字节；圆心、半径、米制位置、置信度、ROI元数据、曝光和采集时间 |
 | `BALL_TARGET` | 裁判/人机接口 -> EdgeTalk | 事件触发 | 目标位置、命令序号、有效期 |
 | `CONTROL_HEALTH` | EdgeTalk -> MSPM0/显示 | 20~50 Hz | tracking、视觉龄期、IMU龄期、饱和、故障、降速请求 |
 | `TIME_SYNC_REQ/RSP` | EdgeTalk <-> 各板 | 2~10 Hz | 四时间戳握手或往返时延样本 |
@@ -49,9 +49,13 @@ EdgeTalk双核之间的H题专用256字节共享快照已冻结为 [EDGETALK_DUA
 
 ## 带宽估算
 
-假设 `CHASSIS_STATE` 总长32字节，200 Hz在8N1 UART上约需64 kbit/s；`115200`虽能承载平均流量，但在重发、时钟误差和调试流量下余量偏小，因此首选 `460800` 或 `921600 bit/s`。控制UART禁止混入 `printf`。
+假设 `CHASSIS_STATE` 总长32字节，200 Hz在8N1 UART上约需64 kbit/s，500 Hz约需
+160 kbit/s。`115200`不能承载500 Hz候选方案；即使最终按200 Hz发布，也应保留突发、
+时钟误差和诊断余量，因此首选`460800`或`921600 bit/s`。控制UART禁止混入`printf`。
 
-视觉帧 64 字节，在 120 Hz 为 `7.68 kB/s`，在 240 Hz 验收档为 `15.36 kB/s`，500 Hz压力档为`32 kB/s`；当前 High-Speed USB CDC 有充分带宽余量。只传视觉测量，不传灰度ROI像素、二值图、轮廓点集或完整图像。
+视觉帧64字节，在100 Hz为`6.40 kB/s`，在240 Hz链路验收档为`15.36 kB/s`，
+500 Hz压力档为`32 kB/s`；当前High-Speed USB CDC有充分带宽余量。只传视觉测量，
+不传灰度ROI像素、二值图、轮廓点集或完整图像。
 
 ## 待引脚确认后补充
 

@@ -30,6 +30,10 @@ datasets/local/
 captures/
 tmp/
 
+# MATLAB/Simulink generated caches
+*.slxc
+slprj/
+
 # Local tools and downloaded installers
 downloads/
 tools/local/
