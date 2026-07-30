@@ -23,3 +23,15 @@ def test_edgetalk_build_includes_shared_mission_protocol() -> None:
     assert "HBALL_MISSION_PROTOCOL_ROOT" in sconscript
     assert "hball_mission_can.c" in sconscript
     assert "hball_mission_arbiter.c" in sconscript
+
+
+def test_manual_rs00_step_trace_is_bounded_and_read_only() -> None:
+    source = (EDGETALK / "rtthread" / "hball_bench_app.c").read_text(
+        encoding="utf-8"
+    )
+
+    assert "#define HBALL_RS00_STEP_TRACE_CAPACITY 120U" in source
+    assert "#define HBALL_RS00_STEP_TRACE_DURATION_MS 1000U" in source
+    assert "hball_motor_trace5" in source
+    assert "g_hball_step_trace_count" in source
+    assert "< HBALL_RS00_STEP_TRACE_CAPACITY" in source

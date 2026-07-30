@@ -47,8 +47,10 @@
 #define HBALL_RS00_MOTION_STATIONARY_RAD_S 0.2F
 #define HBALL_RS00_MOTION_RETURN_TOLERANCE_RAD 0.005F
 #define HBALL_RS00_MOTION_RETURN_VELOCITY_RAD_S 0.05F
-#define HBALL_RS00_MOTION_READBACK_PERIOD_MS 10U
+#define HBALL_RS00_MOTION_READBACK_PERIOD_MS 5U
 #define HBALL_RS00_MOTION_READBACK_FRESH_MS 100U
+#define HBALL_RS00_STEP_TRACE_CAPACITY 120U
+#define HBALL_RS00_STEP_TRACE_DURATION_MS 1000U
 #define HBALL_RS00_PARAMETER_SLOT_MECH_POSITION 1U
 #define HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY 3U
 #define HBALL_RS00_CONFIRM_TOKEN "CONFIRM_NO_LOAD"
@@ -109,6 +111,20 @@ static rt_uint32_t g_hball_motion_auto_stop_total = 0U;
 static rt_uint32_t g_hball_motion_readback_last_ms = 0U;
 static rt_uint32_t g_hball_motion_readback_tx_total = 0U;
 static rt_uint8_t g_hball_motion_readback_next = 0U;
+typedef struct
+{
+    rt_uint32_t elapsed_ms;
+    float target_rad;
+    float position_rad;
+    float velocity_rad_s;
+    rt_uint8_t fault;
+} hball_step_trace_sample_t;
+static hball_step_trace_sample_t
+    g_hball_step_trace[HBALL_RS00_STEP_TRACE_CAPACITY];
+static rt_uint32_t g_hball_step_trace_start_ms = 0U;
+static rt_uint32_t g_hball_step_trace_last_position_ms = 0U;
+static rt_uint16_t g_hball_step_trace_count = 0U;
+static rt_bool_t g_hball_step_trace_active = RT_FALSE;
 #endif
 #if HBALL_RS00_READBACK_TX_ENABLED
 static const uint16_t g_hball_rs00_readback_indexes[] = {
@@ -286,6 +302,42 @@ static void hball_poll_can(void)
             }
             else if (event == HBALL_CAN_EVENT_PARAMETER)
             {
+#if HBALL_RS00_MOTION_TX_ENABLED
+                if (g_hball_step_trace_active
+                    && (g_hball_motor.parameters.last_update_ms[
+                            HBALL_RS00_PARAMETER_SLOT_MECH_POSITION]
+                        == now_ms)
+                    && (now_ms != g_hball_step_trace_last_position_ms))
+                {
+                    const rt_uint32_t elapsed_ms =
+                        now_ms - g_hball_step_trace_start_ms;
+
+                    if ((elapsed_ms <= HBALL_RS00_STEP_TRACE_DURATION_MS)
+                        && (g_hball_step_trace_count
+                            < HBALL_RS00_STEP_TRACE_CAPACITY))
+                    {
+                        hball_step_trace_sample_t *sample =
+                            &g_hball_step_trace[g_hball_step_trace_count++];
+
+                        sample->elapsed_ms = elapsed_ms;
+                        sample->target_rad =
+                            g_hball_motion.target_position_rad;
+                        sample->position_rad =
+                            g_hball_motor.parameters.mech_position_rad;
+                        sample->velocity_rad_s =
+                            g_hball_motor.parameters.mech_velocity_rad_s;
+                        sample->fault =
+                            g_hball_motor.feedback.fault_summary;
+                        g_hball_step_trace_last_position_ms = now_ms;
+                    }
+                    if ((elapsed_ms >= HBALL_RS00_STEP_TRACE_DURATION_MS)
+                        || (g_hball_step_trace_count
+                            >= HBALL_RS00_STEP_TRACE_CAPACITY))
+                    {
+                        g_hball_step_trace_active = RT_FALSE;
+                    }
+                }
+#endif
 #if HBALL_INTEGRATED_SHADOW
                 (void)hball_m33_inputs_publish_motor_parameters(
                     &g_hball_motor.parameters
@@ -836,6 +888,10 @@ static void hball_motion_step(float step_rad, rt_uint32_t now_ms)
         );
         return;
     }
+    g_hball_step_trace_start_ms = now_ms;
+    g_hball_step_trace_last_position_ms = now_ms;
+    g_hball_step_trace_count = 0U;
+    g_hball_step_trace_active = RT_TRUE;
     rt_kprintf(
         "[hball-motion] SMALL_STEP delta_mrad=%ld target_mrad=%ld\n",
         (long)(step_rad * 1000.0F),
@@ -1390,6 +1446,40 @@ static void hball_motor_status5(void)
 MSH_CMD_EXPORT(
     hball_motor_status5,
     show bounded manual motor-5 session state and safety data
+);
+
+static void hball_motor_trace5(void)
+{
+    rt_uint16_t count;
+
+    if (g_hball_step_trace_active)
+    {
+        rt_kprintf("[hball-trace] capture still active\n");
+        return;
+    }
+    count = g_hball_step_trace_count;
+    rt_kprintf(
+        "[hball-trace] count=%u columns=t_ms,target_mrad,pos_mrad,vel_mrad_s,fault\n",
+        (unsigned int)count
+    );
+    for (rt_uint16_t index = 0U; index < count; ++index)
+    {
+        const hball_step_trace_sample_t *sample =
+            &g_hball_step_trace[index];
+
+        rt_kprintf(
+            "%lu,%ld,%ld,%ld,%u\n",
+            (unsigned long)sample->elapsed_ms,
+            (long)(sample->target_rad * 1000.0F),
+            (long)(sample->position_rad * 1000.0F),
+            (long)(sample->velocity_rad_s * 1000.0F),
+            (unsigned int)sample->fault
+        );
+    }
+}
+MSH_CMD_EXPORT(
+    hball_motor_trace5,
+    dump the last bounded RS00 step response trace
 );
 #endif
 
