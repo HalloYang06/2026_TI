@@ -70,6 +70,11 @@ struct PipeAxis {
   float half_width;
 };
 
+struct TemplateMatch {
+  cv::Vec3f circle;
+  double score;
+};
+
 double calibrated_position_cm(double pipe_x_px) {
   // One-dimensional projective calibration of the current fixed camera view.
   // It is fitted from the measured -10/-7.5/-5/+5/+7.5/+10 cm marks.  A line
@@ -81,6 +86,48 @@ double calibrated_position_cm(double pipe_x_px) {
   constexpr double kDenominatorSlope = 0.0005801149048865943;
   return (kNumeratorSlope * pipe_x_px + kNumeratorOffset) /
          (kDenominatorSlope * pipe_x_px + 1.0);
+}
+
+cv::Mat make_ball_template(const cv::Mat& pipe, const cv::Vec3f& circle) {
+  cv::Mat gray;
+  cv::cvtColor(pipe, gray, cv::COLOR_BGR2GRAY);
+  cv::Mat ball_template;
+  cv::getRectSubPix(gray, cv::Size(24, 24), {circle[0], circle[1]}, ball_template);
+  return ball_template;
+}
+
+std::optional<TemplateMatch> find_template_ball(const cv::Mat& pipe,
+                                                const cv::Mat& ball_template,
+                                                float expected_x,
+                                                const PipeAxis& axis) {
+  if (ball_template.empty() || ball_template.cols > pipe.cols || ball_template.rows > pipe.rows) {
+    return std::nullopt;
+  }
+  cv::Mat gray;
+  cv::cvtColor(pipe, gray, cv::COLOR_BGR2GRAY);
+  const int half_width = ball_template.cols / 2;
+  const int search_left = std::clamp(cvRound(expected_x) - 56 - half_width, 0,
+                                     pipe.cols - ball_template.cols);
+  const int search_right = std::clamp(cvRound(expected_x) + 56 + half_width,
+                                      ball_template.cols, pipe.cols);
+  const cv::Rect search(search_left, 0, search_right - search_left, pipe.rows);
+  cv::Mat correlation;
+  cv::matchTemplate(gray(search), ball_template, correlation, cv::TM_CCOEFF_NORMED);
+  double minimum = 0.0;
+  double maximum = 0.0;
+  cv::Point maximum_point;
+  cv::minMaxLoc(correlation, &minimum, &maximum, nullptr, &maximum_point);
+  if (maximum < 0.66) return std::nullopt;
+  const cv::Point2f point(static_cast<float>(search.x + maximum_point.x + half_width),
+                          static_cast<float>(maximum_point.y + ball_template.rows / 2));
+  const cv::Point2f delta = point - axis.centre;
+  const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
+  if (std::abs(point.x - expected_x) > 56.0F ||
+      lateral > axis.half_width ||
+      std::abs(delta.dot(axis.direction)) > axis.length / 2 - 16.0F) {
+    return std::nullopt;
+  }
+  return TemplateMatch{cv::Vec3f(point.x, point.y, 10.0F), maximum};
 }
 
 void signal_handler(int) { running = false; }
@@ -284,6 +331,7 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
   static std::optional<double> previous_fraction;
   static int missed_frames = 0;
   static bool configured = false;
+  static cv::Mat ball_template;
   if (!configured) {
     tracker.transitionMatrix = (cv::Mat_<float>(2, 2) << 1.0F, 1.0F, 0.0F, 1.0F);
     tracker.measurementMatrix = (cv::Mat_<float>(1, 2) << 1.0F, 0.0F);
@@ -299,7 +347,18 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
     predicted_x = tracker.predict().at<float>(0);
     previous_fraction = std::clamp(static_cast<double>(predicted_x) / axis.length, 0.0, 1.0);
   }
-  const auto circle = find_ball(pipe, cfg, previous_fraction, axis, roi);
+  const auto contour_circle = find_ball(pipe, cfg, previous_fraction, axis, roi);
+  const auto template_match = tracker_ready
+      ? find_template_ball(pipe, ball_template, predicted_x, axis)
+      : std::nullopt;
+  // A strong image correlation is substantially steadier than a changing
+  // reflected contour while the ball is still.  On a real movement the old
+  // template score drops and the normal contour detector takes over at once.
+  const bool use_template = template_match && template_match->score >= 0.80;
+  const auto circle = use_template
+      ? std::optional<cv::Vec3f>(template_match->circle)
+      : contour_circle ? contour_circle
+      : template_match ? std::optional<cv::Vec3f>(template_match->circle) : std::nullopt;
   bool found = false;
   double position_cm = 0.0;
   float center_x_px = 0.0F;
@@ -325,6 +384,7 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
       previous_fraction = fraction;
       missed_frames = 0;
       position_cm = calibrated_position_cm(tracked_x);
+      if (!use_template) ball_template = make_ball_template(pipe, *circle);
       const cv::Point2f camera_point = map_pipe_point({tracked_x, axis.centre.y});
       const cv::Point display_point(cvRound(camera_point.x), cvRound(camera_point.y));
       cv::circle(image, display_point, 10, cv::Scalar(0, 255, 0), 3, cv::LINE_AA);
