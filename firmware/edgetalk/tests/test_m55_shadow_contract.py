@@ -64,11 +64,16 @@ def test_lvgl_page_is_h_problem_specific_and_has_no_rehab_arm_surface():
         "IMU ACCEL",
         "YAW RATE",
         "MOTOR ANGLE",
+        "MOTOR ELECTRICAL",
+        "MOTOR STATE",
         "LQG TARGET",
         "CAN RX",
         "VISION AGE",
     ]:
         assert label in source
+
+    for field in ["motor_filtered_iq_a", "motor_vbus_v", "motor_temperature_c"]:
+        assert field in source
 
     lowered = source.lower()
     for forbidden in ["rehab", "joint", "emg", "robot arm", "mechanical arm"]:

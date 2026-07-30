@@ -101,6 +101,12 @@ static void hball_m55_make_ui_snapshot(hball_m55_ui_snapshot_t *ui)
     ui->yaw_rate_rad_s = g_hball_m55_snapshot.yaw_rate_rad_s;
     ui->motor_angle_rad = g_hball_m55_snapshot.motor_angle_rad;
     ui->motor_velocity_rad_s = g_hball_m55_snapshot.motor_velocity_rad_s;
+    ui->motor_temperature_c = g_hball_m55_snapshot.motor_temperature_c;
+    ui->motor_filtered_iq_a = g_hball_m55_snapshot.motor_filtered_iq_a;
+    ui->motor_vbus_v = g_hball_m55_snapshot.motor_vbus_v;
+    ui->motor_mode_state = g_hball_m55_snapshot.motor_mode_state;
+    ui->motor_run_mode = g_hball_m55_snapshot.motor_run_mode;
+    ui->motor_fault_summary = g_hball_m55_snapshot.motor_fault_summary;
     ui->lqg_target_rad = g_hball_m55_output.shadow_command_rad;
     if ((g_hball_m55_snapshot.valid_flags & HBALL_SENSOR_VALID_IMU) != 0U)
     {
@@ -113,6 +119,11 @@ static void hball_m55_make_ui_snapshot(hball_m55_ui_snapshot_t *ui)
     if ((g_hball_m55_snapshot.valid_flags & HBALL_SENSOR_VALID_MOTOR) != 0U)
     {
         ui->valid_flags |= HBALL_UI_VALID_MOTOR;
+    }
+    if ((g_hball_m55_snapshot.valid_flags
+            & HBALL_SENSOR_VALID_MOTOR_PARAMETERS) != 0U)
+    {
+        ui->valid_flags |= HBALL_UI_VALID_MOTOR_PARAMETERS;
     }
 }
 

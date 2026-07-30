@@ -30,6 +30,10 @@ def test_m55_freertos_task_runs_200hz_shadow_and_10hz_ui_without_actuators():
     assert "HBALL_IPC_CONTROL_FLAG_SHADOW_ONLY" in source
     assert "HBALL_IPC_CONTROL_FLAG_SAFETY_ELIGIBLE" in source
     assert "hball_m55_platform_ui_10hz(" in source
+    assert "HBALL_UI_VALID_MOTOR_PARAMETERS" in source
+    assert "motor_filtered_iq_a" in source
+    assert "motor_vbus_v" in source
+    assert "motor_temperature_c" in source
     assert "ACTUATOR_TX=0" in source
 
     lowered = source.lower()

@@ -12,6 +12,8 @@ typedef struct
     lv_obj_t *imu_accel;
     lv_obj_t *yaw_rate;
     lv_obj_t *motor_angle;
+    lv_obj_t *motor_electrical;
+    lv_obj_t *motor_state;
     lv_obj_t *lqg_target;
     lv_obj_t *can_rx;
     lv_obj_t *vision_age;
@@ -86,7 +88,9 @@ static void hball_ui_update(lv_timer_t *timer)
         lv_label_set_text(g_hball_ui.imu_accel, "WAIT");
         lv_label_set_text(g_hball_ui.yaw_rate, "WAIT");
     }
-    if ((snapshot.valid_flags & HBALL_UI_VALID_MOTOR) != 0U)
+    if ((snapshot.valid_flags
+            & (HBALL_UI_VALID_MOTOR
+                | HBALL_UI_VALID_MOTOR_PARAMETERS)) != 0U)
     {
         lv_label_set_text_fmt(
             g_hball_ui.motor_angle,
@@ -97,6 +101,42 @@ static void hball_ui_update(lv_timer_t *timer)
     else
     {
         lv_label_set_text(g_hball_ui.motor_angle, "WAIT");
+    }
+    if ((snapshot.valid_flags & HBALL_UI_VALID_MOTOR_PARAMETERS) != 0U)
+    {
+        lv_label_set_text_fmt(
+            g_hball_ui.motor_electrical,
+            "I %ld mA / V %ld mV",
+            (long)(snapshot.motor_filtered_iq_a * 1000.0F),
+            (long)(snapshot.motor_vbus_v * 1000.0F)
+        );
+    }
+    else
+    {
+        lv_label_set_text(g_hball_ui.motor_electrical, "WAIT");
+    }
+    if ((snapshot.valid_flags & HBALL_UI_VALID_MOTOR) != 0U)
+    {
+        lv_label_set_text_fmt(
+            g_hball_ui.motor_state,
+            "T %ld dC / S%u R%u F%02x",
+            (long)(snapshot.motor_temperature_c * 10.0F),
+            (unsigned int)snapshot.motor_mode_state,
+            (unsigned int)snapshot.motor_run_mode,
+            (unsigned int)snapshot.motor_fault_summary
+        );
+    }
+    else if ((snapshot.valid_flags & HBALL_UI_VALID_MOTOR_PARAMETERS) != 0U)
+    {
+        lv_label_set_text_fmt(
+            g_hball_ui.motor_state,
+            "T WAIT / R%u",
+            (unsigned int)snapshot.motor_run_mode
+        );
+    }
+    else
+    {
+        lv_label_set_text(g_hball_ui.motor_state, "WAIT");
     }
     lv_label_set_text_fmt(
         g_hball_ui.lqg_target,
@@ -131,6 +171,7 @@ void lv_user_gui_init(void)
     static int32_t columns[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
     static int32_t rows[] = {
         LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
+        LV_GRID_FR(1),
         LV_GRID_TEMPLATE_LAST
     };
     lv_obj_t *screen = lv_screen_active();
@@ -165,8 +206,12 @@ void lv_user_gui_init(void)
     g_hball_ui.yaw_rate = hball_ui_make_metric(grid, "YAW RATE", 1, 1);
     g_hball_ui.motor_angle = hball_ui_make_metric(grid, "MOTOR ANGLE", 0, 2);
     g_hball_ui.lqg_target = hball_ui_make_metric(grid, "LQG TARGET", 1, 2);
-    g_hball_ui.can_rx = hball_ui_make_metric(grid, "CAN RX", 0, 3);
-    g_hball_ui.vision_age = hball_ui_make_metric(grid, "VISION AGE", 1, 3);
+    g_hball_ui.motor_electrical = hball_ui_make_metric(
+        grid, "MOTOR ELECTRICAL", 0, 3
+    );
+    g_hball_ui.motor_state = hball_ui_make_metric(grid, "MOTOR STATE", 1, 3);
+    g_hball_ui.can_rx = hball_ui_make_metric(grid, "CAN RX", 0, 4);
+    g_hball_ui.vision_age = hball_ui_make_metric(grid, "VISION AGE", 1, 4);
 
     (void)lv_timer_create(hball_ui_update, HBALL_UI_REFRESH_MS, NULL);
     hball_ui_update(NULL);
