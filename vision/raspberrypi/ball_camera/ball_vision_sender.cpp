@@ -114,7 +114,8 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
       const cv::Point2f delta = point - axis.centre;
       const double along = delta.dot(axis.direction);
       const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
-      if (lateral > axis.half_width || std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
+      if (lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
+          std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
       const double fraction = (along + axis.length / 2) / axis.length;
       double score = lateral + 0.5 * std::abs(circle[2] - 10.0F);
       if (previous_fraction) score += 20.0 * std::abs(fraction - *previous_fraction);
@@ -146,7 +147,8 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
     const cv::Point2f delta = point - axis.centre;
     const double along = delta.dot(axis.direction);
     const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
-    if (area < cfg.min_area || area > cfg.max_area || lateral > axis.half_width ||
+    if (area < cfg.min_area || area > cfg.max_area ||
+        lateral > std::min<double>(axis.half_width, cfg.max_center_offset) ||
         std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
     const double radius = std::sqrt(area / CV_PI);
     const double fraction = (along + axis.length / 2) / axis.length;
@@ -263,12 +265,6 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
       PipeAxis{{roi.x + roi.width / 2.0F, roi.y + roi.height / 2.0F}, {1.0F, 0.0F},
                static_cast<float>(roi.width), static_cast<float>(roi.height) / 2.0F});
   cv::rectangle(image, roi, cv::Scalar(255, 180, 0), 2);
-  const cv::Point2f normal(-axis.direction.y, axis.direction.x);
-  for (const float end : {-axis.length / 2 + cfg.edge_ignore, axis.length / 2 - cfg.edge_ignore}) {
-    const cv::Point2f point = axis.centre + axis.direction * end;
-    cv::line(image, point - normal * axis.half_width, point + normal * axis.half_width,
-             cv::Scalar(0, 165, 255), 2);
-  }
   const auto circle = find_ball(image(roi), cfg, previous_fraction, axis, roi);
   bool found = false;
   double position_cm = 0.0;
