@@ -28,8 +28,11 @@ def test_mspm0_can_port_is_integrated_without_motor_commands() -> None:
     assert "hball_can_port_init();" in main
     assert "hball_can_port_tick_1ms(tick_ms);" in interrupt
     assert "Drivers\\CAN\\hball_can_protocol.c" in build
+    assert "Drivers\\CAN\\hball_can_recovery.c" in build
     assert "Drivers\\CAN\\hball_can_port.c" in build
     assert "DL_MCAN_writeMsgRam" in port
+    assert "DL_MCAN_setOpMode(MCAN0_INST, DL_MCAN_OPERATION_MODE_NORMAL)" in port
+    assert "bus_off_recovery_attempts" in port
     assert "HBALL_CAN_MOTOR_COMMAND_TX_ENABLED 0U" in port
     for forbidden in ("motor_enable", "set_zero", "loc_ref", "limit_cur"):
         assert forbidden not in port.lower()

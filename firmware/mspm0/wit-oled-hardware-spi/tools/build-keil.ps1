@@ -35,7 +35,8 @@ New-Item -ItemType Directory -Force -Path $outputDir, $listingDir | Out-Null
 
 $sources = @(
     'main.c', 'Debug\ti_msp_dl_config.c',
-    'Drivers\CAN\hball_can_protocol.c', 'Drivers\CAN\hball_can_port.c',
+    'Drivers\CAN\hball_can_protocol.c', 'Drivers\CAN\hball_can_recovery.c',
+    'Drivers\CAN\hball_can_port.c',
     'Drivers\ENCODER\encoder.c',
     'Drivers\GRAY\beeper.c', 'Drivers\GRAY\gray.c', 'Drivers\GRAY\key.c',
     'Drivers\GRAY\led.c', 'Drivers\GRAY\track.c', 'Drivers\MOTOR\motor.c',

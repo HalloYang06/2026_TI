@@ -1,6 +1,7 @@
 #include "hball_can_port.h"
 
 #include "hball_can_protocol.h"
+#include "hball_can_recovery.h"
 #include "ti_msp_dl_config.h"
 #include "wit.h"
 
@@ -26,6 +27,7 @@ static uint16_t g_hball_sequences[HBALL_CAN_STREAM_COUNT];
 static uint32_t g_hball_last_wit_count;
 static uint32_t g_hball_last_wit_ms;
 static bool g_hball_wit_seen;
+static hball_can_recovery_t g_hball_can_recovery;
 
 static void hball_can_snapshot_inputs(
     uint32_t now_ms, hball_can_inputs_t *inputs
@@ -114,6 +116,7 @@ void hball_can_port_init(void)
     g_hball_last_wit_count = wit_valid_frame_count;
     g_hball_last_wit_ms = 0U;
     g_hball_wit_seen = false;
+    hball_can_recovery_init(&g_hball_can_recovery);
 
     if (DL_MCAN_getOpMode(MCAN0_INST) != DL_MCAN_OPERATION_MODE_NORMAL)
     {
@@ -133,7 +136,25 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
     hball_can_frame_t frame;
     DL_MCAN_TxBufElement tx_element;
 
-    if ((g_hball_can_stats.initialized == 0U)
+    if (g_hball_can_stats.initialized == 0U)
+    {
+        return;
+    }
+    if (hball_can_recovery_should_attempt(
+            &g_hball_can_recovery,
+            now_ms,
+            g_hball_can_stats.bus_off != 0U))
+    {
+        /*
+         * TI DriverLib maps NORMAL to clearing MCAN_CCCR.INIT. This starts
+         * the controller's ISO 11898-1 bus-off recovery sequence; it does
+         * not bypass the protocol's required recessive-bit observation.
+         */
+        DL_MCAN_setOpMode(MCAN0_INST, DL_MCAN_OPERATION_MODE_NORMAL);
+        g_hball_can_stats.bus_off_recovery_attempts++;
+        return;
+    }
+    if ((g_hball_can_stats.bus_off != 0U)
         || !hball_can_stream_due(now_ms, &stream))
     {
         return;
@@ -229,12 +250,14 @@ static void hball_can_drain_fifo0(void)
 void MCAN0_INST_IRQHandler(void)
 {
     uint32_t interrupt_status;
+    uint8_t was_bus_off;
 
     if (DL_MCAN_getPendingInterrupt(MCAN0_INST) != DL_MCAN_IIDX_LINE1)
     {
         return;
     }
     interrupt_status = DL_MCAN_getIntrStatus(MCAN0_INST);
+    was_bus_off = g_hball_can_stats.bus_off;
     DL_MCAN_clearIntrStatus(
         MCAN0_INST, interrupt_status, DL_MCAN_INTR_SRC_MCAN_LINE_1);
     g_hball_can_stats.last_irq_status = interrupt_status;
@@ -255,10 +278,6 @@ void MCAN0_INST_IRQHandler(void)
     {
         g_hball_can_stats.rx_fifo_lost++;
     }
-    if ((interrupt_status & MCAN_IR_BO_MASK) != 0U)
-    {
-        g_hball_can_stats.bus_off_events++;
-    }
     if ((interrupt_status & (MCAN_IR_PEA_MASK | MCAN_IR_PED_MASK)) != 0U)
     {
         g_hball_can_stats.protocol_error_events++;
@@ -268,4 +287,15 @@ void MCAN0_INST_IRQHandler(void)
         g_hball_can_stats.message_ram_errors++;
     }
     hball_can_refresh_error_status();
+    if ((interrupt_status & MCAN_IR_BO_MASK) != 0U)
+    {
+        if ((was_bus_off == 0U) && (g_hball_can_stats.bus_off != 0U))
+        {
+            g_hball_can_stats.bus_off_events++;
+        }
+        else if ((was_bus_off != 0U) && (g_hball_can_stats.bus_off == 0U))
+        {
+            g_hball_can_stats.bus_off_recoveries++;
+        }
+    }
 }

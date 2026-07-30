@@ -34,6 +34,8 @@ typedef struct
     uint8_t bus_off;
     uint8_t error_passive;
     uint8_t error_warning;
+    uint32_t bus_off_recovery_attempts;
+    uint32_t bus_off_recoveries;
 } hball_can_port_stats_t;
 
 extern volatile hball_can_port_stats_t g_hball_can_stats;
