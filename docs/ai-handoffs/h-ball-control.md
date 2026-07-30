@@ -304,3 +304,26 @@ MATLAB/Simulink R2025b按新机构和115200 bit/s、200 Hz唯一IMU基线重跑�
   `0x082`下行、epoch/Q号/状态序号一致，预期停在PREPARING且`ACTUATOR_TX=0`。随后再把
   MSP现有SW3/SW1菜单接入任务client和缺失READY显示。不得跳过Checkpoint A/B直接开放
   正式运动；SW1长按中止语义仍待负责人确认。
+
+## 2026-07-31 任务CAN与四端数据现场验证
+
+- 安全条件由操作者现场确认：车轮架空或底盘动力断开，硬急停为直接断电，操作者在旁可
+  立即接管。本轮没有发送RS00 enable、位置、速度、电流或车辆运动命令。
+- EdgeTalk使用Infineon OpenOCD 2.0.0和KitProg3烧录。写入前确认
+  `cat1d.cm33.smif1_ns`位于`0x60000000`；合并镜像实际写入241664 bytes、verify
+  238476 bytes并返回`Verified OK`。复位后M33打印CAN 1 Mbps初始化成功和
+  `ACTUATOR_TX=0`。
+- MSPM0G3507使用pyOCD 0.44.1、TI DFP 1.3.1和Horco CMSIS-DAP烧录，擦除并编程
+  53248 bytes。`pyocd load`完成后旧程序仍可能继续执行，必须再执行一次显式
+  `pyocd reset`，并以新协议计数而不是烧录退出码判断新镜像已经接管。
+- 显式复位后M33收到Q2、epoch 1、PREPARE：现场快照为`intent=2314/0`、
+  `chassis=5781/0`、`status_tx=2888/0`。MSP RAM现场读到有效mission status接收计数，
+  证明`0x081/0x084`上行与`0x082`下行均已通过。
+- 全局状态保持PREPARING：`ready=0x0067`、`required=0xffff`、`start=0/0`。当前只满足
+  M33、MSP链路、IMU、Pi USB和视觉；录像ACK、M55任务IPC、正式控制、安全、RS00配置、
+  起始几何和配置哈希等位仍为0，因此不会进入READY/RUNNING。
+- 同一快照中树莓派视觉为114.8 Hz，累计65719帧，CRC/乱序/gap均为0；RS00六类参数
+  读回有效，母线22.597 V、mode 0，人工运动层为SAFE且`manual_tx=0`。这证明Pi、MSP、
+  EdgeTalk和RS00的数据汇总链路在线，不代表M55任务IPC或正式执行器闭环已完成。
+- 下一步是把MSP现有SW3/SW1菜单正式映射到Q2～Q6 mission client，并显示M33返回的首个
+  READY缺失原因；在此之前按键仍只控制旧本地菜单，不能用于分布式评分任务。
