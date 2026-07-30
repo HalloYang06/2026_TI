@@ -327,3 +327,37 @@ MATLAB/Simulink R2025b按新机构和115200 bit/s、200 Hz唯一IMU基线重跑�
   EdgeTalk和RS00的数据汇总链路在线，不代表M55任务IPC或正式执行器闭环已完成。
 - 下一步是把MSP现有SW3/SW1菜单正式映射到Q2～Q6 mission client，并显示M33返回的首个
   READY缺失原因；在此之前按键仍只控制旧本地菜单，不能用于分布式评分任务。
+
+## 2026-07-31 MSP shadow任务菜单与代码调用分层
+
+- MSP任务菜单已接入分布式mission client：SW3循环Q2～Q6，SW1只有在相同epoch/Q号的
+  新鲜M33状态为READY时才发送START；START后锁定换题。本切片用编译期断言固定
+  `HBALL_MISSION_LOCAL_MOTION_ENABLED=0`，`select_car_task()`不再返回到旧底盘启动段。
+- 小屏显示官方Q号、M33全局状态、epoch、16位ready mask和首个缺失条件。菜单应用代码
+  位于`App/Mission/`，CAN层只保留线程安全client包装，避免把任务/UI逻辑写入驱动。
+- 小屏不再按固定周期整屏清空。进入页面只清屏一次，之后由纯逻辑view比较Q号、状态、
+  epoch、ready mask、缺失项和START标志；显示内容未变化时不产生任何LCD写入，变化时才
+  更新页面行。M33的20 Hz状态序号本身不会触发刷新，避免持续闪烁。
+- 任务逻辑所有权进一步冻结：M33是Q2～Q6阶段机唯一所有者；M55只根据带epoch的任务
+  context运行无题号的200 Hz估计/控制；MSP只提供按键、通用底盘动作和A/B/停稳事实；Pi
+  只提供通用视觉/录像服务。处理器内是函数调用，跨核只用IPC，跨板只用CAN/USB，M55
+  输出只能经M33安全门到RS00。详见ADR-009和`docs/architecture/mission-code-layout.md`。
+- 仅按Git暂存内容导出的独立快照完成MSP host回归`18 passed`；Keil ArmClang构建
+  0 errors，程序大小`Code=40116, RO=15344, RW=144, ZI=6064`。工作树中另有用户尚未
+  提交的双轮同步测试/实现，未计入本切片。LCD旧字体表仍有20个既有
+  `-Wexcess-initializers`警告，未在本任务扩大范围处理。
+- 使用MSPM0 SDK 2.05.01.00、pyOCD 0.44.1、TI
+  `MSPM0G1X0X_G3X0X_DFP 1.3.1`和Horco CMSIS-DAP写入MSPM0G3507，擦除/编程
+  49152 bytes，随后显式`pyocd reset`。TI pack下载SHA-256为
+  `071BD317FC0F152DED6B2AE594D79C6FC5EB9952370526B4C14EF5B3B9807860`，只保存在
+  `.codex_tmp/`，不提交Git。
+- 复位后通过EdgeTalk KitProg3 COM26只读确认新MSP正在发送Q2/PREPARE：
+  `intent=44160/0`、`chassis=110395/0`、`status_tx=44348/0`，M33为PREPARING，
+  `ready=0x0067`、`required=0xffff`、`start=0/0`。RS00为mode 0、22.562 V，人工运动
+  状态为SAFE、`manual_tx=0`；当前EdgeTalk镜像虽编译了口令保护的人工微动层，但没有
+  收到人工命令，自动路径仍打印`ACTUATOR_TX=0`。
+- 本轮不是运动测试：没有按SW1、没有发送底盘或RS00运动目标。操作者先前确认硬急停为
+  直接断电并在设备旁接管；当前电源限流值和车轮落地/架空状态未重新测记，因此只接受
+  shadow通信结论，不把本记录作为任何执行器验收证据。
+- 尚待一次人工按键观察：SW3应使M33的q按3、4、5、6、2循环；当前非READY时按SW1后
+  M33仍必须保持`start=0/0`。执行该观察时继续禁止底盘动作。

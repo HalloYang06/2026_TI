@@ -355,6 +355,10 @@ VALIDATE_INITIAL_X -> LATCH_TARGET -> LEAVE_A -> HOLD_X_LAP
 每个切片完成后系统仍可编译，并默认保持执行器禁止。只有协议和shadow链路全部验收后，
 才单独评审正式运动权限。
 
+所有Task及Q2～Q6的代码落点、通用算法边界和调用方向必须遵守
+[`mission-code-layout.md`](mission-code-layout.md)。不允许把后续题目逻辑继续堆入
+`main.c`、CAN驱动或通用控制算法。
+
 ### Task 1：冻结跨板任务协议文档
 
 **内容：** 新建CAN、IPC和USB任务协议的固定字段、枚举、端序、超时和版本策略。

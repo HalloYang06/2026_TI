@@ -4,6 +4,7 @@
 #include "hball_can_recovery.h"
 #include "hball_mission_can.h"
 #include "hball_mission_client.h"
+#include "hball_mission_menu.h"
 #include "ti_msp_dl_config.h"
 #include "wit.h"
 
@@ -92,6 +93,20 @@ bool hball_can_mission_get_snapshot(hball_mission_client_t *snapshot)
     *snapshot = g_hball_mission_client;
     hball_can_unlock(interrupt_state);
     return true;
+}
+
+hball_mission_menu_result_t hball_can_mission_menu_handle(
+    hball_mission_menu_event_t event, uint32_t now_ms
+)
+{
+    hball_mission_menu_result_t result;
+    const uint32_t interrupt_state = hball_can_lock();
+
+    result = hball_mission_menu_handle(
+        &g_hball_mission_client, event, now_ms
+    );
+    hball_can_unlock(interrupt_state);
+    return result;
 }
 
 static void hball_can_update_wit_freshness(uint32_t now_ms)

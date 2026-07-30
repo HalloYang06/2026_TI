@@ -50,6 +50,12 @@
 #define APP_MODE_PWM_SWEEP_TEST  11U
 #define APP_MODE_MOTOR_MAP_TEST  12U
 #define APP_MODE                 APP_MODE_LAP_TEST
+#define HBALL_MISSION_LOCAL_MOTION_ENABLED 0U
+
+_Static_assert(
+    HBALL_MISSION_LOCAL_MOTION_ENABLED == 0U,
+    "mission menu integration must remain shadow-only"
+);
 
 #define CAR_TASK_LAP_STOP        1U
 #define CAR_TASK_TIMED_RUN       2U
@@ -78,6 +84,10 @@ static void track_motor_test(void);
 static void track_ground_test(void);
 static void lap_test(void);
 static uint8_t select_car_task(void);
+static void render_mission_menu(
+    const hball_mission_menu_view_t *view
+);
+static void format_hex16(uint16_t value, char text[5]);
 static void format_lap_time(uint32_t elapsed_ms, char text[8]);
 static int16_t approach_pwm(int16_t current, int16_t target, int16_t step);
 static void speed_calibration_test(void);
@@ -876,42 +886,129 @@ static void format_lap_time(uint32_t elapsed_ms, char text[8])
 
 static uint8_t select_car_task(void)
 {
-    uint8_t selected_task = CAR_TASK_LAP_STOP;
+    hball_mission_client_t snapshot;
+    hball_mission_menu_view_t last_view;
+    hball_mission_menu_view_t view;
+    hball_mission_menu_event_t mission_event;
+    hball_mission_menu_result_t result;
     task_key_event_t key_event;
+    bool last_view_valid = false;
+
+    LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
 
     while (1)
     {
-        LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
-        LCD_ShowString(4, 4, (const unsigned char *)"SELECT TASK", WHITE, BLACK, 32, 0);
-        if (selected_task == CAR_TASK_LAP_STOP) {
-            LCD_ShowString(4, 52, (const unsigned char *)"TASK1 FAST LAP", GREEN, BLACK, 32, 0);
-        } else if (selected_task == CAR_TASK_TIMED_RUN) {
-            LCD_ShowString(4, 52, (const unsigned char *)"TASK2 RUN 7.8S", CYAN, BLACK, 32, 0);
-        } else {
-            LCD_ShowString(4, 52, (const unsigned char *)"TASK3 RUN 28S", MAGENTA, BLACK, 32, 0);
+        if (hball_can_mission_get_snapshot(&snapshot)
+            && hball_mission_menu_make_view(&snapshot, tick_ms, &view)
+            && (!last_view_valid
+                || !hball_mission_menu_view_equal(&last_view, &view)))
+        {
+            render_mission_menu(&view);
+            last_view = view;
+            last_view_valid = true;
         }
-        LCD_ShowString(4, 100, (const unsigned char *)"SW3 CHANGE", YELLOW, BLACK, 24, 0);
-        LCD_ShowString(4, 136, (const unsigned char *)"SW1 START", YELLOW, BLACK, 24, 0);
-
-        do {
-            key_event = get_task_key_event();
+        key_event = get_task_key_event();
+        if (key_event == TASK_KEY_EVENT_NONE)
+        {
             delay_cycles(CPUCLK_FREQ / 200U);
-        } while (key_event == TASK_KEY_EVENT_NONE);
-
-        if (key_event == TASK_KEY_EVENT_EXECUTE) {
-            beep();
-            return selected_task;
+            continue;
         }
-
         if (key_event == TASK_KEY_EVENT_SELECT)
         {
+            mission_event = HBALL_MISSION_MENU_SELECT;
+        }
+        else if (key_event == TASK_KEY_EVENT_EXECUTE)
+        {
+            mission_event = HBALL_MISSION_MENU_EXECUTE;
+        }
+        else
+        {
+            continue;
+        }
+        result = hball_can_mission_menu_handle(mission_event, tick_ms);
+        if (result == HBALL_MISSION_MENU_SELECTED)
+        {
             beep();
-            selected_task++;
-            if (selected_task > CAR_TASK_STABLE_LAP) {
-                selected_task = CAR_TASK_LAP_STOP;
-            }
+        }
+        else if (result == HBALL_MISSION_MENU_START_ACCEPTED)
+        {
+            beep();
+            delay_cycles(CPUCLK_FREQ / 20U);
+            beep();
+        }
+        else if ((result == HBALL_MISSION_MENU_START_BLOCKED)
+                 || (result == HBALL_MISSION_MENU_LOCKED))
+        {
+            beep();
         }
     }
+}
+
+static void render_mission_menu(
+    const hball_mission_menu_view_t *view
+)
+{
+    char ready_text[5];
+
+    if (view == NULL)
+    {
+        return;
+    }
+    format_hex16(view->ready_mask, ready_text);
+
+    LCD_Fill(0, 0, LCD_W, 39, BLACK);
+    LCD_ShowString(
+        4, 4,
+        (const unsigned char *)view->mission_label,
+        GREEN, BLACK, 32, 0
+    );
+    LCD_Fill(0, 40, LCD_W, 71, BLACK);
+    LCD_ShowString(
+        4, 44, (const unsigned char *)view->state_label,
+        (view->status_fresh
+         && (view->global_state == HBALL_MISSION_STATE_READY))
+            ? GREEN : CYAN,
+        BLACK, 24, 0
+    );
+    LCD_Fill(0, 72, LCD_W, 103, BLACK);
+    LCD_ShowString(4, 76, (const unsigned char *)"E:", WHITE, BLACK, 24, 0);
+    LCD_ShowIntNum(36, 76, view->epoch, 4, WHITE, BLACK, 24);
+    LCD_ShowString(116, 76, (const unsigned char *)"R:", WHITE, BLACK, 24, 0);
+    LCD_ShowString(
+        148, 76, (const unsigned char *)ready_text,
+        WHITE, BLACK, 24, 0
+    );
+    LCD_Fill(0, 104, LCD_W, 135, BLACK);
+    LCD_ShowString(4, 108, (const unsigned char *)"MISS:", YELLOW, BLACK, 24, 0);
+    LCD_ShowString(
+        76, 108, (const unsigned char *)view->missing_label,
+        (view->missing_label[0] == 'A') ? GREEN : YELLOW,
+        BLACK, 24, 0
+    );
+    LCD_Fill(0, 136, LCD_W, 203, BLACK);
+    if (view->start_requested)
+    {
+        LCD_ShowString(4, 140, (const unsigned char *)"START SENT", MAGENTA, BLACK, 24, 0);
+        LCD_ShowString(4, 172, (const unsigned char *)"SHADOW ONLY", YELLOW, BLACK, 24, 0);
+    }
+    else
+    {
+        LCD_ShowString(4, 140, (const unsigned char *)"SW3 SELECT", WHITE, BLACK, 24, 0);
+        LCD_ShowString(4, 172, (const unsigned char *)"SW1 EXECUTE", WHITE, BLACK, 24, 0);
+    }
+}
+
+static void format_hex16(uint16_t value, char text[5])
+{
+    static const char digits[] = "0123456789ABCDEF";
+    uint8_t index;
+
+    for (index = 0U; index < 4U; ++index)
+    {
+        const uint8_t shift = (uint8_t)((3U - index) * 4U);
+        text[index] = digits[(value >> shift) & 0x0FU];
+    }
+    text[4] = '\0';
 }
 
 static int16_t approach_pwm(int16_t current, int16_t target, int16_t step)

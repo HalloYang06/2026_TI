@@ -337,7 +337,7 @@
               <MiscControls></MiscControls>
               <Define>__MSPM0G3507__</Define>
               <Undefine></Undefine>
-              <IncludePath>C:\ti\mspm0_sdk_2_05_01_00\source;C:\ti\mspm0_sdk_2_05_01_00\source\third_party\CMSIS\Core\Include;..;..\Debug;..\Drivers\CAN;..\Drivers\ENCODER;..\Drivers\GRAY;..\Drivers\MOTOR;..\Drivers\MSPM0;..\Drivers\OLED_Hardware_SPI;..\Drivers\PID;..\Drivers\UART_VOFA+;..\Drivers\WIT;..\..\..\..\shared\protocol</IncludePath>
+              <IncludePath>C:\ti\mspm0_sdk_2_05_01_00\source;C:\ti\mspm0_sdk_2_05_01_00\source\third_party\CMSIS\Core\Include;..;..\Debug;..\App\Mission;..\Drivers\CAN;..\Drivers\ENCODER;..\Drivers\GRAY;..\Drivers\MOTOR;..\Drivers\MSPM0;..\Drivers\OLED_Hardware_SPI;..\Drivers\PID;..\Drivers\UART_VOFA+;..\Drivers\WIT;..\..\..\..\shared\protocol</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -425,6 +425,11 @@
               <FileName>hball_mission_client.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\CAN\hball_mission_client.c</FilePath>
+            </File>
+            <File>
+              <FileName>hball_mission_menu.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\Mission\hball_mission_menu.c</FilePath>
             </File>
             <File>
               <FileName>hball_mission_can.c</FileName>

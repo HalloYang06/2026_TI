@@ -4,6 +4,13 @@
 
 This repository contains preparation work for the 2026 electronics design competition, currently focused on the H-problem vehicle-mounted ball-balancing system. Keep chassis, vision, EdgeTalk control, shared protocols, and experiments in their documented ownership boundaries.
 
+For Q1-Q6 work, follow `docs/architecture/mission-code-layout.md`. M33 owns the question-specific
+phase machines; M55 runs task-independent estimation/control from an explicit mission context;
+MSP and Pi expose generic executors/services and facts. Preserve the documented function-call
+direction: algorithms never read mission globals or call transports/drivers, and only the M33
+safety gate may reach the RS00 actuator adapter. Do not grow `main.c` beyond initialization and
+runtime startup.
+
 ## Branches
 
 - Work from `prep/2026` or a focused feature branch.
