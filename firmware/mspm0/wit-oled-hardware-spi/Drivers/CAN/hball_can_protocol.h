@@ -46,6 +46,9 @@ typedef struct
 {
     uint16_t status_flags;
     uint32_t uptime_ms;
+    uint16_t accel_source_sequence;
+    uint16_t gyro_source_sequence;
+    uint16_t attitude_source_sequence;
     int16_t accel_milli_mps2[3];
     int16_t gyro_milli_rad_s[3];
     int16_t wheel_milli_mps[2];

@@ -19,9 +19,7 @@ from urllib.request import urlopen
 
 from edgetalk_usb_daemon import SingleInstanceLock, find_serial_port
 from vision_measurement_protocol import (
-    FLAG_CONTOUR_ROUND,
     FLAG_DETECTED,
-    FLAG_EXPOSURE_STABLE,
     FLAG_POSITION_VALID,
     VisionMeasurement,
     encode_measurement,
@@ -46,9 +44,9 @@ def _uint(payload: dict[str, Any], name: str, maximum: int) -> int:
 def build_measurement(payload: dict[str, Any]) -> VisionMeasurement:
     """Translate one /data SSE JSON object to the shared binary protocol."""
     found = payload.get("found") is True
-    flags = FLAG_EXPOSURE_STABLE
+    flags = 0
     if found:
-        flags |= (FLAG_DETECTED | FLAG_POSITION_VALID | FLAG_CONTOUR_ROUND)
+        flags |= (FLAG_DETECTED | FLAG_POSITION_VALID)
     return VisionMeasurement(
         flags=flags,
         sequence=_uint(payload, "sequence", 0xFFFFFFFF),

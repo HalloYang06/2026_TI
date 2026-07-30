@@ -31,7 +31,7 @@ struct Config {
   std::string camera = "/dev/v4l/by-id/usb-XHH-260128-A_2M-video-index0";
   int width = 640;
   int height = 480;
-  int fps = 120;
+  int fps = 100;
   int port = 8080;
   cv::Rect roi;
   double left_cm = -12.5;
@@ -246,7 +246,6 @@ cv::Mat rectify_pipe(const cv::Mat& image) {
 
 void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processing_fps,
               uint64_t capture_time_us) {
-  const auto processing_started = std::chrono::steady_clock::now();
   const cv::Rect image_rect(0, 0, image.cols, image.rows);
   // The perspective destination above is the calibrated pipe itself.  Do not
   // run a second bright-contour search here: it can lock onto the chassis.
@@ -335,8 +334,6 @@ void annotate(cv::Mat& image, const Config& cfg, Frames& frames, double processi
   frames.position_cm = position_cm;
   frames.processing_fps = processing_fps;
   frames.capture_time_us = capture_time_us;
-  frames.processing_time_us = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-      std::chrono::steady_clock::now() - processing_started).count());
   frames.center_x_px = center_x_px;
   frames.center_y_px = center_y_px;
   frames.radius_px = radius_px;
@@ -361,10 +358,16 @@ void capture_loop(const Config& cfg, Frames& frames) {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
       continue;
     }
+    /*
+     * OpenCV exposes the time at which camera.read() returned, not the
+     * sensor exposure midpoint.  Keep the monotonic value for ordering and
+     * diagnostics, but the receiver must not treat it as an exposure
+     * timestamp until a V4L2 timestamp path and clock synchronisation exist.
+     */
+    const auto now = std::chrono::steady_clock::now();
     const uint64_t capture_time_us = static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count());
-    const auto now = std::chrono::steady_clock::now();
+            now.time_since_epoch()).count());
     const double seconds = std::chrono::duration<double>(now - previous_time).count();
     previous_time = now;
     if (seconds > 0.0) {
@@ -379,10 +382,14 @@ void capture_loop(const Config& cfg, Frames& frames) {
     std::lock_guard lock(frames.mutex);
     frames.raw = std::move(raw_jpeg);
     frames.detected = std::move(detected_jpeg);
+    frames.processing_time_us = static_cast<uint32_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - now).count());
     frames.sequence++;
     frames.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-    next_frame_time += std::chrono::milliseconds(1000 / std::max(cfg.fps, 1));
+    next_frame_time += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::duration<double>(1.0 / std::max(cfg.fps, 1)));
     if (next_frame_time > std::chrono::steady_clock::now()) {
       std::this_thread::sleep_until(next_frame_time);
     } else {

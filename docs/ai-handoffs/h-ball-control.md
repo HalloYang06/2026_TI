@@ -8,6 +8,10 @@ Updated: 2026-07-30
 
 ## 当前结论
 
+后续实现与审计的第一入口是
+[`docs/architecture/h-ball-control-implementation-plan.md`](../architecture/h-ball-control-implementation-plan.md)。
+该文档区分当前已打通链路、shadow代码、目标OOSM KF+LQI和每阶段验收门。
+
 正式控制链仍为“天猛星MSPM0G3507 + 树莓派 + EdgeTalk M33/M55 + RS00”。F407不进入；
 NanoPi-M5仅作树莓派性能或接口不达标时的单机备选；`PSOC_E84_robot`只提供工具链和
 RS00协议参考，不迁移机械臂业务、零点或运动参数。
@@ -16,7 +20,7 @@ RS00协议参考，不迁移机械臂业务、零点或运动参数。
 
 1. 树莓派与EdgeTalk USB CDC已部署开机守护，并通过真实重启、EdgeTalk重刷断连和自动重连验收。
 2. EdgeTalk与5号RS00在`1 Mbps Classic CAN`下完成一次人工只读Get_ID，TX/ACK/回复正常，所有CAN错误计数为0。
-3. 更正接线后，MSPM0G3507以11位标准帧持续发送五类遥测，EdgeTalk在同一总线上同时接收RS00扩展帧；五类解析有效，200 Hz姿态镜像实测总接收约729.1帧/s。
+3. 更正接线后，MSPM0G3507以11位标准帧持续发送五类遥测，EdgeTalk在同一总线上同时接收RS00扩展帧；五类解析有效，200 Hz姿态镜像实测总接收约729.1帧/s。该数字是CAN镜像率，不是IMU源采样率。
 
 因此可以宣称“三节点CAN物理链路、标准/扩展帧共存和MSPM0遥测合同已打通”。不能宣称
 滚球运动闭环已完成：RS00目前只验证了只读Get_ID，连续250~500 Hz角度反馈、真实100 Hz
@@ -93,6 +97,11 @@ gap和重启；重复或乱序帧不能刷新freshness。IMU/轮速/心跳stale�
 当前MSPM0总线调度为720帧/s，11位Classic CAN最坏位填充估算约占1 Mbps的10%；即使未来
 RS00扩展反馈达到500 Hz，总线预计仍低于20%。64字节视觉帧继续通过USB发送，不走CAN。
 
+2026-07-30复审确认WIT UART当前仅`9600 bit/s`，三类11字节帧理论上最多约29.1个
+完整组/s。MSPM0已改用各类WIT实际接收计数作`0x100/0x101/0x103`源序号，重复的
+200 Hz CAN镜像不再伪装成新样本。统一epoch和源时刻仍需按
+`shared/protocol/MSPM0_CAN_TELEMETRY_V2_PROPOSAL.md`实现。
+
 ## 实机与构建证据
 
 ### EdgeTalk M33
@@ -128,9 +137,11 @@ RS00扩展反馈达到500 Hz，总线预计仍低于20%。64字节视觉帧继�
 
 ### 软件回归
 
-- `python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q`：远端基线51项通过。
-- `python -m pytest firmware/mspm0/wit-oled-hardware-spi/tests -q`：远端基线4项通过。
-- `python -m pytest experiments/h_ball_control_sim/tests -q`：旧模型回归通过。
+- `python -m pytest firmware/edgetalk/tests vision/raspberrypi/tests -q`：当前54项通过。
+- `python -m pytest firmware/mspm0/wit-oled-hardware-spi/tests -q`：当前4项通过。
+- `python -m pytest experiments/h_ball_control_sim/tests -q`：旧模型29项回归通过。
+- MSPM0 ArmClang全量链接通过，`Code=38324 RO-data=15104 RW-data=144 ZI-data=5968`；
+  20个警告均来自既有OLED字库的超长字符串初始化。
 - 集成M33 SCons/ARM链接通过；当前自动测试均不使能执行器。
 
 ## M55状态
@@ -181,7 +192,7 @@ MATLAB/Simulink R2025b于2026-07-30重跑：
 
 ## 下一步：从遥测打通到可控闭环
 
-1. 记录IMU型号/固件、CAN收发器型号和EN/STB接法、轮周长与编码器counts/rev，再把`0x102`从0改成标定米制速度。
+1. 记录IMU型号/固件、支持的波特率/输出率、CAN收发器型号和EN/STB接法、轮周长与编码器counts/rev，再把`0x102`从0改成标定米制速度。
 2. 查RS00厂家资料或做只读抓包，冻结实际角度/速度反馈帧和250~500 Hz反馈周期；在此之前不发送模式切换、使能或位置命令。
 3. 用逻辑分析仪测720帧/s下的真实总线占用、MSPM0 SysTick预算和WIT UART丢帧；若ISR预算不足，把浮点/64位换算移到主循环。
 4. 树莓派接入真实100 Hz ROI圆心数据，验收64字节USB帧的P95延迟、最长空窗、CRC/序号和自动重连。

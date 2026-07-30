@@ -37,6 +37,10 @@ python3 edgetalk_vision_stream.py --duration 30 --rate 240 --min-rate 237.6
 转换为`VISION_MEASUREMENT_V1`后写入EdgeTalk USB CDC。图像仍只用于电脑图传/录像，绝不
 发送到控制链。
 
+当前服务的`capture_time_us`是`camera.read()`返回后的Linux单调时刻，不是曝光中点；
+桥接器也没有可靠的曝光稳定/轮廓圆度输入，因此不会伪置对应质量位。上述两项和逐帧
+置信度在完成前，真实相机链路只进入shadow验证。
+
 ```bash
 sudo apt install -y python3-serial
 python3 edgetalk_camera_bridge.py

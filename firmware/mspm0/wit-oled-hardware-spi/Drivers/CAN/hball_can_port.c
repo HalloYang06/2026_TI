@@ -24,16 +24,98 @@ extern int32_t encoderB_cnt;
 volatile hball_can_port_stats_t g_hball_can_stats;
 
 static uint16_t g_hball_sequences[HBALL_CAN_STREAM_COUNT];
-static uint32_t g_hball_last_wit_count;
-static uint32_t g_hball_last_wit_ms;
-static bool g_hball_wit_seen;
+static uint32_t g_hball_last_wit_accel_count;
+static uint32_t g_hball_last_wit_gyro_count;
+static uint32_t g_hball_last_wit_attitude_count;
+static uint32_t g_hball_last_wit_accel_ms;
+static uint32_t g_hball_last_wit_gyro_ms;
+static uint32_t g_hball_last_wit_attitude_ms;
+static bool g_hball_wit_accel_seen;
+static bool g_hball_wit_gyro_seen;
+static bool g_hball_wit_attitude_seen;
 static hball_can_recovery_t g_hball_can_recovery;
+
+static void hball_can_update_wit_freshness(uint32_t now_ms)
+{
+    const uint32_t accel_count = wit_accel_frame_count;
+    const uint32_t gyro_count = wit_gyro_frame_count;
+    const uint32_t attitude_count = wit_angle_frame_count;
+
+    if (accel_count != g_hball_last_wit_accel_count)
+    {
+        g_hball_last_wit_accel_count = accel_count;
+        g_hball_last_wit_accel_ms = now_ms;
+        g_hball_wit_accel_seen = true;
+    }
+    if (gyro_count != g_hball_last_wit_gyro_count)
+    {
+        g_hball_last_wit_gyro_count = gyro_count;
+        g_hball_last_wit_gyro_ms = now_ms;
+        g_hball_wit_gyro_seen = true;
+    }
+    if (attitude_count != g_hball_last_wit_attitude_count)
+    {
+        g_hball_last_wit_attitude_count = attitude_count;
+        g_hball_last_wit_attitude_ms = now_ms;
+        g_hball_wit_attitude_seen = true;
+    }
+}
+
+static void hball_can_snapshot_wit(hball_can_inputs_t *inputs)
+{
+    uint32_t before;
+    uint32_t after;
+    int16_t raw_x;
+    int16_t raw_y;
+    int16_t raw_z;
+    float angle_x;
+    float angle_y;
+    float angle_z;
+
+    do
+    {
+        before = wit_accel_frame_count;
+        raw_x = wit_data.ax;
+        raw_y = wit_data.ay;
+        raw_z = wit_data.az;
+        after = wit_accel_frame_count;
+    } while (before != after);
+    inputs->accel_source_sequence = (uint16_t)after;
+    inputs->accel_milli_mps2[0] = hball_can_mg_to_milli_mps2(raw_x);
+    inputs->accel_milli_mps2[1] = hball_can_mg_to_milli_mps2(raw_y);
+    inputs->accel_milli_mps2[2] = hball_can_mg_to_milli_mps2(raw_z);
+
+    do
+    {
+        before = wit_gyro_frame_count;
+        raw_x = wit_data.gx;
+        raw_y = wit_data.gy;
+        raw_z = wit_data.gz;
+        after = wit_gyro_frame_count;
+    } while (before != after);
+    inputs->gyro_source_sequence = (uint16_t)after;
+    inputs->gyro_milli_rad_s[0] = hball_can_dps_to_milli_rad_s(raw_x);
+    inputs->gyro_milli_rad_s[1] = hball_can_dps_to_milli_rad_s(raw_y);
+    inputs->gyro_milli_rad_s[2] = hball_can_dps_to_milli_rad_s(raw_z);
+
+    do
+    {
+        before = wit_angle_frame_count;
+        angle_x = wit_data.roll;
+        angle_y = wit_data.pitch;
+        angle_z = wit_data.yaw;
+        after = wit_angle_frame_count;
+    } while (before != after);
+    inputs->attitude_source_sequence = (uint16_t)after;
+    inputs->attitude_milli_rad[0] = hball_can_deg_to_milli_rad(angle_x);
+    inputs->attitude_milli_rad[1] = hball_can_deg_to_milli_rad(angle_y);
+    inputs->attitude_milli_rad[2] = hball_can_deg_to_milli_rad(angle_z);
+}
 
 static void hball_can_snapshot_inputs(
     uint32_t now_ms, hball_can_inputs_t *inputs
 )
 {
-    uint32_t wit_count;
     int32_t left_milli_mps;
     int32_t right_milli_mps;
 
@@ -42,29 +124,21 @@ static void hball_can_snapshot_inputs(
 
     /* No hardware E-stop input is mapped yet, so telemetry remains inhibited. */
     inputs->status_flags = HBALL_MSP_STATUS_ESTOP_ACTIVE;
-    wit_count = wit_valid_frame_count;
-    if (wit_count != g_hball_last_wit_count)
-    {
-        g_hball_last_wit_count = wit_count;
-        g_hball_last_wit_ms = now_ms;
-        g_hball_wit_seen = true;
-    }
-    if (g_hball_wit_seen
-        && (wit_angle_frame_count != 0U)
-        && ((uint32_t)(now_ms - g_hball_last_wit_ms) <= HBALL_CAN_IMU_FRESH_MS))
+    hball_can_update_wit_freshness(now_ms);
+    if (g_hball_wit_accel_seen
+        && g_hball_wit_gyro_seen
+        && g_hball_wit_attitude_seen
+        && ((uint32_t)(now_ms - g_hball_last_wit_accel_ms)
+            <= HBALL_CAN_IMU_FRESH_MS)
+        && ((uint32_t)(now_ms - g_hball_last_wit_gyro_ms)
+            <= HBALL_CAN_IMU_FRESH_MS)
+        && ((uint32_t)(now_ms - g_hball_last_wit_attitude_ms)
+            <= HBALL_CAN_IMU_FRESH_MS))
     {
         inputs->status_flags |= HBALL_MSP_STATUS_IMU_VALID;
     }
 
-    inputs->accel_milli_mps2[0] = hball_can_mg_to_milli_mps2(wit_data.ax);
-    inputs->accel_milli_mps2[1] = hball_can_mg_to_milli_mps2(wit_data.ay);
-    inputs->accel_milli_mps2[2] = hball_can_mg_to_milli_mps2(wit_data.az);
-    inputs->gyro_milli_rad_s[0] = hball_can_dps_to_milli_rad_s(wit_data.gx);
-    inputs->gyro_milli_rad_s[1] = hball_can_dps_to_milli_rad_s(wit_data.gy);
-    inputs->gyro_milli_rad_s[2] = hball_can_dps_to_milli_rad_s(wit_data.gz);
-    inputs->attitude_milli_rad[0] = hball_can_deg_to_milli_rad(wit_data.roll);
-    inputs->attitude_milli_rad[1] = hball_can_deg_to_milli_rad(wit_data.pitch);
-    inputs->attitude_milli_rad[2] = hball_can_deg_to_milli_rad(wit_data.yaw);
+    hball_can_snapshot_wit(inputs);
 
     left_milli_mps = hball_can_counts_per_20ms_to_milli_mps(
         encoderA_cnt,
@@ -113,9 +187,15 @@ void hball_can_port_init(void)
 {
     memset((void *)&g_hball_can_stats, 0, sizeof(g_hball_can_stats));
     memset(g_hball_sequences, 0, sizeof(g_hball_sequences));
-    g_hball_last_wit_count = wit_valid_frame_count;
-    g_hball_last_wit_ms = 0U;
-    g_hball_wit_seen = false;
+    g_hball_last_wit_accel_count = wit_accel_frame_count;
+    g_hball_last_wit_gyro_count = wit_gyro_frame_count;
+    g_hball_last_wit_attitude_count = wit_angle_frame_count;
+    g_hball_last_wit_accel_ms = 0U;
+    g_hball_last_wit_gyro_ms = 0U;
+    g_hball_last_wit_attitude_ms = 0U;
+    g_hball_wit_accel_seen = false;
+    g_hball_wit_gyro_seen = false;
+    g_hball_wit_attitude_seen = false;
     hball_can_recovery_init(&g_hball_can_recovery);
 
     if (DL_MCAN_getOpMode(MCAN0_INST) != DL_MCAN_OPERATION_MODE_NORMAL)
@@ -135,6 +215,7 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
     hball_can_inputs_t inputs;
     hball_can_frame_t frame;
     DL_MCAN_TxBufElement tx_element;
+    uint16_t sequence;
 
     if (g_hball_can_stats.initialized == 0U)
     {
@@ -167,8 +248,21 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
     }
 
     hball_can_snapshot_inputs(now_ms, &inputs);
+    sequence = g_hball_sequences[stream];
+    if (stream == HBALL_CAN_STREAM_ACCEL)
+    {
+        sequence = inputs.accel_source_sequence;
+    }
+    else if (stream == HBALL_CAN_STREAM_GYRO)
+    {
+        sequence = inputs.gyro_source_sequence;
+    }
+    else if (stream == HBALL_CAN_STREAM_ATTITUDE)
+    {
+        sequence = inputs.attitude_source_sequence;
+    }
     if (!hball_can_encode_frame(
-            stream, g_hball_sequences[stream], &inputs, &frame))
+            stream, sequence, &inputs, &frame))
     {
         g_hball_can_stats.tx_failed++;
         return;
@@ -185,7 +279,11 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
         g_hball_can_stats.tx_failed++;
         return;
     }
-    g_hball_sequences[stream]++;
+    if ((stream == HBALL_CAN_STREAM_WHEEL)
+        || (stream == HBALL_CAN_STREAM_HEARTBEAT))
+    {
+        g_hball_sequences[stream]++;
+    }
     g_hball_can_stats.tx_queued++;
 }
 

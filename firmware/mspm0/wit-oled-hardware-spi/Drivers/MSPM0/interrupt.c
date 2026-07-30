@@ -135,12 +135,14 @@ void UART_WIT_INST_IRQHandler(void)
                 wit_data.ay = (int16_t)((wit_dmaBuffer[offset+5U]<<8)|wit_dmaBuffer[offset+4U]) / 2.048; //mg
                 wit_data.az = (int16_t)((wit_dmaBuffer[offset+7U]<<8)|wit_dmaBuffer[offset+6U]) / 2.048; //mg
                 wit_data.temperature =  (int16_t)((wit_dmaBuffer[offset+9U]<<8)|wit_dmaBuffer[offset+8U]) / 100.0; //°C
+                wit_accel_frame_count++;
             }
             else if(wit_dmaBuffer[offset + 1U] == 0x52U)
             {
                 wit_data.gx = (int16_t)((wit_dmaBuffer[offset+3U]<<8)|wit_dmaBuffer[offset+2U]) / 16.384; //°/S
                 wit_data.gy = (int16_t)((wit_dmaBuffer[offset+5U]<<8)|wit_dmaBuffer[offset+4U]) / 16.384; //°/S
                 wit_data.gz = (int16_t)((wit_dmaBuffer[offset+7U]<<8)|wit_dmaBuffer[offset+6U]) / 16.384; //°/S
+                wit_gyro_frame_count++;
             }
             else if(wit_dmaBuffer[offset + 1U] == 0x53U)
             {

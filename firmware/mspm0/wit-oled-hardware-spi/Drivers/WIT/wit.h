@@ -37,6 +37,8 @@ typedef struct {
 extern volatile WIT_Data_t wit_data;
 extern volatile uint32_t wit_rx_byte_count;
 extern volatile uint32_t wit_valid_frame_count;
+extern volatile uint32_t wit_accel_frame_count;
+extern volatile uint32_t wit_gyro_frame_count;
 extern volatile uint32_t wit_angle_frame_count;
 
 void WIT_Init(void);

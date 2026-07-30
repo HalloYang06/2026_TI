@@ -28,7 +28,7 @@ $env:HBALL_INTEGRATED_SHADOW='1'
 scons -j12
 ```
 
-M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为200 Hz快照。USB和CAN线程通过RT-Thread优先级继承mutex更新单写数据层；每类数据独立计算age和valid。MSPM0各数据流现在独立检查16位序号：重复/乱序帧不刷新时间戳，跳号和重启可诊断，心跳未置`IMU_VALID`时不发布有效IMU。当前快照保留视觉板原始`capture_time_us`，但在时钟同步实现前只把`vision_receive_age_ms`用于链路诊断，不能冒充真实采集age。
+M33把五类MSPM0标准帧、RS00扩展反馈帧和树莓派视觉帧汇总为200 Hz快照。USB和CAN线程通过RT-Thread优先级继承mutex更新单写数据层；每类数据独立计算age和valid。MSPM0各数据流现在独立检查16位源序号：重复/乱序帧不刷新时间戳，跳号和重启可诊断，心跳未置`IMU_VALID`时不发布有效IMU。MSPM0的200 Hz镜像重复同一WIT源序号时也不会刷新age。当前快照保留视觉板原始`capture_time_us`，但在时钟同步实现前只把`vision_receive_age_ms`用于链路诊断，不能冒充真实采集age。
 
 本机集成ARM构建已通过：`text=214596 data=15656 bss=244516`，运行标签为`0.3.0-m33-integrated-shadow`。只有人工执行的`hball_probe5`允许发送无运动Get_ID；自动探针默认关闭，`MOTOR_COMMAND_TX=0`和`ACTUATOR_TX=0`保持硬约束。
 
