@@ -72,6 +72,32 @@ struct PipeAxis {
   float half_width;
 };
 
+struct PositionReference {
+  double measured_cm;
+  double actual_cm;
+};
+
+double calibrated_position_cm(double measured_cm) {
+  // Current fixed installation, measured on the marked -10/-7.5/-5/+5/+7.5/+10 cm points.
+  // The perspective-corrected pixel coordinate is slightly nonlinear, so use
+  // monotonic piecewise interpolation instead of stretching only the two ends.
+  static const std::vector<PositionReference> references{
+      {-8.00, -10.00}, {-6.21, -7.50}, {-4.37, -5.00},
+      {3.50, 5.00}, {5.80, 7.50}, {8.25, 10.00},
+  };
+  size_t upper = 1;
+  while (upper < references.size() && measured_cm > references[upper].measured_cm) {
+    ++upper;
+  }
+  if (upper == references.size()) upper = references.size() - 1;
+  const size_t lower = upper - 1;
+  const auto& first = references[lower];
+  const auto& second = references[upper];
+  const double fraction = (measured_cm - first.measured_cm) /
+                          (second.measured_cm - first.measured_cm);
+  return first.actual_cm + fraction * (second.actual_cm - first.actual_cm);
+}
+
 void signal_handler(int) { running = false; }
 
 bool send_all(int fd, const std::string& data) {
@@ -313,7 +339,8 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
       const double fraction = std::clamp(static_cast<double>(tracked_x) / axis.length, 0.0, 1.0);
       previous_fraction = fraction;
       missed_frames = 0;
-      position_cm = cfg.left_cm + fraction * (cfg.right_cm - cfg.left_cm);
+      const double measured_position_cm = cfg.left_cm + fraction * (cfg.right_cm - cfg.left_cm);
+      position_cm = calibrated_position_cm(measured_position_cm);
       const cv::Point2f camera_point = map_pipe_point({tracked_x, axis.centre.y});
       const cv::Point display_point(cvRound(camera_point.x), cvRound(camera_point.y));
       cv::circle(image, display_point, 10, cv::Scalar(0, 255, 0), 3, cv::LINE_AA);
