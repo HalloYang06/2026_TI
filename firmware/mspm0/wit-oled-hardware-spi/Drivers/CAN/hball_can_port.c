@@ -2,6 +2,8 @@
 
 #include "hball_can_protocol.h"
 #include "hball_can_recovery.h"
+#include "hball_mission_can.h"
+#include "hball_mission_client.h"
 #include "ti_msp_dl_config.h"
 #include "wit.h"
 
@@ -34,6 +36,63 @@ static bool g_hball_wit_accel_seen;
 static bool g_hball_wit_gyro_seen;
 static bool g_hball_wit_attitude_seen;
 static hball_can_recovery_t g_hball_can_recovery;
+static hball_mission_client_t g_hball_mission_client;
+static hball_mission_ui_t g_hball_mission_ui;
+static volatile uint32_t g_hball_port_now_ms;
+
+static uint32_t hball_can_lock(void)
+{
+    const uint32_t interrupt_state = __get_PRIMASK();
+
+    __disable_irq();
+    return interrupt_state;
+}
+
+static void hball_can_unlock(uint32_t interrupt_state)
+{
+    if (interrupt_state == 0U)
+    {
+        __enable_irq();
+    }
+}
+
+bool hball_can_mission_select(uint8_t mission_id, uint32_t now_ms)
+{
+    bool accepted;
+    const uint32_t interrupt_state = hball_can_lock();
+
+    accepted = hball_mission_client_select(
+        &g_hball_mission_client, mission_id, now_ms
+    );
+    hball_can_unlock(interrupt_state);
+    return accepted;
+}
+
+bool hball_can_mission_request_start(uint32_t now_ms)
+{
+    bool accepted;
+    const uint32_t interrupt_state = hball_can_lock();
+
+    accepted = hball_mission_client_request_start(
+        &g_hball_mission_client, now_ms
+    );
+    hball_can_unlock(interrupt_state);
+    return accepted;
+}
+
+bool hball_can_mission_get_snapshot(hball_mission_client_t *snapshot)
+{
+    uint32_t interrupt_state;
+
+    if (snapshot == NULL)
+    {
+        return false;
+    }
+    interrupt_state = hball_can_lock();
+    *snapshot = g_hball_mission_client;
+    hball_can_unlock(interrupt_state);
+    return true;
+}
 
 static void hball_can_update_wit_freshness(uint32_t now_ms)
 {
@@ -169,6 +228,32 @@ static void hball_can_frame_to_tx_element(
     memcpy(element->data, frame->data, sizeof(frame->data));
 }
 
+static void hball_mission_frame_to_can_frame(
+    const hball_mission_can_frame_t *source, hball_can_frame_t *target
+)
+{
+    memset(target, 0, sizeof(*target));
+    target->id = source->id;
+    target->is_extended = source->is_extended;
+    target->is_remote = source->is_remote;
+    target->dlc = source->dlc;
+    memcpy(target->data, source->data, sizeof(target->data));
+}
+
+static void hball_rx_element_to_mission_frame(
+    uint32_t id,
+    const DL_MCAN_RxBufElement *source,
+    hball_mission_can_frame_t *target
+)
+{
+    memset(target, 0, sizeof(*target));
+    target->id = id;
+    target->is_extended = (uint8_t)source->xtd;
+    target->is_remote = (uint8_t)source->rtr;
+    target->dlc = (uint8_t)source->dlc;
+    memcpy(target->data, source->data, sizeof(target->data));
+}
+
 static void hball_can_refresh_error_status(void)
 {
     DL_MCAN_ErrCntStatus errors;
@@ -196,6 +281,9 @@ void hball_can_port_init(void)
     g_hball_wit_accel_seen = false;
     g_hball_wit_gyro_seen = false;
     g_hball_wit_attitude_seen = false;
+    g_hball_port_now_ms = 0U;
+    memset(&g_hball_mission_ui, 0, sizeof(g_hball_mission_ui));
+    hball_mission_client_init(&g_hball_mission_client, 0U);
     hball_can_recovery_init(&g_hball_can_recovery);
 
     if (DL_MCAN_getOpMode(MCAN0_INST) != DL_MCAN_OPERATION_MODE_NORMAL)
@@ -214,9 +302,16 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
     hball_can_stream_t stream;
     hball_can_inputs_t inputs;
     hball_can_frame_t frame;
+    hball_mission_can_frame_t mission_frame;
+    hball_mission_intent_t intent;
+    hball_mission_chassis_status_t chassis_status;
     DL_MCAN_TxBufElement tx_element;
     uint16_t sequence;
+    bool telemetry_due;
+    bool intent_due;
+    bool chassis_due;
 
+    g_hball_port_now_ms = now_ms;
     if (g_hball_can_stats.initialized == 0U)
     {
         return;
@@ -235,8 +330,11 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
         g_hball_can_stats.bus_off_recovery_attempts++;
         return;
     }
+    telemetry_due = hball_can_stream_due(now_ms, &stream);
+    intent_due = ((now_ms % 50U) == 7U);
+    chassis_due = ((now_ms % 20U) == 9U);
     if ((g_hball_can_stats.bus_off != 0U)
-        || !hball_can_stream_due(now_ms, &stream))
+        || (!telemetry_due && !intent_due && !chassis_due))
     {
         return;
     }
@@ -247,25 +345,54 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
         return;
     }
 
-    hball_can_snapshot_inputs(now_ms, &inputs);
-    sequence = g_hball_sequences[stream];
-    if (stream == HBALL_CAN_STREAM_ACCEL)
+    if (telemetry_due)
     {
-        sequence = inputs.accel_source_sequence;
+        hball_can_snapshot_inputs(now_ms, &inputs);
+        sequence = g_hball_sequences[stream];
+        if (stream == HBALL_CAN_STREAM_ACCEL)
+        {
+            sequence = inputs.accel_source_sequence;
+        }
+        else if (stream == HBALL_CAN_STREAM_GYRO)
+        {
+            sequence = inputs.gyro_source_sequence;
+        }
+        else if (stream == HBALL_CAN_STREAM_ATTITUDE)
+        {
+            sequence = inputs.attitude_source_sequence;
+        }
+        if (!hball_can_encode_frame(
+                stream, sequence, &inputs, &frame))
+        {
+            g_hball_can_stats.tx_failed++;
+            return;
+        }
     }
-    else if (stream == HBALL_CAN_STREAM_GYRO)
+    else if (intent_due)
     {
-        sequence = inputs.gyro_source_sequence;
+        if (!hball_mission_client_make_intent(
+                &g_hball_mission_client, &intent)
+            || !hball_mission_encode_intent(&intent, &mission_frame))
+        {
+            g_hball_can_stats.tx_failed++;
+            return;
+        }
+        hball_mission_frame_to_can_frame(&mission_frame, &frame);
     }
-    else if (stream == HBALL_CAN_STREAM_ATTITUDE)
+    else
     {
-        sequence = inputs.attitude_source_sequence;
-    }
-    if (!hball_can_encode_frame(
-            stream, sequence, &inputs, &frame))
-    {
-        g_hball_can_stats.tx_failed++;
-        return;
+        chassis_status.epoch = g_hball_mission_client.candidate_epoch;
+        chassis_status.chassis_phase = 0U;
+        chassis_status.event_flags =
+            HBALL_MISSION_CHASSIS_EVENT_INHIBITED;
+        chassis_status.elapsed_ms = 0U;
+        if (!hball_mission_encode_chassis_status(
+                &chassis_status, &mission_frame))
+        {
+            g_hball_can_stats.tx_failed++;
+            return;
+        }
+        hball_mission_frame_to_can_frame(&mission_frame, &frame);
     }
     hball_can_frame_to_tx_element(&frame, &tx_element);
     DL_MCAN_writeMsgRam(
@@ -279,10 +406,19 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
         g_hball_can_stats.tx_failed++;
         return;
     }
-    if ((stream == HBALL_CAN_STREAM_WHEEL)
-        || (stream == HBALL_CAN_STREAM_HEARTBEAT))
+    if (telemetry_due
+        && ((stream == HBALL_CAN_STREAM_WHEEL)
+            || (stream == HBALL_CAN_STREAM_HEARTBEAT)))
     {
         g_hball_sequences[stream]++;
+    }
+    if (intent_due && !telemetry_due)
+    {
+        g_hball_can_stats.mission_intent_tx++;
+    }
+    else if (chassis_due && !telemetry_due)
+    {
+        g_hball_can_stats.mission_chassis_tx++;
     }
     g_hball_can_stats.tx_queued++;
 }
@@ -290,6 +426,8 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
 static void hball_can_record_rx(const DL_MCAN_RxBufElement *message)
 {
     uint32_t id;
+    hball_mission_can_frame_t mission_frame;
+    hball_mission_status_t status;
 
     if (message->xtd != 0U)
     {
@@ -319,6 +457,35 @@ static void hball_can_record_rx(const DL_MCAN_RxBufElement *message)
         message->data,
         sizeof(g_hball_can_stats.last_rx_data)
     );
+
+    if ((message->xtd == 0U) && (id == HBALL_CAN_ID_MISSION_STATUS))
+    {
+        hball_rx_element_to_mission_frame(id, message, &mission_frame);
+        if (hball_mission_decode_status(&mission_frame, &status)
+            && hball_mission_client_accept_status(
+                &g_hball_mission_client, &status, g_hball_port_now_ms))
+        {
+            g_hball_can_stats.mission_status_rx++;
+        }
+        else
+        {
+            g_hball_can_stats.mission_status_invalid++;
+        }
+    }
+    else if ((message->xtd == 0U) && (id == HBALL_CAN_ID_MISSION_UI))
+    {
+        hball_rx_element_to_mission_frame(id, message, &mission_frame);
+        if (hball_mission_decode_ui(&mission_frame, &g_hball_mission_ui)
+            && (g_hball_mission_ui.epoch
+                == g_hball_mission_client.candidate_epoch))
+        {
+            g_hball_can_stats.mission_ui_rx++;
+        }
+        else
+        {
+            g_hball_can_stats.mission_ui_invalid++;
+        }
+    }
 }
 
 static void hball_can_drain_fifo0(void)

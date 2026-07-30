@@ -1,6 +1,9 @@
 #ifndef HBALL_CAN_PORT_H
 #define HBALL_CAN_PORT_H
 
+#include "hball_mission_client.h"
+
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -36,12 +39,21 @@ typedef struct
     uint8_t error_warning;
     uint32_t bus_off_recovery_attempts;
     uint32_t bus_off_recoveries;
+    uint32_t mission_intent_tx;
+    uint32_t mission_chassis_tx;
+    uint32_t mission_status_rx;
+    uint32_t mission_status_invalid;
+    uint32_t mission_ui_rx;
+    uint32_t mission_ui_invalid;
 } hball_can_port_stats_t;
 
 extern volatile hball_can_port_stats_t g_hball_can_stats;
 
 void hball_can_port_init(void);
 void hball_can_port_tick_1ms(uint32_t now_ms);
+bool hball_can_mission_select(uint8_t mission_id, uint32_t now_ms);
+bool hball_can_mission_request_start(uint32_t now_ms);
+bool hball_can_mission_get_snapshot(hball_mission_client_t *snapshot);
 
 #ifdef __cplusplus
 }

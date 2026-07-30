@@ -10,6 +10,7 @@ $ErrorActionPreference = 'Stop'
 $keilCandidates = @(
     $KeilBin,
     $env:KEIL_ARMCLANG_BIN,
+    'D:\KEIL\KEILV5\ARM\ARMCLANG\bin',
     'D:\Keil5_5_39\ARM\ARMCLANG\bin',
     'F:\keil_v5\ARM\ARMCLANG\bin'
 ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
@@ -27,6 +28,8 @@ $linker = Join-Path $keilRoot 'armlink.exe'
 $fromElf = Join-Path $keilRoot 'fromelf.exe'
 $outputDir = Join-Path $ProjectRoot 'Keil\Objects'
 $listingDir = Join-Path $ProjectRoot 'Keil\Listings'
+$repoRoot = [IO.Path]::GetFullPath((Join-Path $ProjectRoot '..\..\..'))
+$missionProtocolDir = Join-Path $repoRoot 'shared\protocol'
 
 foreach ($tool in $compiler, $assembler, $linker, $fromElf) {
     if (!(Test-Path $tool)) { throw "Keil tool not found: $tool" }
@@ -36,7 +39,8 @@ New-Item -ItemType Directory -Force -Path $outputDir, $listingDir | Out-Null
 $sources = @(
     'main.c', 'Debug\ti_msp_dl_config.c',
     'Drivers\CAN\hball_can_protocol.c', 'Drivers\CAN\hball_can_recovery.c',
-    'Drivers\CAN\hball_can_port.c',
+    'Drivers\CAN\hball_can_port.c', 'Drivers\CAN\hball_mission_client.c',
+    (Join-Path $missionProtocolDir 'hball_mission_can.c'),
     'Drivers\ENCODER\encoder.c',
     'Drivers\GRAY\beeper.c', 'Drivers\GRAY\gray.c', 'Drivers\GRAY\key.c',
     'Drivers\GRAY\led.c', 'Drivers\GRAY\track.c', 'Drivers\MOTOR\motor.c',
@@ -49,7 +53,7 @@ $sources = @(
 )
 $includeDirs = @(
     "$SdkRoot\source", "$SdkRoot\source\third_party\CMSIS\Core\Include",
-    $ProjectRoot, (Join-Path $ProjectRoot 'Debug')
+    $ProjectRoot, (Join-Path $ProjectRoot 'Debug'), $missionProtocolDir
 ) + (Get-ChildItem (Join-Path $ProjectRoot 'Drivers') -Directory | ForEach-Object FullName)
 $compileArgs = @('--target=arm-arm-none-eabi', '-mcpu=cortex-m0plus', '-mthumb', '-O0', '-fshort-wchar', '-fshort-enums', '-D__MSPM0G3507__') +
     ($includeDirs | ForEach-Object { "-I$_" })

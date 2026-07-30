@@ -42,7 +42,8 @@ $include = @(
     '..', '..\Debug',
     '..\Drivers\CAN', '..\Drivers\ENCODER', '..\Drivers\GRAY', '..\Drivers\MOTOR',
     '..\Drivers\MSPM0', '..\Drivers\OLED_Hardware_SPI', '..\Drivers\PID',
-    '..\Drivers\UART_VOFA+', '..\Drivers\WIT'
+    '..\Drivers\UART_VOFA+', '..\Drivers\WIT',
+    '..\..\..\..\shared\protocol'
 ) -join ';'
 $target.TargetOption.TargetArmAds.Cads.VariousControls.IncludePath = $include
 $target.TargetOption.TargetArmAds.LDads.ScatterFile = '.\mspm0g3507.sct'
@@ -77,7 +78,10 @@ $applicationFiles = @(
     ,@('main.c', '1', '..\main.c')
     ,@('ti_msp_dl_config.c', '1', '..\Debug\ti_msp_dl_config.c')
     ,@('hball_can_protocol.c', '1', '..\Drivers\CAN\hball_can_protocol.c')
+    ,@('hball_can_recovery.c', '1', '..\Drivers\CAN\hball_can_recovery.c')
     ,@('hball_can_port.c', '1', '..\Drivers\CAN\hball_can_port.c')
+    ,@('hball_mission_client.c', '1', '..\Drivers\CAN\hball_mission_client.c')
+    ,@('hball_mission_can.c', '1', '..\..\..\..\shared\protocol\hball_mission_can.c')
     ,@('encoder.c', '1', '..\Drivers\ENCODER\encoder.c')
     ,@('beeper.c', '1', '..\Drivers\GRAY\beeper.c')
     ,@('gray.c', '1', '..\Drivers\GRAY\gray.c')
