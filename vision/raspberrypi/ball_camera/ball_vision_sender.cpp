@@ -381,16 +381,16 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
       pending_reacquire_frames = 0;
     } else {
       // The template is lost and a new contour disagrees with a stationary
-      // track.  Demand three coherent image observations before re-locking.
+      // track.  Demand five coherent image observations before re-locking.
       if (pending_reacquire_x &&
-          std::abs((*contour_circle)[0] - *pending_reacquire_x) <= 8.0F) {
+          std::abs((*contour_circle)[0] - *pending_reacquire_x) <= 5.0F) {
         *pending_reacquire_x = 0.5F * (*pending_reacquire_x + (*contour_circle)[0]);
         ++pending_reacquire_frames;
       } else {
         pending_reacquire_x = (*contour_circle)[0];
         pending_reacquire_frames = 1;
       }
-      if (pending_reacquire_frames >= 3) {
+      if (pending_reacquire_frames >= 5) {
         circle = contour_circle;
         reacquired = true;
         pending_reacquire_x.reset();
@@ -431,7 +431,12 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
       // appearance model.  Refreshing it from one contour allowed a hand or
       // pen to overwrite the true ball identity.  Seed it only after five
       // stable observations at service start, then keep it immutable.
-      if (ball_template.empty() && !use_template) {
+      if (reacquired) {
+        // Five coherent, ball-shaped observations are sufficient to replace
+        // a stale startup template, but a passing distractor cannot do it in
+        // one frame.
+        ball_template = make_ball_template(pipe, *circle);
+      } else if (ball_template.empty() && !use_template) {
         if (pending_template_x && std::abs((*circle)[0] - *pending_template_x) <= 4.0F) {
           *pending_template_x = 0.5F * (*pending_template_x + (*circle)[0]);
           ++pending_template_frames;
