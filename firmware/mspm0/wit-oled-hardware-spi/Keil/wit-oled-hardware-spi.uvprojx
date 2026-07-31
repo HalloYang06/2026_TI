@@ -422,6 +422,11 @@
               <FilePath>..\App\Control\line_snapshot.c</FilePath>
             </File>
             <File>
+              <FileName>wheel_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\Control\wheel_control.c</FilePath>
+            </File>
+            <File>
               <FileName>hball_can_protocol.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\CAN\hball_can_protocol.c</FilePath>

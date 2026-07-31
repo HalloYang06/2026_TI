@@ -12,6 +12,11 @@ only a raw byte plus timestamp and must not read GPIO, mission state, display,
 transport, or actuator APIs. The GPIO sampling site remains outside this
 module.
 
+`WheelControl` owns the competition lap controller's two wheel PID instances,
+100 ms encoder-delta normalization, integral bounds, measured PWM feed-forward,
+and output slew. It consumes atomic encoder counts and requested wheel speeds;
+it returns a PWM request without reading registers or calling the actuator.
+
 The first migration step is deliberately behavior-preserving: the adapter
 keeps the existing PWM signs, limits, startup ordering, and stop sequences.
 It does not tune Q2/Q4 or move PID work into an interrupt. Follow-up slices can
@@ -29,3 +34,5 @@ Ownership rules:
 - No automated test may enable the actuator or start a mission.
 - `LineSnapshot` produces facts only; it cannot select a task or request
   chassis motion.
+- `WheelControl` alone updates the active lap runtime's wheel PID state; the
+  caller owns atomic encoder sampling and the final actuator request.

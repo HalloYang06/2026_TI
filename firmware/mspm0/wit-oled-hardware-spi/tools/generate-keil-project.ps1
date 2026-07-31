@@ -81,6 +81,7 @@ $applicationFiles = @(
     ,@('ti_msp_dl_config.c', '1', '..\Debug\ti_msp_dl_config.c')
     ,@('chassis_actuator.c', '1', '..\App\Control\chassis_actuator.c')
     ,@('line_snapshot.c', '1', '..\App\Control\line_snapshot.c')
+    ,@('wheel_control.c', '1', '..\App\Control\wheel_control.c')
     ,@('hball_can_protocol.c', '1', '..\Drivers\CAN\hball_can_protocol.c')
     ,@('hball_can_recovery.c', '1', '..\Drivers\CAN\hball_can_recovery.c')
     ,@('hball_can_port.c', '1', '..\Drivers\CAN\hball_can_port.c')

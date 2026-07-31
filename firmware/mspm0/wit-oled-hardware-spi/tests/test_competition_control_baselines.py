@@ -12,6 +12,12 @@ def _function_body(source: str, signature: str, next_signature: str) -> str:
 
 def test_q2_verified_tracking_parameters_and_cadences_are_pinned() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    wheel_header = (
+        PROJECT / "App" / "Control" / "wheel_control.h"
+    ).read_text(encoding="utf-8")
+    wheel_source = (
+        PROJECT / "App" / "Control" / "wheel_control.c"
+    ).read_text(encoding="utf-8")
     lap = _function_body(
         main,
         "static void lap_test_once(void)\n{",
@@ -35,11 +41,10 @@ def test_q2_verified_tracking_parameters_and_cadences_are_pinned() -> None:
     ):
         assert statement in q2
 
-    assert "const uint32_t speed_control_period_ms = 100U;" in lap
-    assert "LEFT.Kp = 0.18f;" in lap
-    assert "LEFT.Ki = 0.005f;" in lap
-    assert "RIGHT.Kp = 0.18f;" in lap
-    assert "RIGHT.Ki = 0.005f;" in lap
+    assert "#define WHEEL_CONTROL_PERIOD_MS 100U" in wheel_header
+    assert "pid->Kp = 0.18f;" in wheel_source
+    assert "pid->Ki = 0.005f;" in wheel_source
+    assert wheel_source.count("initialize_pid(&control->") == 2
     assert "competition_runtime_wait_ms(10U);" in lap
 
 

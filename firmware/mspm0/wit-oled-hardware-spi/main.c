@@ -40,6 +40,7 @@
 #include "hball_runtime_target.h"
 #include "line_sensor_port.h"
 #include "line_snapshot.h"
+#include "wheel_control.h"
 
 /*
  * There is no process command line on the target. Avoid Arm C library
@@ -1554,7 +1555,6 @@ static void lap_test_once(void)
     float weighted_position_kp = 0.50f;
     int16_t steering_limit = 20;
     int16_t steering_slew_step = 2;
-    const uint32_t speed_control_period_ms = 100U;
     const uint32_t lost_timeout_ms = 700U;
     const uint32_t start_line_clear_confirm_ms = 120U;
     uint32_t finish_line_min_run_ms = 10000U;
@@ -1568,6 +1568,8 @@ static void lap_test_once(void)
     const int16_t task3_curve_min_speed = 40;
     const uint32_t task3_start_ramp_ms = 1000U;
     hball_mission_policy_t mission_policy;
+    static wheel_control_t wheel_control;
+    wheel_control_output_t wheel_output;
     uint8_t selected_task;
     uint8_t finish_line_enabled;
     uint8_t finish_active_threshold = 3U;
@@ -1598,16 +1600,11 @@ static void lap_test_once(void)
     int16_t desired_speed_right = base_speed;
     int16_t requested_speed_left = base_speed;
     int16_t requested_speed_right = base_speed;
-    int16_t target_duty_left;
-    int16_t target_duty_right;
     int16_t commanded_duty_left = 15;
     int16_t commanded_duty_right = 15;
     int16_t stop_start_duty_left;
     int16_t stop_start_duty_right;
-    int16_t duty_slew_step;
     int16_t stop_step;
-    int32_t previous_left_count = 0;
-    int32_t previous_right_count = 0;
     int32_t current_left_count;
     int32_t current_right_count;
     int32_t left_speed;
@@ -1616,8 +1613,6 @@ static void lap_test_once(void)
     uint32_t elapsed_ms;
     uint32_t timeout_trigger_ms;
     uint32_t finish_elapsed_ms = 0U;
-    uint32_t last_speed_control_ms = 0U;
-    uint32_t speed_control_elapsed_ms;
     uint32_t lost_start_ms = 0U;
     uint32_t lost_elapsed_ms = 0U;
     uint32_t curve_enter_start_ms = 0U;
@@ -1710,28 +1705,15 @@ static void lap_test_once(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    LEFT.Kp = 0.18f;
-    LEFT.Ki = 0.005f;
-    LEFT.Kd = 0.0f;
-    LEFT.OutMin = -10.0f;
-    LEFT.OutMax = 10.0f;
-    LEFT.Error0 = 0.0f;
-    LEFT.Error1 = 0.0f;
-    LEFT.ErrorInt = 0.0f;
-
-    RIGHT.Kp = 0.18f;
-    RIGHT.Ki = 0.005f;
-    RIGHT.Kd = 0.0f;
-    RIGHT.OutMin = -10.0f;
-    RIGHT.OutMax = 10.0f;
-    RIGHT.Error0 = 0.0f;
-    RIGHT.Error1 = 0.0f;
-    RIGHT.ErrorInt = 0.0f;
-
     chassis_actuator_start_synchronized((float)commanded_duty_left, (float)commanded_duty_right);
     run_start_ms = tick_ms;
+    wheel_control_init(
+        &wheel_control,
+        run_start_ms,
+        commanded_duty_left,
+        commanded_duty_right
+    );
     hball_can_mission_chassis_start(run_start_ms);
-    last_speed_control_ms = run_start_ms;
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     if (selected_task == CAR_TASK_LAP_STOP) {
         LCD_ShowString(4, 4, (const unsigned char *)"TASK1 RUN", GREEN, BLACK, 32, 0);
@@ -2005,8 +1987,7 @@ static void lap_test_once(void)
             if (line_was_lost != 0U) {
                 line_reacquired = 1U;
                 line_was_lost = 0U;
-                LEFT.ErrorInt = 0.0f;
-                RIGHT.ErrorInt = 0.0f;
+                wheel_control_reset_integrators(&wheel_control);
             }
             lost_start_ms = 0U;
             error = line_sample.weighted_error;
@@ -2203,64 +2184,40 @@ static void lap_test_once(void)
             }
         }
 
-        if ((uint32_t)(tick_ms - last_speed_control_ms) >= speed_control_period_ms)
+        if (wheel_control_due(&wheel_control, tick_ms))
         {
-            speed_control_elapsed_ms =
-                (uint32_t)(tick_ms - last_speed_control_ms);
-            __disable_irq();
-            current_left_count = Get_Encoder_countB;
-            current_right_count = Get_Encoder_countA;
-            __enable_irq();
+            int16_t duty_slew_step;
 
-            /*
-             * Convert every sample to counts/100 ms. This prevents an LCD or
-             * interrupt delay from looking like a sudden wheel-speed spike.
-             */
-            left_speed =
-                ((current_left_count - previous_left_count) * 100) /
-                (int32_t)speed_control_elapsed_ms;
-            right_speed =
-                ((current_right_count - previous_right_count) * 100) /
-                (int32_t)speed_control_elapsed_ms;
-            previous_left_count = current_left_count;
-            previous_right_count = current_right_count;
-
-            LEFT.Target = (float)requested_speed_left;
-            LEFT.Actual = (float)left_speed;
-            RIGHT.Target = (float)requested_speed_right;
-            RIGHT.Actual = (float)right_speed;
-            PID_Update(&LEFT);
-            PID_Update(&RIGHT);
-
-            if (LEFT.ErrorInt > 80.0f) LEFT.ErrorInt = 80.0f;
-            if (LEFT.ErrorInt < -80.0f) LEFT.ErrorInt = -80.0f;
-            if (RIGHT.ErrorInt > 80.0f) RIGHT.ErrorInt = 80.0f;
-            if (RIGHT.ErrorInt < -80.0f) RIGHT.ErrorInt = -80.0f;
-
-            /* Feed-forward comes from the measured 20-40% PWM sweep. */
-            target_duty_left =
-                (int16_t)(((int32_t)requested_speed_left * 12) / 25 + 2 + (int16_t)LEFT.Out);
-            target_duty_right =
-                (int16_t)(((int32_t)requested_speed_right * 9) / 20 + 2 + (int16_t)RIGHT.Out);
-            if (target_duty_left < 6) target_duty_left = 6;
-            if (target_duty_left > 50) target_duty_left = 50;
-            if (target_duty_right < 6) target_duty_right = 6;
-            if (target_duty_right > 50) target_duty_right = 50;
-
-            /*
-             * Straight running stays gentle; a real bend must build the wheel
-             * speed difference quickly enough to avoid leaving the line.
-             */
             duty_slew_step =
                 (line_reacquired != 0U) ?
                 ((selected_task == CAR_TASK_STABLE_LAP) ? 6 : 15) :
                 ((active_count == 0U) ? 10 :
                  (((selected_task == CAR_TASK_LAP_STOP) &&
                    (error_magnitude >= curve_enter_error)) ? 8 : 3));
-            commanded_duty_left =
-                approach_pwm(commanded_duty_left, target_duty_left, duty_slew_step);
-            commanded_duty_right =
-                approach_pwm(commanded_duty_right, target_duty_right, duty_slew_step);
+            __disable_irq();
+            current_left_count = Get_Encoder_countB;
+            current_right_count = Get_Encoder_countA;
+            __enable_irq();
+
+            /*
+             * WheelControl preserves the measured feed-forward, PID gains,
+             * 100 ms normalization, integral bounds, and output slew.  This
+             * caller owns only the atomic encoder snapshot and final actuation.
+             */
+            (void)wheel_control_step(
+                &wheel_control,
+                tick_ms,
+                current_left_count,
+                current_right_count,
+                requested_speed_left,
+                requested_speed_right,
+                duty_slew_step,
+                &wheel_output
+            );
+            left_speed = wheel_output.measured_left_speed;
+            right_speed = wheel_output.measured_right_speed;
+            commanded_duty_left = wheel_output.duty_left;
+            commanded_duty_right = wheel_output.duty_right;
             chassis_actuator_set_pwm((float)commanded_duty_left, (float)commanded_duty_right);
 
             if (log_index < LAP_LOG_SAMPLES)
@@ -2277,7 +2234,6 @@ static void lap_test_once(void)
                 log_index++;
             }
             line_reacquired = 0U;
-            last_speed_control_ms = tick_ms;
         }
 
         competition_runtime_wait_ms(10U);
