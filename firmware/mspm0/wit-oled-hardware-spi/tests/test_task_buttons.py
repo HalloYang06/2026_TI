@@ -54,3 +54,18 @@ def test_q2_execute_bypasses_distributed_mission_start() -> None:
         "hball_can_mission_menu_handle(mission_event, tick_ms)"
     )
     assert local_q2 < distributed_start
+
+
+def test_task_menu_requires_release_before_power_on_key_arm() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    body = _function_body(
+        main,
+        "static uint8_t select_car_task(void)\n{",
+        "static int16_t approach_pwm",
+    )
+
+    release_gate = body.index(
+        "DL_GPIO_readPins(GPIO_KEY_PORT, TASK_KEY_EXECUTE_PIN) == 0U"
+    )
+    event_poll = body.index("get_task_key_event()")
+    assert release_gate < event_poll

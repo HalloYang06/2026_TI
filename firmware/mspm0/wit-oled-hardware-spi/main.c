@@ -902,6 +902,16 @@ static uint8_t select_car_task(void)
     bool last_view_valid = false;
 
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
+    /*
+     * A low or bouncing key during power-up must not become a local Q2
+     * execute event. Arm the menu only after both task keys are released.
+     */
+    while ((DL_GPIO_readPins(GPIO_KEY_PORT, TASK_KEY_SELECT_PIN) == 0U)
+           || (DL_GPIO_readPins(GPIO_KEY_PORT, TASK_KEY_EXECUTE_PIN) == 0U))
+    {
+        delay_cycles(CPUCLK_FREQ / 200U);
+    }
+    delay_cycles(CPUCLK_FREQ / 50U);
 
     while (1)
     {
@@ -1751,8 +1761,9 @@ static void lap_test_once(void)
     RIGHT.Error1 = 0.0f;
     RIGHT.ErrorInt = 0.0f;
 
-    motor_start_synchronized((float)commanded_duty_left,
-                             (float)commanded_duty_right);
+    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    motor_pwm_set((float)commanded_duty_left,
+                  (float)commanded_duty_right);
     run_start_ms = tick_ms;
     hball_can_mission_chassis_start(run_start_ms);
     last_speed_control_ms = run_start_ms;
