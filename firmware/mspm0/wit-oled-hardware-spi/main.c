@@ -65,7 +65,7 @@ __asm(".global __ARM_use_no_argv\n");
 #define APP_MODE_SPEED_PI_TEST   10U
 #define APP_MODE_PWM_SWEEP_TEST  11U
 #define APP_MODE_MOTOR_MAP_TEST  12U
-#define APP_MODE                 APP_MODE_LAP_TEST
+#define APP_MODE                 APP_MODE_PWM_SWEEP_TEST
 #define HBALL_MISSION_LOCAL_MOTION_ENABLED 1U
 
 _Static_assert(
@@ -1316,8 +1316,10 @@ static void motor_encoder_map_test(void)
 
 static void pwm_sweep_test(void)
 {
-    enum { SWEEP_POINTS = 5 };
-    static const uint8_t duty_points[SWEEP_POINTS] = {20U, 25U, 30U, 35U, 40U};
+    enum { SWEEP_POINTS = 9 };
+    static const uint8_t duty_points[SWEEP_POINTS] = {
+        12U, 15U, 18U, 20U, 22U, 25U, 30U, 35U, 40U
+    };
     static int32_t left_counts[SWEEP_POINTS];
     static int32_t right_counts[SWEEP_POINTS];
     const uint32_t settle_time_ms = 400U;
@@ -1344,9 +1346,13 @@ static void pwm_sweep_test(void)
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     LCD_ShowString(4, 4, (const unsigned char *)"PWM SWEEP", WHITE, BLACK, 32, 0);
-    LCD_ShowString(4, 58, (const unsigned char *)"AUTO 2 SEC", CYAN, BLACK, 24, 0);
-    telemetry_send_string("SWEEP_READY,AUTO_START_2S\r\n");
-    mspm0_delay_ms(2000U);
+    LCD_ShowString(4, 58, (const unsigned char *)"SW1 OR G", CYAN, BLACK, 24, 0);
+    telemetry_send_string("SWEEP_READY,SEND_G_OR_PRESS_SW1\r\n");
+    while (!speed_calibration_start_requested())
+    {
+        hball_runtime_target_poll(tick_ms);
+        __WFI();
+    }
 
     LCD_Fill(0, 50, 240, 110, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"RUNNING", GREEN, BLACK, 32, 0);
@@ -1372,8 +1378,9 @@ static void pwm_sweep_test(void)
         }
 
         __disable_irq();
-        left_counts[i] = Get_Encoder_countA;
-        right_counts[i] = Get_Encoder_countB;
+        /* Output 1/left is paired with countB; output 2/right with countA. */
+        left_counts[i] = Get_Encoder_countB;
+        right_counts[i] = Get_Encoder_countA;
         __enable_irq();
     }
 
