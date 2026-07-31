@@ -38,6 +38,7 @@
 #include "hball_mission_policy.h"
 #include "hball_runtime_services.h"
 #include "hball_runtime_target.h"
+#include "line_snapshot.h"
 
 /*
  * There is no process command line on the target. Avoid Arm C library
@@ -1551,7 +1552,6 @@ static void lap_test_once(void)
         TRACK_PHASE_CURVE,
         TRACK_PHASE_EXIT_RAMP
     };
-    static const int8_t weights[8] = {-35, -25, -15, -5, 5, 15, 25, 35};
     static uint16_t log_time_ms[LAP_LOG_SAMPLES];
     static uint8_t log_line_mask[LAP_LOG_SAMPLES];
     static int8_t log_error[LAP_LOG_SAMPLES];
@@ -1588,9 +1588,8 @@ static void lap_test_once(void)
     uint8_t finish_line_enabled;
     uint8_t finish_active_threshold = 3U;
     uint32_t run_timeout_ms;
-    uint8_t raw;
+    line_snapshot_t line_sample;
     uint8_t line_mask;
-    uint8_t index;
     uint8_t active_count;
     uint8_t finish_armed = 0U;
     uint8_t wide_finish_pattern;
@@ -1598,7 +1597,6 @@ static void lap_test_once(void)
     uint8_t line_was_lost = 0U;
     uint8_t line_reacquired = 0U;
     uint16_t log_index = 0U;
-    int16_t weighted_sum;
     int16_t error = 0;
     int16_t error_magnitude = 0;
     int16_t steering_error = 0;
@@ -1702,8 +1700,8 @@ static void lap_test_once(void)
         requested_speed_right = task3_start_speed;
     }
 
-    raw = read_track_raw();
-    line_mask = (uint8_t)(~raw);
+    line_sample = line_snapshot_decode(read_track_raw(), tick_ms);
+    line_mask = line_sample.line_mask;
     if (line_mask == 0U)
     {
         LCD_Fill(0, 48, 240, 150, BLACK);
@@ -1811,19 +1809,9 @@ static void lap_test_once(void)
             break;
         }
 
-        raw = read_track_raw();
-        line_mask = (uint8_t)(~raw);
-        active_count = 0U;
-        weighted_sum = 0;
-
-        for (index = 0U; index < 8U; index++)
-        {
-            if ((line_mask & (1U << index)) != 0U)
-            {
-                active_count++;
-                weighted_sum += weights[index];
-            }
-        }
+        line_sample = line_snapshot_decode(read_track_raw(), tick_ms);
+        line_mask = line_sample.line_mask;
+        active_count = line_sample.active_count;
 
         /*
          * Task 1 uses three active sensors and task 3 uses four. Start-line
@@ -1840,8 +1828,7 @@ static void lap_test_once(void)
              * Elapsed time and a short confirmation suppress start-line and
              * single-sample false detections.
              */
-            if ((line_mask & (uint8_t)(line_mask >> 1) &
-                 (uint8_t)(line_mask >> 2)) == 0U) {
+            if (!line_snapshot_has_adjacent(&line_sample, 3U)) {
                 wide_finish_pattern = 0U;
             }
         }
@@ -1852,9 +1839,7 @@ static void lap_test_once(void)
              * Task 3 accepts only four adjacent sensors.  This rejects
              * sparse multi-sensor patterns that occur during a bend.
              */
-            if ((line_mask & (uint8_t)(line_mask >> 1) &
-                 (uint8_t)(line_mask >> 2) &
-                 (uint8_t)(line_mask >> 3)) == 0U) {
+            if (!line_snapshot_has_adjacent(&line_sample, 4U)) {
                 wide_finish_pattern = 0U;
             }
         }
@@ -2040,7 +2025,7 @@ static void lap_test_once(void)
                 RIGHT.ErrorInt = 0.0f;
             }
             lost_start_ms = 0U;
-            error = weighted_sum / (int16_t)active_count;
+            error = line_sample.weighted_error;
             error_magnitude =
                 (error < 0) ? (int16_t)(-error) : error;
             steering_error = error;

@@ -96,6 +96,46 @@ static void test_timestamp_is_preserved_exactly(void)
     assert(snapshot.timestamp_ms == UINT32_MAX);
 }
 
+static void test_all_raw_values_match_legacy_q2_decode(void)
+{
+    static const int8_t weights[8] = {
+        -35, -25, -15, -5, 5, 15, 25, 35
+    };
+    uint16_t raw_value;
+
+    for (raw_value = 0U; raw_value <= UINT8_MAX; raw_value++)
+    {
+        const uint8_t raw = (uint8_t)raw_value;
+        const uint8_t legacy_mask = (uint8_t)(~raw);
+        uint8_t legacy_count = 0U;
+        int16_t legacy_sum = 0;
+        int16_t legacy_error = 0;
+        uint8_t index;
+        line_snapshot_t snapshot;
+
+        for (index = 0U; index < 8U; index++)
+        {
+            if ((legacy_mask & (uint8_t)(1U << index)) != 0U)
+            {
+                legacy_count++;
+                legacy_sum += weights[index];
+            }
+        }
+        if (legacy_count != 0U)
+        {
+            legacy_error = legacy_sum / (int16_t)legacy_count;
+        }
+
+        snapshot = line_snapshot_decode(raw, (uint32_t)raw_value);
+        assert(snapshot.valid == (legacy_count != 0U));
+        assert(snapshot.raw == raw);
+        assert(snapshot.line_mask == legacy_mask);
+        assert(snapshot.active_count == legacy_count);
+        assert(snapshot.weighted_sum == legacy_sum);
+        assert(snapshot.weighted_error == legacy_error);
+    }
+}
+
 int main(void)
 {
     test_no_active_sensor_is_invalid();
@@ -104,5 +144,6 @@ int main(void)
     test_multiple_active_sensors_use_integer_average();
     test_adjacent_width_detection_does_not_accept_sparse_patterns();
     test_timestamp_is_preserved_exactly();
+    test_all_raw_values_match_legacy_q2_decode();
     return 0;
 }
