@@ -19,19 +19,16 @@ uint16_t hball_mission_required_ready_mask(uint8_t mission_id)
     uint16_t required =
         HBALL_MISSION_READY_M33_ALIVE
         | HBALL_MISSION_READY_MSP_LINK
-        | HBALL_MISSION_READY_CHASSIS;
+        | HBALL_MISSION_READY_CHASSIS
+        | HBALL_MISSION_READY_PI_USB
+        | HBALL_MISSION_READY_VISION
+        | HBALL_MISSION_READY_RS00_LINK;
 
     if (!hball_mission_id_valid(mission_id))
     {
         return 0U;
     }
-    if (mission_id >= HBALL_MISSION_Q3_BALL_SEQUENCE)
-    {
-        required |= HBALL_MISSION_READY_PI_USB
-            | HBALL_MISSION_READY_VISION
-            | HBALL_MISSION_READY_RS00_LINK;
-    }
-    if (mission_id >= HBALL_MISSION_Q4_A_TO_B)
+    if (mission_id != HBALL_MISSION_Q3_BALL_SEQUENCE)
     {
         required |= HBALL_MISSION_READY_IMU;
     }
@@ -174,27 +171,6 @@ bool hball_mission_arbiter_accept_intent(
     {
         arbiter->global_state = HBALL_MISSION_STATE_CONTROLLED_ABORT;
         arbiter->reason = HBALL_MISSION_REASON_LOCAL_FAULT;
-        return true;
-    }
-    if (intent->command == HBALL_MISSION_COMMAND_LEVEL)
-    {
-        if (arbiter->mission_id != HBALL_MISSION_Q3_BALL_SEQUENCE)
-        {
-            return false;
-        }
-        if (((arbiter->required_mask
-              & HBALL_MISSION_READY_START_GEOMETRY) != 0U)
-            && ((arbiter->global_state == HBALL_MISSION_STATE_PREPARING)
-                || (arbiter->global_state == HBALL_MISSION_STATE_READY)))
-        {
-            return true;
-        }
-        arbiter->global_state = HBALL_MISSION_STATE_PREPARING;
-        arbiter->required_mask =
-            hball_mission_required_ready_mask(arbiter->mission_id)
-            | HBALL_MISSION_READY_START_GEOMETRY;
-        arbiter->reason = HBALL_MISSION_REASON_NOT_READY;
-        arbiter->ready_candidate_valid = false;
         return true;
     }
     if (intent->command == HBALL_MISSION_COMMAND_RESET)

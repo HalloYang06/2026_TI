@@ -17,6 +17,16 @@ void motor_stop(void)
     
 }
 
+void motor_start_synchronized(float pwm1,float pwm2)
+{
+    /* Keep both H-bridges disabled until both directions and PWM are ready. */
+    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    motor_stop();
+    motor_pwm_set(pwm1, pwm2);
+    __DSB();
+    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+}
+	
 void set_motor_speed(float duty,uint8_t motor)
 {
     if (duty < 0.0f) {

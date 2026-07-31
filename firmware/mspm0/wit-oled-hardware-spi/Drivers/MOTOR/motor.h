@@ -14,6 +14,7 @@
 #define MAX_SPEED_UP 3.0
 void motor_stop(void);
 void motor_init(void);
+void motor_start_synchronized(float pwm1,float pwm2);
 void set_motor_speed(float duty,uint8_t motor);
 void pwm_limiting(int *pwm1,int *pwm2);
 void left_motor_dir(uint8_t para);

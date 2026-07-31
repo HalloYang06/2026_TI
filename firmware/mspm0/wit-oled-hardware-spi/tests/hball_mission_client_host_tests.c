@@ -90,37 +90,37 @@ static void test_stale_duplicate_and_out_of_order_status_do_not_unlock(void)
     assert(client.out_of_order_status_total == 1U);
 }
 
-static void test_selection_is_available_before_start(void)
+static void test_selection_is_blocked_after_start(void)
 {
     hball_mission_client_t client;
     hball_mission_status_t status;
 
     hball_mission_client_init(&client, 0U);
-    assert(hball_mission_client_select(
+    assert(!hball_mission_client_select(
         &client, HBALL_MISSION_Q5_CENTER_LAP, 1U));
-    status = make_status(2U, HBALL_MISSION_Q5_CENTER_LAP,
+    status = make_status(1U, HBALL_MISSION_Q2_FAST_LAP,
                          HBALL_MISSION_STATE_READY, 1U);
     assert(hball_mission_client_accept_status(&client, &status, 2U));
     assert(hball_mission_client_select(
-        &client, HBALL_MISSION_Q6_HOLD_POSITION_LAP, 5U));
-    assert(client.selected_mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP);
-    assert(client.candidate_epoch == 3U);
+        &client, HBALL_MISSION_Q5_CENTER_LAP, 5U));
+    assert(client.selected_mission == HBALL_MISSION_Q5_CENTER_LAP);
+    assert(client.candidate_epoch == 2U);
 
-    status = make_status(3U, HBALL_MISSION_Q6_HOLD_POSITION_LAP,
+    status = make_status(2U, HBALL_MISSION_Q5_CENTER_LAP,
                          HBALL_MISSION_STATE_READY, 1U);
     assert(hball_mission_client_accept_status(&client, &status, 10U));
     assert(hball_mission_client_request_start(&client, 20U));
     assert(!hball_mission_client_select(
-        &client, HBALL_MISSION_Q2_FAST_LAP, 21U));
+        &client, HBALL_MISSION_Q6_HOLD_POSITION_LAP, 21U));
 
-    status = make_status(3U, HBALL_MISSION_Q6_HOLD_POSITION_LAP,
+    status = make_status(2U, HBALL_MISSION_Q5_CENTER_LAP,
                          HBALL_MISSION_STATE_COMPLETED, 2U);
     assert(hball_mission_client_accept_status(&client, &status, 30U));
     assert(!client.start_requested);
     assert(client.command == HBALL_MISSION_COMMAND_RESET);
     assert(hball_mission_client_select(
-        &client, HBALL_MISSION_Q2_FAST_LAP, 31U));
-    assert(client.candidate_epoch == 4U);
+        &client, HBALL_MISSION_Q6_HOLD_POSITION_LAP, 31U));
+    assert(client.candidate_epoch == 3U);
 }
 
 int main(void)
@@ -128,6 +128,6 @@ int main(void)
     test_client_starts_in_reset_and_requires_matching_ready();
     test_start_is_one_shot_and_keeps_button_time();
     test_stale_duplicate_and_out_of_order_status_do_not_unlock();
-    test_selection_is_available_before_start();
+    test_selection_is_blocked_after_start();
     return 0;
 }

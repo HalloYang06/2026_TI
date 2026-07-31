@@ -83,28 +83,3 @@ def test_mspm0_can_port_is_integrated_without_motor_commands() -> None:
     assert "HBALL_CAN_MOTOR_COMMAND_TX_ENABLED 0U" in port
     for forbidden in ("motor_enable", "set_zero", "loc_ref", "limit_cur"):
         assert forbidden not in port.lower()
-
-
-def test_can_fifo_drain_rejects_systick_irq_reentry() -> None:
-    port = (CAN_DIR / "hball_can_port.c").read_text(encoding="utf-8")
-    drain = port.split("static void hball_can_drain_fifo0(void)\n{", 1)[1]
-    drain = drain.split("\nvoid MCAN0_INST_IRQHandler", 1)[0]
-
-    assert "static volatile bool g_hball_rx_drain_active;" in port
-    assert "if (g_hball_rx_drain_active)" in drain
-    assert drain.index("g_hball_rx_drain_active = true;") < drain.index(
-        "DL_MCAN_getRxFIFOStatus"
-    )
-    assert drain.rindex("g_hball_rx_drain_active = false;") > drain.rindex(
-        "DL_MCAN_getRxFIFOStatus"
-    )
-
-
-def test_q2_keeps_can_communication_disabled() -> None:
-    port = (CAN_DIR / "hball_can_port.c").read_text(encoding="utf-8")
-    main = (PROJECT / "main.c").read_text(encoding="utf-8")
-
-    assert "g_hball_communication_enabled = false;" in port
-    assert "|| !g_hball_communication_enabled" in port
-    assert "hball_can_port_set_communication_enabled(" in main
-    assert "hball_mission_uses_can(snapshot.selected_mission)" in main

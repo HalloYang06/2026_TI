@@ -35,7 +35,6 @@
 #include "stdio.h"
 #include "string.h"
 #include "hball_can_port.h"
-#include "hball_mission_policy.h"
 
 /*
  * There is no process command line on the target. Avoid Arm C library
@@ -90,8 +89,7 @@ static void format_track_error(int16_t error, char text[7]);
 static void track_motor_test(void);
 static void track_ground_test(void);
 static void lap_test(void);
-static void lap_test_once(uint8_t selected_mission);
-static void wait_ball_only_mission(uint8_t selected_mission);
+static void lap_test_once(void);
 static uint8_t select_car_task(void);
 static void render_mission_menu(
     const hball_mission_menu_view_t *view
@@ -904,37 +902,17 @@ static uint8_t select_car_task(void)
     bool last_view_valid = false;
 
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
-    /*
-     * A low or bouncing key during power-up must not become a local Q2
-     * execute event. Arm the menu only after both task keys are released.
-     */
-    while ((DL_GPIO_readPins(GPIO_KEY_PORT, TASK_KEY_SELECT_PIN) == 0U)
-           || (DL_GPIO_readPins(GPIO_KEY_PORT, TASK_KEY_EXECUTE_PIN) == 0U))
-    {
-        delay_cycles(CPUCLK_FREQ / 200U);
-    }
-    delay_cycles(CPUCLK_FREQ / 50U);
 
     while (1)
     {
         if (hball_can_mission_get_snapshot(&snapshot)
-            && hball_mission_menu_make_view(&snapshot, tick_ms, &view))
+            && hball_mission_menu_make_view(&snapshot, tick_ms, &view)
+            && (!last_view_valid
+                || !hball_mission_menu_view_equal(&last_view, &view)))
         {
-            if (snapshot.selected_mission == HBALL_MISSION_Q2_FAST_LAP)
-            {
-                view.global_state = HBALL_MISSION_STATE_READY;
-                view.state_label = "LOCAL READY";
-                view.missing_label = "ALL READY";
-                view.ready_mask = HBALL_MISSION_READY_CHASSIS;
-                view.status_fresh = true;
-            }
-            if (!last_view_valid
-                || !hball_mission_menu_view_equal(&last_view, &view))
-            {
-                render_mission_menu(&view);
-                last_view = view;
-                last_view_valid = true;
-            }
+            render_mission_menu(&view);
+            last_view = view;
+            last_view_valid = true;
         }
         key_event = get_task_key_event();
         if (key_event == TASK_KEY_EVENT_NONE)
@@ -950,45 +928,13 @@ static uint8_t select_car_task(void)
         {
             mission_event = HBALL_MISSION_MENU_EXECUTE;
         }
-        else if (key_event == TASK_KEY_EVENT_LEVEL)
-        {
-            if (hball_can_mission_request_level(tick_ms))
-            {
-                beep();
-                LCD_ShowString(
-                    4, 172, (const unsigned char *)"B21 LEVEL",
-                    YELLOW, BLACK, 24, 0
-                );
-            }
-            else
-            {
-                beep();
-                beep();
-            }
-            continue;
-        }
         else
         {
             continue;
         }
-        if ((mission_event == HBALL_MISSION_MENU_EXECUTE)
-            && hball_can_mission_get_snapshot(&snapshot)
-            && (snapshot.selected_mission == HBALL_MISSION_Q2_FAST_LAP))
-        {
-            beep();
-            delay_cycles(CPUCLK_FREQ / 20U);
-            beep();
-            return HBALL_MISSION_Q2_FAST_LAP;
-        }
         result = hball_can_mission_menu_handle(mission_event, tick_ms);
         if (result == HBALL_MISSION_MENU_SELECTED)
         {
-            if (hball_can_mission_get_snapshot(&snapshot))
-            {
-                hball_can_port_set_communication_enabled(
-                    hball_mission_uses_can(snapshot.selected_mission)
-                );
-            }
             beep();
         }
         else if (result == HBALL_MISSION_MENU_START_ACCEPTED)
@@ -1008,7 +954,9 @@ static uint8_t select_car_task(void)
                 if (hball_can_mission_get_snapshot(&snapshot)
                     && snapshot.status_valid
                     && (snapshot.latest_status.global_state
-                        == HBALL_MISSION_STATE_RUNNING))
+                        == HBALL_MISSION_STATE_RUNNING)
+                    && (selected_mission
+                        != HBALL_MISSION_Q3_BALL_SEQUENCE))
                 {
                     return selected_mission;
                 }
@@ -1019,6 +967,9 @@ static uint8_t select_car_task(void)
                         || (snapshot.latest_status.global_state
                             >= HBALL_MISSION_STATE_CONTROLLED_ABORT)))
                 {
+                    hball_can_mission_chassis_finish(
+                        HBALL_MISSION_CHASSIS_EVENT_STOPPED, tick_ms
+                    );
                     break;
                 }
                 delay_cycles(CPUCLK_FREQ / 200U);
@@ -1564,52 +1515,13 @@ static void speed_pi_test(void)
 
 static void lap_test(void)
 {
-    uint8_t selected_mission;
-
     while (1)
     {
-        selected_mission = select_car_task();
-        if (hball_mission_runs_chassis(selected_mission))
-        {
-            lap_test_once(selected_mission);
-        }
-        else if (hball_mission_runs_ball_control(selected_mission))
-        {
-            wait_ball_only_mission(selected_mission);
-        }
+        lap_test_once();
     }
 }
 
-static void wait_ball_only_mission(uint8_t selected_mission)
-{
-    hball_mission_client_t snapshot;
-
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-    LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
-    LCD_ShowString(
-        4, 4, (const unsigned char *)"Q3 BALL RUN",
-        GREEN, BLACK, 32, 0
-    );
-    while (1)
-    {
-        if (hball_can_mission_get_snapshot(&snapshot)
-            && snapshot.status_valid
-            && (snapshot.selected_mission == selected_mission)
-            && ((snapshot.latest_status.global_state
-                 == HBALL_MISSION_STATE_COMPLETED)
-                || (snapshot.latest_status.global_state
-                    >= HBALL_MISSION_STATE_CONTROLLED_ABORT)))
-        {
-            return;
-        }
-        delay_cycles(CPUCLK_FREQ / 200U);
-    }
-}
-
-static void lap_test_once(uint8_t selected_mission)
+static void lap_test_once(void)
 {
     enum { LAP_LOG_SAMPLES = 350 };
     enum {
@@ -1716,12 +1628,7 @@ static void lap_test_once(uint8_t selected_mission)
     DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
 
     LCD_BLK_Set();
-    if (selected_mission == HBALL_MISSION_Q2_FAST_LAP)
-    {
-        hball_can_port_set_realtime_suspended(true);
-        WIT_SetRealtimeSuspended(true);
-    }
-    selected_task = selected_mission;
+    selected_task = select_car_task();
     if (selected_task == HBALL_MISSION_Q2_FAST_LAP)
     {
         selected_task = CAR_TASK_LAP_STOP;
@@ -1764,6 +1671,7 @@ static void lap_test_once(uint8_t selected_mission)
         requested_speed_left = task3_start_speed;
         requested_speed_right = task3_start_speed;
     }
+
     raw = read_track_raw();
     line_mask = (uint8_t)(~raw);
     if (line_mask == 0U)
@@ -1808,13 +1716,10 @@ static void lap_test_once(uint8_t selected_mission)
     RIGHT.Error1 = 0.0f;
     RIGHT.ErrorInt = 0.0f;
 
-    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-    motor_pwm_set((float)commanded_duty_left, (float)commanded_duty_right);
+    motor_start_synchronized((float)commanded_duty_left,
+                             (float)commanded_duty_right);
     run_start_ms = tick_ms;
-    if (selected_mission != HBALL_MISSION_Q2_FAST_LAP)
-    {
-        hball_can_mission_chassis_start(run_start_ms);
-    }
+    hball_can_mission_chassis_start(run_start_ms);
     last_speed_control_ms = run_start_ms;
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     if (selected_task == CAR_TASK_LAP_STOP) {
@@ -1835,8 +1740,8 @@ static void lap_test_once(uint8_t selected_mission)
             timeout_trigger_ms = run_timeout_ms - 500U;
         }
         task3_ramped_base_speed = base_speed;
-        if ((selected_task == CAR_TASK_STABLE_LAP)
-            && (elapsed_ms < task3_start_ramp_ms))
+        if ((selected_task == CAR_TASK_STABLE_LAP) &&
+            (elapsed_ms < task3_start_ramp_ms))
         {
             task3_ramped_base_speed =
                 task3_start_speed +
@@ -2402,20 +2307,12 @@ static void lap_test_once(uint8_t selected_mission)
         telemetry_send_string((char *)uart_send);
     }
     telemetry_send_string("LAP_LOG_END\r\n");
-    if (selected_mission != HBALL_MISSION_Q2_FAST_LAP)
-    {
-        hball_can_mission_chassis_finish(
-            (selected_task == CAR_TASK_TIMED_RUN)
-                ? HBALL_MISSION_CHASSIS_EVENT_DETECTED_B
-                : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A,
-            tick_ms
-        );
-    }
-    else
-    {
-        WIT_SetRealtimeSuspended(false);
-        hball_can_port_set_realtime_suspended(false);
-    }
+    hball_can_mission_chassis_finish(
+        (selected_task == CAR_TASK_TIMED_RUN)
+            ? HBALL_MISSION_CHASSIS_EVENT_DETECTED_B
+            : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A,
+        tick_ms
+    );
 }
     
 

@@ -149,37 +149,3 @@ void WIT_Init(void)
     NVIC_ClearPendingIRQ(UART_WIT_INST_INT_IRQN);
     NVIC_EnableIRQ(UART_WIT_INST_INT_IRQN);
 }
-
-void WIT_SetRealtimeSuspended(bool suspended)
-{
-    if (suspended)
-    {
-        NVIC_DisableIRQ(DMA_INT_IRQn);
-        NVIC_DisableIRQ(UART_WIT_INST_INT_IRQN);
-        DL_DMA_disableInterrupt(DMA, DL_DMA_INTERRUPT_CHANNEL0);
-        DL_DMA_disableChannel(DMA, DMA_WIT_CHAN_ID);
-        NVIC_ClearPendingIRQ(DMA_INT_IRQn);
-        NVIC_ClearPendingIRQ(UART_WIT_INST_INT_IRQN);
-        return;
-    }
-
-    while (DL_UART_isRXFIFOEmpty(UART_WIT_INST) == false)
-    {
-        (void)DL_UART_receiveData(UART_WIT_INST);
-    }
-    for (uint8_t i = 0U; i < sizeof(wit_dmaBuffer); ++i)
-    {
-        wit_dmaBuffer[i] = 0U;
-    }
-    wit_parser_init(&g_wit_parser);
-    DL_DMA_setDestAddr(
-        DMA, DMA_WIT_CHAN_ID, (uint32_t)&wit_dmaBuffer[0]);
-    DL_DMA_setTransferSize(DMA, DMA_WIT_CHAN_ID, WIT_DMA_TRANSFER_SIZE);
-    DL_DMA_clearInterruptStatus(DMA, DL_DMA_INTERRUPT_CHANNEL0);
-    DL_DMA_enableInterrupt(DMA, DL_DMA_INTERRUPT_CHANNEL0);
-    DL_DMA_enableChannel(DMA, DMA_WIT_CHAN_ID);
-    NVIC_ClearPendingIRQ(DMA_INT_IRQn);
-    NVIC_ClearPendingIRQ(UART_WIT_INST_INT_IRQN);
-    NVIC_EnableIRQ(DMA_INT_IRQn);
-    NVIC_EnableIRQ(UART_WIT_INST_INT_IRQN);
-}

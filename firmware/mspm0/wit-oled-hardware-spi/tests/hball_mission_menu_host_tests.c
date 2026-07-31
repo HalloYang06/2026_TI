@@ -120,28 +120,6 @@ static void test_display_reports_stale_status_and_first_missing_ready_bit(void)
                   "M33 STATUS") == 0);
 }
 
-static void test_ready_dependencies_match_each_mission(void)
-{
-    const uint16_t q2 = hball_mission_menu_required_mask(
-        HBALL_MISSION_Q2_FAST_LAP
-    );
-    const uint16_t q3 = hball_mission_menu_required_mask(
-        HBALL_MISSION_Q3_BALL_SEQUENCE
-    );
-    const uint16_t q4 = hball_mission_menu_required_mask(
-        HBALL_MISSION_Q4_A_TO_B
-    );
-
-    assert((q2 & HBALL_MISSION_READY_CHASSIS) != 0U);
-    assert((q2 & HBALL_MISSION_READY_IMU) == 0U);
-    assert((q2 & HBALL_MISSION_READY_VISION) == 0U);
-    assert((q2 & HBALL_MISSION_READY_RS00_LINK) == 0U);
-    assert((q3 & HBALL_MISSION_READY_VISION) != 0U);
-    assert((q3 & HBALL_MISSION_READY_RS00_LINK) != 0U);
-    assert((q3 & HBALL_MISSION_READY_IMU) == 0U);
-    assert((q4 & HBALL_MISSION_READY_IMU) != 0U);
-}
-
 static void test_labels_are_short_and_use_official_question_numbers(void)
 {
     assert(strcmp(hball_mission_menu_mission_label(
@@ -190,7 +168,6 @@ int main(void)
     test_execute_is_blocked_until_matching_status_is_ready();
     test_selection_is_locked_after_start();
     test_display_reports_stale_status_and_first_missing_ready_bit();
-    test_ready_dependencies_match_each_mission();
     test_labels_are_short_and_use_official_question_numbers();
     test_view_changes_only_when_displayed_content_changes();
     return 0;

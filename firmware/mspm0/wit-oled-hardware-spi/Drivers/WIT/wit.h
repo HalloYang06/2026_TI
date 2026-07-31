@@ -20,8 +20,6 @@
 
 #include "ti_msp_dl_config.h"
 
-#include <stdbool.h>
-
 #define WIT_DMA_TRANSFER_SIZE 32U
 
 typedef struct {
@@ -49,7 +47,6 @@ extern volatile uint32_t wit_gyro_frame_count;
 extern volatile uint32_t wit_angle_frame_count;
 
 void WIT_Init(void);
-void WIT_SetRealtimeSuspended(bool suspended);
 void WIT_ProcessBytes(const uint8_t *data, uint16_t length);
 
 #endif /* #ifndef __WIT_H */
