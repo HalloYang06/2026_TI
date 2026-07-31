@@ -7,6 +7,7 @@
 #include "vl53l0x.h"
 #include "lsm6dsv16x.h"
 #include "hball_can_port.h"
+#include "hball_runtime_services.h"
 // 全局变量声明（放在函数外部）
 uint8_t init_count = 0;          // 初始数据计数
 float yaw_offset = 0.0f;         // yaw角偏移量
@@ -24,7 +25,10 @@ void Interrupt_Init(void)
 void SysTick_Handler(void)
 {
     tick_ms++;
-    hball_can_port_tick_1ms(tick_ms);
+    if (hball_runtime_services_can_enabled())
+    {
+        hball_can_port_tick_1ms(tick_ms);
+    }
 }
 
 #if defined UART_BNO08X_INST_IRQHandler
@@ -65,6 +69,7 @@ void UART_BNO08X_INST_IRQHandler(void)
 #if defined UART_WIT_INST_IRQHandler
 static void wit_process_dma_chunk(void)
 {
+    const bool process_imu = hball_runtime_services_imu_enabled();
     uint16_t remaining;
     uint16_t received;
     uint8_t fifo_byte;
@@ -74,12 +79,18 @@ static void wit_process_dma_chunk(void)
     received = (remaining <= WIT_DMA_TRANSFER_SIZE)
         ? (uint16_t)(WIT_DMA_TRANSFER_SIZE - remaining)
         : 0U;
-    WIT_ProcessBytes(wit_dmaBuffer, received);
+    if (process_imu)
+    {
+        WIT_ProcessBytes(wit_dmaBuffer, received);
+    }
 
     while (DL_UART_isRXFIFOEmpty(UART_WIT_INST) == false)
     {
         fifo_byte = DL_UART_receiveData(UART_WIT_INST);
-        WIT_ProcessBytes(&fifo_byte, 1U);
+        if (process_imu)
+        {
+            WIT_ProcessBytes(&fifo_byte, 1U);
+        }
     }
 
     /*

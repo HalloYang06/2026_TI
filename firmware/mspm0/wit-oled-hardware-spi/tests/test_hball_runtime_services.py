@@ -66,3 +66,42 @@ def test_keil_build_includes_runtime_services() -> None:
     assert "App\\Runtime" in build
     assert "hball_runtime_services.c" in generator
     assert "..\\App\\Runtime" in generator
+
+
+def test_lap_runtime_applies_service_policy_before_motion() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    lap = main[
+        main.index("static void lap_test_once(void)\n{") :
+        main.index("void TIMER_0_INST_IRQHandler(void)")
+    ]
+
+    menu_services = lap.index("hball_runtime_services_enter_menu();")
+    task_selection = lap.index("selected_task = select_car_task();")
+    mission_policy = lap.index(
+        "hball_mission_policy_get(selected_task, &mission_policy)"
+    )
+    apply_policy = lap.index(
+        "hball_runtime_services_apply_policy(&mission_policy);"
+    )
+    first_motion = lap.index("motor_start_synchronized(")
+    assert menu_services < task_selection < mission_policy < apply_policy < first_motion
+
+
+def test_interrupt_services_obey_runtime_gate() -> None:
+    interrupt = (
+        PROJECT / "Drivers" / "MSPM0" / "interrupt.c"
+    ).read_text(encoding="utf-8")
+    systick = interrupt[
+        interrupt.index("void SysTick_Handler(void)") :
+        interrupt.index("#if defined UART_BNO08X_INST_IRQHandler")
+    ]
+    wit = interrupt[
+        interrupt.index("static void wit_process_dma_chunk(void)") :
+        interrupt.index("void UART_WIT_INST_IRQHandler(void)")
+    ]
+
+    assert "if (hball_runtime_services_can_enabled())" in systick
+    assert "hball_can_port_tick_1ms(tick_ms);" in systick
+    assert "process_imu = hball_runtime_services_imu_enabled();" in wit
+    assert "if (process_imu)" in wit
+    assert wit.count("WIT_ProcessBytes(") == 2

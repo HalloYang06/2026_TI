@@ -36,6 +36,7 @@
 #include "string.h"
 #include "hball_can_port.h"
 #include "hball_mission_policy.h"
+#include "hball_runtime_services.h"
 
 /*
  * There is no process command line on the target. Avoid Arm C library
@@ -1573,6 +1574,7 @@ static void lap_test_once(void)
     const int16_t task3_start_speed = 28;
     const int16_t task3_curve_min_speed = 40;
     const uint32_t task3_start_ramp_ms = 1000U;
+    hball_mission_policy_t mission_policy;
     uint8_t selected_task;
     uint8_t finish_line_enabled;
     uint8_t finish_active_threshold = 3U;
@@ -1639,8 +1641,15 @@ static void lap_test_once(void)
     set_motor_speed(0.0f, (uint8_t)right_motor);
     DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
 
+    hball_runtime_services_enter_menu();
     LCD_BLK_Set();
     selected_task = select_car_task();
+    if (!hball_mission_policy_get(selected_task, &mission_policy))
+    {
+        hball_runtime_services_apply_policy(NULL);
+        return;
+    }
+    hball_runtime_services_apply_policy(&mission_policy);
     if (selected_task == HBALL_MISSION_Q2_FAST_LAP)
     {
         selected_task = CAR_TASK_LAP_STOP;
