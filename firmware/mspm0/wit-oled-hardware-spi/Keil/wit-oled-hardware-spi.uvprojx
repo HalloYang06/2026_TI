@@ -371,7 +371,7 @@
             <ScatterFile>.\mspm0g3507.sct</ScatterFile>
             <IncludeLibs></IncludeLibs>
             <IncludeLibsPath></IncludeLibsPath>
-            <Misc></Misc>
+            <Misc>--keep=hball_stack_extension</Misc>
             <LinkerInputFile></LinkerInputFile>
             <DisabledWarnings></DisabledWarnings>
           </LDads>
@@ -391,6 +391,11 @@
         <Group>
           <GroupName>application</GroupName>
           <Files>
+            <File>
+              <FileName>hball_stack_reserve.s</FileName>
+              <FileType>2</FileType>
+              <FilePath>..\Drivers\MSPM0\hball_stack_reserve.s</FilePath>
+            </File>
             <File>
               <FileName>startup_mspm0g350x_uvision.s</FileName>
               <FileType>2</FileType>

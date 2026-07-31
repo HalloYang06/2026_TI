@@ -87,6 +87,27 @@ Q3～Q6 的集中编排原则不变。
 每一步必须保持 host 测试和固件构建通过，并形成独立可回滚提交。自动化验证不得使能电机或
 触发自主运动。
 
+## 2026-07-31 目标板验证补充
+
+Keil `-O0` 反汇编确认 `lap_test_once()` 分配 `0x30C`（780 B）局部栈帧，另有 20 B
+寄存器压栈；TI MSPM0G3507 SDK 2.05.01.00 默认启动文件却只保留 `0x100`（256 B）栈。
+Horco CMSIS-DAP（UID `2d2670f3`）断点复现到：进入函数前 `tick_total == tick_ms ==
+0xFF`，执行函数序言后 `tick_ms` 被栈写入清零。这是确定的内存破坏，不是状态机时序或
+PID 参数问题。
+
+项目因此在不修改已安装 TI SDK 的前提下，先链接 `0x700` B 的 `STACK` 扩展段，再链接
+官方 `0x100` B 启动栈，形成连续 `0x800`（2 KiB）有效栈。命令行和 uVision 都显式保留
+扩展符号；命令行构建还会检查所有 STACK 段连续且 `__initial_sp` 位于最高端，条件不满足
+就拒绝生成 HEX。
+
+实机烧入 HEX SHA-256
+`C8F47D24F8DAAB42EA212ADFBC6ABE30F5D5E8F464E0BC92A20E2DE1404A1F93` 后，只复位到
+菜单态，未模拟按键、未使能任务运动。进入 `lap_test_once()` 和到达 `motor_init()` 时两份
+tick 均保持 `0x103`；后者 SP 为 `0x20201C48`，距栈底 `0x202017B8` 仍有 1168 B。
+稳定 1 s 调试窗口记录 1016 个 tick、1015 次 CAN 前台服务、pending 为 0；调试器
+halt/resume 只增加 1 次 deadline miss。主机测试 45 项通过，Keil 构建明确输出
+`Verified target stack: 0x800 bytes`。
+
 ## 后果
 
 - 先消除共享状态和硬件写入冲突，再决定是否需要 RTOS，故障定位更直接。

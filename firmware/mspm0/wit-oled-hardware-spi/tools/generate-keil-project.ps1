@@ -47,6 +47,7 @@ $include = @(
 ) -join ';'
 $target.TargetOption.TargetArmAds.Cads.VariousControls.IncludePath = $include
 $target.TargetOption.TargetArmAds.LDads.ScatterFile = '.\mspm0g3507.sct'
+$target.TargetOption.TargetArmAds.LDads.Misc = '--keep=hball_stack_extension'
 
 $groups = $target.Groups
 $groups.RemoveAll()
@@ -74,6 +75,7 @@ $libraryFiles = @(
     ,@('driverlib.a', '2', "$SdkRoot\source\ti\driverlib\lib\keil\m0p\mspm0g1x0x_g3x0x\driverlib.a")
 )
 $applicationFiles = @(
+    ,@('hball_stack_reserve.s', '2', '..\Drivers\MSPM0\hball_stack_reserve.s')
     ,@('startup_mspm0g350x_uvision.s', '2', "$SdkRoot\source\ti\devices\msp\m0p\startup_system_files\keil\startup_mspm0g350x_uvision.s")
     ,@('main.c', '1', '..\main.c')
     ,@('ti_msp_dl_config.c', '1', '..\Debug\ti_msp_dl_config.c')

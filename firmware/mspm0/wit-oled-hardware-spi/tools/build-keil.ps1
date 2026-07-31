@@ -68,6 +68,7 @@ $sources = @(
     'Drivers\UART_VOFA+\uart_vofa.c',
     'Drivers\WIT\wit_jy901s_config.c',
     'Drivers\WIT\wit_parser.c', 'Drivers\WIT\wit.c',
+    'Drivers\MSPM0\hball_stack_reserve.s',
     "$SdkRoot\source\ti\devices\msp\m0p\startup_system_files\keil\startup_mspm0g350x_uvision.s"
 )
 $includeDirs = @(
@@ -95,7 +96,48 @@ foreach ($source in $sources) {
 $elf = Join-Path $outputDir 'wit-oled-hardware-spi.axf'
 $map = Join-Path $listingDir 'wit-oled-hardware-spi.map'
 $driverLib = Join-Path $SdkRoot 'source\ti\driverlib\lib\keil\m0p\mspm0g1x0x_g3x0x\driverlib.a'
-Invoke-Tool $linker (@('--cpu', 'Cortex-M0+', '--strict', "--scatter=$(Join-Path $ProjectRoot 'Keil\mspm0g3507.sct')", '--summary_stderr', '--info', 'summarysizes', '--map', "--list=$map", "--output=$elf") + $objects + @($driverLib)) 'Link failed.'
+Invoke-Tool $linker (@('--cpu', 'Cortex-M0+', '--strict', '--keep=hball_stack_extension', "--scatter=$(Join-Path $ProjectRoot 'Keil\mspm0g3507.sct')", '--summary_stderr', '--info', 'summarysizes', '--map', "--list=$map", "--output=$elf") + $objects + @($driverLib)) 'Link failed.'
+
+$minimumStackBytes = 0x800
+$symbolTable = & $fromElf --text -s $elf
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to inspect linked stack layout (exit $LASTEXITCODE)"
+}
+$symbols = $symbolTable -join "`n"
+$stackMatches = [regex]::Matches(
+    $symbols,
+    '(?m)^\s+\d+\s+STACK\s+0x([0-9a-fA-F]+)\s+.*\s+0x([0-9a-fA-F]+)\s*$'
+)
+$initialSpMatch = [regex]::Match(
+    $symbols,
+    '(?m)^\s+\d+\s+__initial_sp\s+0x([0-9a-fA-F]+)\s+'
+)
+if (($stackMatches.Count -eq 0) -or !$initialSpMatch.Success) {
+    throw 'Linked STACK or __initial_sp symbol was not found.'
+}
+$stackSegments = @($stackMatches | ForEach-Object {
+    [PSCustomObject]@{
+        Base = [Convert]::ToUInt32($_.Groups[1].Value, 16)
+        Size = [Convert]::ToUInt32($_.Groups[2].Value, 16)
+    }
+} | Sort-Object Base)
+$stackBase = $stackSegments[0].Base
+$stackEnd = $stackBase
+$stackBytes = 0
+foreach ($segment in $stackSegments) {
+    if ($segment.Base -ne $stackEnd) {
+        throw 'Non-contiguous target STACK sections.'
+    }
+    $stackBytes += $segment.Size
+    $stackEnd += $segment.Size
+}
+$initialSp = [Convert]::ToUInt32($initialSpMatch.Groups[1].Value, 16)
+if (($stackBytes -lt $minimumStackBytes) -or
+    ($initialSp -ne $stackEnd)) {
+    throw ("Unsafe target stack layout: base=0x{0:X8}, size=0x{1:X}, " +
+           "initial_sp=0x{2:X8}") -f $stackBase, $stackBytes, $initialSp
+}
+Write-Host ("Verified target stack: 0x{0:X} bytes" -f $stackBytes)
 
 Invoke-Tool $fromElf @('--i32', '--output', (Join-Path $outputDir 'wit-oled-hardware-spi.hex'), $elf) 'HEX conversion failed.'
 Write-Host "Built $elf"
