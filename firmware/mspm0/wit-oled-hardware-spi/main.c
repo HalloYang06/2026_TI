@@ -66,7 +66,7 @@ __asm(".global __ARM_use_no_argv\n");
 #define APP_MODE_SPEED_PI_TEST   10U
 #define APP_MODE_PWM_SWEEP_TEST  11U
 #define APP_MODE_MOTOR_MAP_TEST  12U
-#define APP_MODE                 APP_MODE_SPEED_PI_TEST
+#define APP_MODE                 APP_MODE_LAP_TEST
 #define HBALL_MISSION_LOCAL_MOTION_ENABLED 1U
 
 _Static_assert(
