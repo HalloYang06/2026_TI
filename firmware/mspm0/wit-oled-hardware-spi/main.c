@@ -906,13 +906,23 @@ static uint8_t select_car_task(void)
     while (1)
     {
         if (hball_can_mission_get_snapshot(&snapshot)
-            && hball_mission_menu_make_view(&snapshot, tick_ms, &view)
-            && (!last_view_valid
-                || !hball_mission_menu_view_equal(&last_view, &view)))
+            && hball_mission_menu_make_view(&snapshot, tick_ms, &view))
         {
-            render_mission_menu(&view);
-            last_view = view;
-            last_view_valid = true;
+            if (snapshot.selected_mission == HBALL_MISSION_Q2_FAST_LAP)
+            {
+                view.global_state = HBALL_MISSION_STATE_READY;
+                view.state_label = "LOCAL READY";
+                view.missing_label = "ALL READY";
+                view.ready_mask = HBALL_MISSION_READY_CHASSIS;
+                view.status_fresh = true;
+            }
+            if (!last_view_valid
+                || !hball_mission_menu_view_equal(&last_view, &view))
+            {
+                render_mission_menu(&view);
+                last_view = view;
+                last_view_valid = true;
+            }
         }
         key_event = get_task_key_event();
         if (key_event == TASK_KEY_EVENT_NONE)
