@@ -40,7 +40,7 @@ def test_q2_verified_tracking_parameters_and_cadences_are_pinned() -> None:
     assert "LEFT.Ki = 0.005f;" in lap
     assert "RIGHT.Kp = 0.18f;" in lap
     assert "RIGHT.Ki = 0.005f;" in lap
-    assert "delay_cycles(CPUCLK_FREQ / 100U);" in lap
+    assert "competition_runtime_wait_ms(10U);" in lap
 
 
 def test_q4_keeps_verified_direct_start_without_unverified_ramp() -> None:

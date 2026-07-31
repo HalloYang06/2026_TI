@@ -87,21 +87,15 @@ def test_lap_runtime_applies_service_policy_before_motion() -> None:
     assert menu_services < task_selection < mission_policy < apply_policy < first_motion
 
 
-def test_interrupt_services_obey_runtime_gate() -> None:
+def test_imu_interrupt_obeys_runtime_gate() -> None:
     interrupt = (
         PROJECT / "Drivers" / "MSPM0" / "interrupt.c"
     ).read_text(encoding="utf-8")
-    systick = interrupt[
-        interrupt.index("void SysTick_Handler(void)") :
-        interrupt.index("#if defined UART_BNO08X_INST_IRQHandler")
-    ]
     wit = interrupt[
         interrupt.index("static void wit_process_dma_chunk(void)") :
         interrupt.index("void UART_WIT_INST_IRQHandler(void)")
     ]
 
-    assert "if (hball_runtime_services_can_enabled())" in systick
-    assert "hball_can_port_tick_1ms(tick_ms);" in systick
     assert "process_imu = hball_runtime_services_imu_enabled();" in wit
     assert "if (process_imu)" in wit
     assert wit.count("WIT_ProcessBytes(") == 2

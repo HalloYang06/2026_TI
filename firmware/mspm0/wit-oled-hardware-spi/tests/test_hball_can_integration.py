@@ -66,14 +66,16 @@ def test_jy901s_accel_gyro_angle_reports_are_enabled_before_dma() -> None:
 
 def test_mspm0_can_port_is_integrated_without_motor_commands() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
-    interrupt = (PROJECT / "Drivers" / "MSPM0" / "interrupt.c").read_text(
+    runtime_target = (
+        PROJECT / "App" / "Runtime" / "hball_runtime_target.c"
+    ).read_text(
         encoding="utf-8"
     )
     build = (PROJECT / "tools" / "build-keil.ps1").read_text(encoding="utf-8")
     port = (CAN_DIR / "hball_can_port.c").read_text(encoding="utf-8")
 
     assert "hball_can_port_init();" in main
-    assert "hball_can_port_tick_1ms(tick_ms);" in interrupt
+    assert "hball_can_port_tick_1ms(now_ms);" in runtime_target
     assert "Drivers\\CAN\\hball_can_protocol.c" in build
     assert "Drivers\\CAN\\hball_can_recovery.c" in build
     assert "Drivers\\CAN\\hball_can_port.c" in build

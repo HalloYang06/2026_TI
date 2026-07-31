@@ -37,6 +37,7 @@
 #include "hball_can_port.h"
 #include "hball_mission_policy.h"
 #include "hball_runtime_services.h"
+#include "hball_runtime_target.h"
 
 /*
  * There is no process command line on the target. Avoid Arm C library
@@ -92,6 +93,7 @@ static void track_motor_test(void);
 static void track_ground_test(void);
 static void lap_test(void);
 static void lap_test_once(void);
+static void competition_runtime_wait_ms(uint32_t duration_ms);
 static uint8_t select_car_task(void);
 static void render_mission_menu(
     const hball_mission_menu_view_t *view
@@ -192,6 +194,7 @@ int main(void){
      */
     WIT_Init();
     hball_can_port_init();
+    hball_runtime_target_init();
 #if (APP_MODE != APP_MODE_GYRO_LCD_TEST) && (APP_MODE != APP_MODE_ENCODER_TEST)
     SysTick_Init();
 #endif
@@ -893,6 +896,18 @@ static void format_lap_time(uint32_t elapsed_ms, char text[8])
     text[6] = '\0';
 }
 
+static void competition_runtime_wait_ms(uint32_t duration_ms)
+{
+    const uint32_t start_ms = tick_ms;
+
+    while ((uint32_t)(tick_ms - start_ms) < duration_ms)
+    {
+        hball_runtime_target_poll(tick_ms);
+        __WFI();
+    }
+    hball_runtime_target_poll(tick_ms);
+}
+
 static uint8_t select_car_task(void)
 {
     hball_mission_client_t snapshot;
@@ -907,6 +922,7 @@ static uint8_t select_car_task(void)
 
     while (1)
     {
+        hball_runtime_target_poll(tick_ms);
         if (hball_can_mission_get_snapshot(&snapshot)
             && hball_mission_menu_make_view(&snapshot, tick_ms, &view)
             && (!last_view_valid
@@ -919,7 +935,7 @@ static uint8_t select_car_task(void)
         key_event = get_task_key_event();
         if (key_event == TASK_KEY_EVENT_NONE)
         {
-            delay_cycles(CPUCLK_FREQ / 200U);
+            competition_runtime_wait_ms(5U);
             continue;
         }
         if (key_event == TASK_KEY_EVENT_SELECT)
@@ -952,7 +968,7 @@ static uint8_t select_car_task(void)
             uint8_t selected_mission;
 
             beep();
-            delay_cycles(CPUCLK_FREQ / 20U);
+            competition_runtime_wait_ms(50U);
             beep();
             if (!hball_can_mission_get_snapshot(&snapshot))
             {
@@ -985,7 +1001,7 @@ static uint8_t select_car_task(void)
                     );
                     break;
                 }
-                delay_cycles(CPUCLK_FREQ / 200U);
+                competition_runtime_wait_ms(5U);
             }
         }
         else if ((result == HBALL_MISSION_MENU_START_BLOCKED)
@@ -1787,7 +1803,7 @@ static void lap_test_once(void)
                                    stop_step) / 25);
                     motor_pwm_set((float)commanded_duty_left,
                                   (float)commanded_duty_right);
-                    delay_cycles(CPUCLK_FREQ / 50U);
+                    competition_runtime_wait_ms(20U);
                 }
             }
             motor_stop();
@@ -1915,7 +1931,7 @@ static void lap_test_once(void)
                         approach_pwm(commanded_duty_right, 0, 1);
                     motor_pwm_set((float)commanded_duty_left,
                                   (float)commanded_duty_right);
-                    delay_cycles(CPUCLK_FREQ / 50U);
+                    competition_runtime_wait_ms(20U);
                 }
             }
             motor_stop();
@@ -2303,7 +2319,7 @@ static void lap_test_once(void)
             last_speed_control_ms = tick_ms;
         }
 
-        delay_cycles(CPUCLK_FREQ / 100U);
+        competition_runtime_wait_ms(10U);
     }
 
     if (finish_elapsed_ms == 0U) {
