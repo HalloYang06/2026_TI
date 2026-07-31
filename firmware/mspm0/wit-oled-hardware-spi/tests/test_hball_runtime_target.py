@@ -94,7 +94,7 @@ def test_runtime_target_starts_before_systick_and_is_polled_in_foreground() -> N
     assert "__WFI();" in runtime_wait
 
 
-def test_competition_follower_and_real_marker_stop_ramp_service_runtime() -> None:
+def test_competition_follower_and_q56_nonblocking_stop_service_runtime() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
     lap = main[
         main.index("static void lap_test_once(void)\n{") :
@@ -102,6 +102,6 @@ def test_competition_follower_and_real_marker_stop_ramp_service_runtime() -> Non
     ]
 
     assert lap.count("competition_runtime_wait_ms(10U);") == 1
-    assert lap.count("competition_runtime_wait_ms(20U);") == 1
+    assert "competition_runtime_wait_ms(20U);" not in lap
     assert "delay_cycles(CPUCLK_FREQ / 100U);" not in lap
     assert "delay_cycles(CPUCLK_FREQ / 50U);" not in lap

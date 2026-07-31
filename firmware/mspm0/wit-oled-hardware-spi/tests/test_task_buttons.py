@@ -31,7 +31,7 @@ def test_task_menu_uses_separate_select_and_execute_events() -> None:
     body = _function_body(
         main,
         "static uint8_t select_car_task(void)\n{",
-        "static int16_t approach_pwm",
+        "static void speed_calibration_test(void)\n{",
     )
 
     assert "get_task_key_event()" in body

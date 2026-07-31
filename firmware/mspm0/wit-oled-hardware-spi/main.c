@@ -82,6 +82,11 @@ _Static_assert(
 #define HBALL_Q4_SOFT_START_MS 600U
 #define HBALL_Q4_SOFT_STOP_MS 800U
 #define HBALL_Q4_DUTY_SLEW_STEP 5
+#define HBALL_Q56_SOFT_STOP_MS 900U
+#define HBALL_Q56_STOP_SPEED_THRESHOLD 2
+#define HBALL_Q56_STOP_SETTLE_MS 300U
+#define HBALL_Q56_WHEEL_SAMPLE_STALE_MS (WHEEL_CONTROL_PERIOD_MS * 2U)
+#define HBALL_Q56_STOP_FALLBACK_MS 600U
 #define MOTOR_TEST_DUTY 20.0f
 
 uint8_t oled_buffer[64];
@@ -116,7 +121,6 @@ static void render_mission_menu(
 );
 static void format_hex16(uint16_t value, char text[5]);
 static void format_lap_time(uint32_t elapsed_ms, char text[8]);
-static int16_t approach_pwm(int16_t current, int16_t target, int16_t step);
 static void speed_calibration_test(void);
 static void telemetry_send_string(const char *text);
 static uint8_t speed_calibration_start_requested(void);
@@ -1103,26 +1107,6 @@ static void format_hex16(uint16_t value, char text[5])
     text[4] = '\0';
 }
 
-static int16_t approach_pwm(int16_t current, int16_t target, int16_t step)
-{
-    if (current < target)
-    {
-        current += step;
-        if (current > target) {
-            current = target;
-        }
-    }
-    else if (current > target)
-    {
-        current -= step;
-        if (current < target) {
-            current = target;
-        }
-    }
-
-    return current;
-}
-
 static void speed_calibration_test(void)
 {
     const uint32_t test_time_ms = 5000U;
@@ -1603,6 +1587,11 @@ static void lap_test_once(void)
     uint8_t finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
     bool local_marker_stop_enabled;
     bool q4_braking = false;
+    bool q56_braking = false;
+    bool q56_stop_profile_complete = false;
+    bool q56_stop_settle_active = false;
+    bool q56_stop_complete = false;
+    bool wheel_sample_valid = false;
     uint16_t mission_epoch;
     uint32_t run_timeout_ms;
     line_snapshot_t line_sample;
@@ -1616,8 +1605,12 @@ static void lap_test_once(void)
     int32_t left_speed;
     int32_t right_speed;
     float q4_speed_scale = 1.0F;
+    float q56_speed_scale = 1.0F;
     uint32_t run_start_ms;
     uint32_t elapsed_ms;
+    uint32_t q56_stop_profile_complete_ms = 0U;
+    uint32_t q56_stop_settle_start_ms = 0U;
+    uint32_t last_wheel_sample_ms = 0U;
     uint32_t finish_elapsed_ms = 0U;
     char time_text[8];
 
@@ -1845,33 +1838,34 @@ static void lap_test_once(void)
 
         if (local_marker_stop_enabled && marker_output.marker_confirmed_event)
         {
-            finish_elapsed_ms = elapsed_ms;
-            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;
             if (selected_task == CAR_TASK_STABLE_LAP)
             {
-                /*
-                 * Reduce both PWM commands by one count every 20 ms.  This
-                 * gives a roughly 0.4-0.5 s coast-down from normal duty.
-                 */
-                while ((commanded_duty_left > 0) ||
-                       (commanded_duty_right > 0))
-                {
-                    commanded_duty_left =
-                        approach_pwm(commanded_duty_left, 0, 1);
-                    commanded_duty_right =
-                        approach_pwm(commanded_duty_right, 0, 1);
-                    chassis_actuator_set_pwm((float)commanded_duty_left,
-                                             (float)commanded_duty_right);
-                    competition_runtime_wait_ms(20U);
-                }
+                q56_braking = true;
+                chassis_motion_profile_start(
+                    &q4_speed_profile,
+                    q56_speed_scale,
+                    0.0F,
+                    tick_ms,
+                    HBALL_Q56_SOFT_STOP_MS
+                );
             }
-            chassis_actuator_stop();
-            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
-            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
-            chassis_actuator_disable();
-            LCD_Fill(0, 48, 280, 100, BLACK);
-            LCD_ShowString(4, 58, (const unsigned char *)"LAP STOP", GREEN, BLACK, 32, 0);
-            break;
+            else
+            {
+                finish_elapsed_ms = elapsed_ms;
+                finish_event_flags =
+                    HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;
+                chassis_actuator_stop();
+                chassis_actuator_set_wheel_speed(
+                    0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+                chassis_actuator_set_wheel_speed(
+                    0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+                chassis_actuator_disable();
+                LCD_Fill(0, 48, 280, 100, BLACK);
+                LCD_ShowString(
+                    4, 58, (const unsigned char *)"LAP STOP",
+                    GREEN, BLACK, 32, 0);
+                break;
+            }
         }
 
         (void)line_follower_step(
@@ -1895,6 +1889,26 @@ static void lap_test_once(void)
                     wheel_intent.requested_speed_right, q4_speed_scale
                 );
             wheel_intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
+        }
+        else if (q56_braking)
+        {
+            q56_speed_scale = chassis_motion_profile_sample(
+                &q4_speed_profile, tick_ms
+            );
+            wheel_intent.requested_speed_left =
+                chassis_motion_profile_scale_i16(
+                    wheel_intent.requested_speed_left, q56_speed_scale
+                );
+            wheel_intent.requested_speed_right =
+                chassis_motion_profile_scale_i16(
+                    wheel_intent.requested_speed_right, q56_speed_scale
+                );
+            wheel_intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
+            if (!q4_speed_profile.active && !q56_stop_profile_complete)
+            {
+                q56_stop_profile_complete = true;
+                q56_stop_profile_complete_ms = tick_ms;
+            }
         }
         error = follower_output.error;
 
@@ -1941,6 +1955,8 @@ static void lap_test_once(void)
             {
                 left_speed = wheel_output.measured_left_speed;
                 right_speed = wheel_output.measured_right_speed;
+                wheel_sample_valid = true;
+                last_wheel_sample_ms = tick_ms;
                 commanded_duty_left = wheel_output.duty_left;
                 commanded_duty_right = wheel_output.duty_right;
                 chassis_actuator_set_pwm((float)commanded_duty_left,
@@ -1962,7 +1978,65 @@ static void lap_test_once(void)
                     log_index++;
                 }
                 line_follower_ack_motion_applied(&line_follower);
+
+                if (q56_stop_profile_complete)
+                {
+                    /* Wheel speed is encoder counts per 100 ms. */
+                    if ((left_speed >= -HBALL_Q56_STOP_SPEED_THRESHOLD)
+                        && (left_speed <= HBALL_Q56_STOP_SPEED_THRESHOLD)
+                        && (right_speed >= -HBALL_Q56_STOP_SPEED_THRESHOLD)
+                        && (right_speed <= HBALL_Q56_STOP_SPEED_THRESHOLD))
+                    {
+                        if (!q56_stop_settle_active)
+                        {
+                            q56_stop_settle_active = true;
+                            q56_stop_settle_start_ms = tick_ms;
+                        }
+                        else if ((uint32_t)(tick_ms -
+                                      q56_stop_settle_start_ms)
+                                 >= HBALL_Q56_STOP_SETTLE_MS)
+                        {
+                            q56_stop_complete = true;
+                        }
+                    }
+                    else
+                    {
+                        q56_stop_settle_active = false;
+                    }
+                }
             }
+        }
+
+        if (q56_stop_profile_complete)
+        {
+            /* The profile has reached zero; keep the chassis unpowered. */
+            chassis_actuator_set_pwm(0.0F, 0.0F);
+        }
+        if (q56_stop_profile_complete && !q56_stop_complete
+            && (!wheel_sample_valid
+                || ((uint32_t)(tick_ms - last_wheel_sample_ms)
+                    > HBALL_Q56_WHEEL_SAMPLE_STALE_MS))
+            && ((uint32_t)(tick_ms - q56_stop_profile_complete_ms)
+                >= HBALL_Q56_STOP_FALLBACK_MS))
+        {
+            /* Profile is already at zero; this bounds a missing sample. */
+            q56_stop_complete = true;
+        }
+        if (q56_stop_complete)
+        {
+            finish_elapsed_ms = elapsed_ms;
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
+            LCD_Fill(0, 48, 280, 100, BLACK);
+            LCD_ShowString(
+                4, 58, (const unsigned char *)"LAP STOP",
+                GREEN, BLACK, 32, 0);
+            break;
         }
 
         competition_runtime_wait_ms(10U);
