@@ -17,5 +17,6 @@ Ownership rules:
   STBY.
 - `App/Control/chassis_actuator.c` alone calls the public Motor HAL.
 - Interrupts may publish encoder samples but cannot call either layer.
-- Initialization and every stop path default to STBY low.
+- Competition initialization and terminal stop paths keep their explicit
+  STBY-low requests; the adapter does not silently alter legacy sequencing.
 - No automated test may enable the actuator or start a mission.

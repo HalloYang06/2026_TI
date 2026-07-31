@@ -60,49 +60,49 @@ static void follow_line(uint8_t sensors)
     {
         /* 丢线后按照最后看到线的方向寻找，避免永远只向左转。 */
         if (last_line_side > 0) {
-            motor_pwm_set(40, -40);
+            chassis_actuator_set_pwm(40, -40);
         } else {
-            motor_pwm_set(-40, 40);
+            chassis_actuator_set_pwm(-40, 40);
         }
     }
     else if ((sensors & TRACK_SENSOR(0)) != 0U)
     {
-        motor_pwm_set(-55, -10);
+        chassis_actuator_set_pwm(-55, -10);
         last_line_side = -1;
     }
     else if ((sensors & TRACK_SENSOR(1)) != 0U)
     {
-        motor_pwm_set(-45, -15);
+        chassis_actuator_set_pwm(-45, -15);
         last_line_side = -1;
     }
     else if ((sensors & TRACK_SENSOR(2)) != 0U)
     {
-        motor_pwm_set(-35, -15);
+        chassis_actuator_set_pwm(-35, -15);
         last_line_side = -1;
     }
     else if ((sensors & TRACK_SENSOR(3)) != 0U)
     {
-        motor_pwm_set(-25, -15);
+        chassis_actuator_set_pwm(-25, -15);
         last_line_side = -1;
     }
     else if ((sensors & TRACK_SENSOR(4)) != 0U)
     {
-        motor_pwm_set(-15, -25);
+        chassis_actuator_set_pwm(-15, -25);
         last_line_side = 1;
     }
     else if ((sensors & TRACK_SENSOR(5)) != 0U)
     {
-        motor_pwm_set(-15, -35);
+        chassis_actuator_set_pwm(-15, -35);
         last_line_side = 1;
     }
     else if ((sensors & TRACK_SENSOR(6)) != 0U)
     {
-        motor_pwm_set(-15, -45);
+        chassis_actuator_set_pwm(-15, -45);
         last_line_side = 1;
     }
     else
     {
-        motor_pwm_set(-10, -55);
+        chassis_actuator_set_pwm(-10, -55);
         last_line_side = 1;
     }
 }
@@ -127,7 +127,7 @@ void track_start(uint8_t rounds)
 
 void track_stop(void)
 {
-    motor_stop();
+    chassis_actuator_stop();
     track_state = TRACK_STATE_FOLLOW;
     marker_armed = 0;
     start = 0;
@@ -146,7 +146,7 @@ void my_track(void)
 
     if (track_state == TRACK_STATE_FORWARD)
     {
-        motor_pwm_set(-15, -15);
+        chassis_actuator_set_pwm(-15, -15);
         if ((uint32_t)(now - state_start_ms) >= TRACK_FORWARD_TIME_MS)
         {
             track_state = TRACK_STATE_TURN_LEFT;
@@ -157,7 +157,7 @@ void my_track(void)
 
     if (track_state == TRACK_STATE_TURN_LEFT)
     {
-        motor_pwm_set(-70, 70);
+        chassis_actuator_set_pwm(-70, 70);
         if ((uint32_t)(now - state_start_ms) >= TRACK_TURN_TIME_MS)
         {
             track_state = TRACK_STATE_FOLLOW;
@@ -192,7 +192,7 @@ void my_track(void)
         }
         else
         {
-            motor_pwm_set(-20, -20);
+            chassis_actuator_set_pwm(-20, -20);
         }
         return;
     }

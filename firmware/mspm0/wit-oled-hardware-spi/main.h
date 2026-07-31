@@ -9,7 +9,7 @@ extern int round_number;
 
 #include "oled_hardware_spi.h"
 #include "wit.h"
-#include "motor.h"
+#include "chassis_actuator.h"
 #include "encoder.h"
 #include "pid.h"
 #include "gray.h"

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "ti_msp_dl_config.h"
 #include "clock.h"
-#include "motor.h"
+#include "chassis_actuator.h"
 #include "beeper.h"
 #include "led.h"
 

@@ -37,11 +37,16 @@ def test_only_motor_hal_writes_stby_direction_and_pwm_registers() -> None:
         assert "DL_TimerA_setCaptureCompareValue(PWM_A_INST" not in source
 
 
-def test_competition_start_and_stop_use_motor_hal_standby_api() -> None:
+def test_competition_start_and_stop_route_through_chassis_actuator() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    actuator = (
+        PROJECT / "App" / "Control" / "chassis_actuator.c"
+    ).read_text(encoding="utf-8")
     motor = (MOTOR_DIR / "motor.c").read_text(encoding="utf-8")
 
-    assert "motor_driver_disable();" in main
-    assert "motor_driver_enable();" in main
+    assert "chassis_actuator_disable();" in main
+    assert "chassis_actuator_enable();" in main
+    assert "motor_driver_disable();" in actuator
+    assert "motor_driver_enable();" in actuator
     assert "motor_driver_disable();" in motor
     assert "motor_driver_enable();" in motor

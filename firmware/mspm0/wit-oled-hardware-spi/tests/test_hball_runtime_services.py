@@ -83,7 +83,7 @@ def test_lap_runtime_applies_service_policy_before_motion() -> None:
     apply_policy = lap.index(
         "hball_runtime_services_apply_policy(&mission_policy);"
     )
-    first_motion = lap.index("motor_start_synchronized(")
+    first_motion = lap.index("chassis_actuator_start_synchronized(")
     assert menu_services < task_selection < mission_policy < apply_policy < first_motion
 
 

@@ -193,8 +193,8 @@ int main(void){
 #endif
 
 #if APP_MODE == APP_MODE_LCD_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     lcd_self_test();
 #elif APP_MODE == APP_MODE_GYRO_LCD_TEST
@@ -202,59 +202,59 @@ int main(void){
      * 独立测试模式只启用 LCD 和 WIT。电机驱动保持待机，避免桌面测试时
      * 车轮意外动作。把 APP_MODE 改为 APP_MODE_CAR 即可恢复小车程序。
      */
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     gyro_lcd_screen_init();
     gyro_lcd_test();
 #elif APP_MODE == APP_MODE_MOTOR_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     motor_test();
 #elif APP_MODE == APP_MODE_ENCODER_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     encoder_test();
 #elif APP_MODE == APP_MODE_TRACK_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     track_sensor_test();
 #elif APP_MODE == APP_MODE_TRACK_MOTOR_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     track_motor_test();
 #elif APP_MODE == APP_MODE_TRACK_GROUND_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     track_ground_test();
 #elif APP_MODE == APP_MODE_LAP_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     lap_test();
 #elif APP_MODE == APP_MODE_SPEED_CAL_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     speed_calibration_test();
 #elif APP_MODE == APP_MODE_SPEED_PI_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     speed_pi_test();
 #elif APP_MODE == APP_MODE_PWM_SWEEP_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     pwm_sweep_test();
 #elif APP_MODE == APP_MODE_MOTOR_MAP_TEST
-    motor_stop();
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     motor_encoder_map_test();
 #endif
@@ -271,10 +271,10 @@ int main(void){
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
     NVIC_EnableIRQ(TIMER_0_INST_INT_IRQN);
-    motor_init();
-   
+    chassis_actuator_init();
+
     // 将STBY置为高电平
-    motor_driver_enable();
+    chassis_actuator_enable();
 
     LCD_ShowString(0, 0, (const unsigned char *)"the_car_is_ready", BLUE, WHITE, 32, 0);
 
@@ -461,27 +461,27 @@ static void motor_test_step(const char *label, float left_pwm, float right_pwm)
     LCD_Fill(0, 64, 180, 104, BLACK);
     LCD_ShowString(4, 70, (const unsigned char *)label, YELLOW, BLACK, 32, 0);
 
-    motor_pwm_set(left_pwm, right_pwm);
+    chassis_actuator_set_pwm(left_pwm, right_pwm);
     delay_cycles(CPUCLK_FREQ * 2U);
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
     delay_cycles(CPUCLK_FREQ);
 }
 
 static void motor_test(void)
 {
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     LCD_ShowString(4, 4, (const unsigned char *)"MOTOR", WHITE, BLACK, 32, 0);
     LCD_ShowString(4, 38, (const unsigned char *)"20", CYAN, BLACK, 24, 0);
 
-    motor_driver_enable();
+    chassis_actuator_enable();
 
     /*
      * Calibrated from the individual-wheel test:
@@ -490,10 +490,10 @@ static void motor_test(void)
     motor_test_step("FWD", -MOTOR_TEST_DUTY, MOTOR_TEST_DUTY);
     motor_test_step("REV", MOTOR_TEST_DUTY, -MOTOR_TEST_DUTY);
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_Fill(0, 64, 180, 104, BLACK);
     LCD_ShowString(4, 70, (const unsigned char *)"END", GREEN, BLACK, 32, 0);
@@ -707,16 +707,16 @@ static void track_motor_test(void)
     char bits[9];
     char error_text[7];
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     LCD_ShowString(4, 4, (const unsigned char *)"TRACK MOTOR", WHITE, BLACK, 24, 0);
     LCD_ShowString(4, 42, (const unsigned char *)"12345678", CYAN, BLACK, 32, 0);
 
-    motor_driver_enable();
+    chassis_actuator_enable();
 
     while (1)
     {
@@ -742,16 +742,16 @@ static void track_motor_test(void)
 
             if (active_count == 0U)
             {
-                motor_stop();
-                set_motor_speed(0.0f, (uint8_t)left_motor);
-                set_motor_speed(0.0f, (uint8_t)right_motor);
+                chassis_actuator_stop();
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
                 LCD_ShowString(4, 130, (const unsigned char *)"LOST", RED, BLACK, 32, 0);
             }
             else if (active_count >= 6U)
             {
-                motor_stop();
-                set_motor_speed(0.0f, (uint8_t)left_motor);
-                set_motor_speed(0.0f, (uint8_t)right_motor);
+                chassis_actuator_stop();
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
                 LCD_ShowString(4, 130, (const unsigned char *)"STOP", GREEN, BLACK, 32, 0);
             }
             else
@@ -761,7 +761,7 @@ static void track_motor_test(void)
                 left_duty = base_duty + correction;
                 right_duty = base_duty - correction;
 
-                motor_pwm_set((float)left_duty, (float)right_duty);
+                chassis_actuator_set_pwm((float)left_duty, (float)right_duty);
                 format_track_error(error, error_text);
                 LCD_ShowString(4, 130, (const unsigned char *)error_text, GREEN, BLACK, 32, 0);
             }
@@ -788,10 +788,10 @@ static void track_ground_test(void)
     int16_t right_duty;
     uint32_t run_start_ms;
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
@@ -812,7 +812,7 @@ static void track_ground_test(void)
         }
     }
 
-    motor_driver_enable();
+    chassis_actuator_enable();
     run_start_ms = tick_ms;
     LCD_Fill(0, 48, 220, 150, BLACK);
     LCD_ShowString(4, 68, (const unsigned char *)"RUN", GREEN, BLACK, 32, 0);
@@ -835,10 +835,10 @@ static void track_ground_test(void)
 
         if ((active_count == 0U) || (active_count >= 6U))
         {
-            motor_stop();
-            set_motor_speed(0.0f, (uint8_t)left_motor);
-            set_motor_speed(0.0f, (uint8_t)right_motor);
-            motor_driver_disable();
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
             LCD_Fill(0, 48, 220, 150, BLACK);
             if (active_count == 0U) {
                 LCD_ShowString(4, 68, (const unsigned char *)"LOST STOP", RED, BLACK, 32, 0);
@@ -854,15 +854,15 @@ static void track_ground_test(void)
         correction = error / 3;
         left_duty = base_duty + correction;
         right_duty = base_duty - correction;
-        motor_pwm_set((float)left_duty, (float)right_duty);
+        chassis_actuator_set_pwm((float)left_duty, (float)right_duty);
 
         delay_cycles(CPUCLK_FREQ / 100U);
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
     LCD_Fill(0, 48, 220, 150, BLACK);
     LCD_ShowString(4, 68, (const unsigned char *)"TIME STOP", GREEN, BLACK, 32, 0);
 
@@ -1120,10 +1120,10 @@ static void speed_calibration_test(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
@@ -1136,8 +1136,8 @@ static void speed_calibration_test(void)
     Get_Encoder_countB = 0;
     previous_left = 0;
     previous_right = 0;
-    motor_driver_enable();
-    motor_pwm_set(30.0f, 30.0f);
+    chassis_actuator_enable();
+    chassis_actuator_set_pwm(30.0f, 30.0f);
     test_start_ms = tick_ms;
     last_sample_ms = test_start_ms;
     LCD_Fill(0, 38, 260, 165, BLACK);
@@ -1171,10 +1171,10 @@ static void speed_calibration_test(void)
         delay_cycles(CPUCLK_FREQ / 1000U);
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     __disable_irq();
     current_left = Get_Encoder_countA;
@@ -1220,10 +1220,10 @@ static void motor_encoder_map_test(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
@@ -1234,9 +1234,9 @@ static void motor_encoder_map_test(void)
 
     for (i = 0U; i < 2U; i++)
     {
-        set_motor_speed(0.0f, (uint8_t)left_motor);
-        set_motor_speed(0.0f, (uint8_t)right_motor);
-        motor_driver_disable();
+        chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+        chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+        chassis_actuator_disable();
         mspm0_delay_ms(600U);
 
         __disable_irq();
@@ -1244,11 +1244,11 @@ static void motor_encoder_map_test(void)
         Get_Encoder_countB = 0;
         __enable_irq();
 
-        motor_driver_enable();
+        chassis_actuator_enable();
         if (i == 0U) {
-            motor_pwm_set(25.0f, 0.0f);
+            chassis_actuator_set_pwm(25.0f, 0.0f);
         } else {
-            motor_pwm_set(0.0f, 25.0f);
+            chassis_actuator_set_pwm(0.0f, 25.0f);
         }
 
         stage_start_ms = tick_ms;
@@ -1263,10 +1263,10 @@ static void motor_encoder_map_test(void)
         __enable_irq();
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
     LCD_Fill(0, 50, 250, 120, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"MAP DONE", GREEN, BLACK, 32, 0);
 
@@ -1309,10 +1309,10 @@ static void pwm_sweep_test(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
@@ -1326,9 +1326,9 @@ static void pwm_sweep_test(void)
 
     for (i = 0U; i < SWEEP_POINTS; i++)
     {
-        set_motor_speed(0.0f, (uint8_t)left_motor);
-        set_motor_speed(0.0f, (uint8_t)right_motor);
-        motor_driver_disable();
+        chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+        chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+        chassis_actuator_disable();
         mspm0_delay_ms(settle_time_ms);
 
         __disable_irq();
@@ -1336,8 +1336,8 @@ static void pwm_sweep_test(void)
         Get_Encoder_countB = 0;
         __enable_irq();
 
-        motor_driver_enable();
-        motor_pwm_set((float)duty_points[i], (float)duty_points[i]);
+        chassis_actuator_enable();
+        chassis_actuator_set_pwm((float)duty_points[i], (float)duty_points[i]);
         stage_start_ms = tick_ms;
         while ((uint32_t)(tick_ms - stage_start_ms) < measure_time_ms)
         {
@@ -1350,10 +1350,10 @@ static void pwm_sweep_test(void)
         __enable_irq();
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
     LCD_Fill(0, 50, 250, 120, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"SWEEP DONE", GREEN, BLACK, 32, 0);
 
@@ -1432,10 +1432,10 @@ static void speed_pi_test(void)
     RIGHT.Error1 = 0.0f;
     RIGHT.ErrorInt = 0.0f;
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
@@ -1446,7 +1446,7 @@ static void speed_pi_test(void)
     mspm0_delay_ms(2000U);
     Get_Encoder_countA = 0;
     Get_Encoder_countB = 0;
-    motor_driver_enable();
+    chassis_actuator_enable();
     test_start_ms = tick_ms;
     last_control_ms = test_start_ms;
     LCD_Fill(0, 50, 240, 110, BLACK);
@@ -1490,7 +1490,7 @@ static void speed_pi_test(void)
 
             commanded_left = approach_pwm(commanded_left, target_duty_left, 2);
             commanded_right = approach_pwm(commanded_right, target_duty_right, 2);
-            motor_pwm_set((float)commanded_left, (float)commanded_right);
+            chassis_actuator_set_pwm((float)commanded_left, (float)commanded_right);
             last_control_ms += control_period_ms;
 
             if (log_index < PI_LOG_SAMPLES)
@@ -1507,10 +1507,10 @@ static void speed_pi_test(void)
         delay_cycles(CPUCLK_FREQ / 2000U);
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
     LCD_Fill(0, 50, 250, 120, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"PI DONE", GREEN, BLACK, 32, 0);
 
@@ -1645,10 +1645,10 @@ static void lap_test_once(void)
     uint32_t finish_candidate_start_ms = 0U;
     char time_text[8];
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    motor_driver_disable();
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     hball_runtime_services_enter_menu();
     LCD_BLK_Set();
@@ -1746,8 +1746,7 @@ static void lap_test_once(void)
     RIGHT.Error1 = 0.0f;
     RIGHT.ErrorInt = 0.0f;
 
-    motor_start_synchronized((float)commanded_duty_left,
-                             (float)commanded_duty_right);
+    chassis_actuator_start_synchronized((float)commanded_duty_left, (float)commanded_duty_right);
     run_start_ms = tick_ms;
     hball_can_mission_chassis_start(run_start_ms);
     last_speed_control_ms = run_start_ms;
@@ -1794,15 +1793,15 @@ static void lap_test_once(void)
                     commanded_duty_right =
                         (int16_t)(((int32_t)stop_start_duty_right *
                                    stop_step) / 25);
-                    motor_pwm_set((float)commanded_duty_left,
-                                  (float)commanded_duty_right);
+                    chassis_actuator_set_pwm((float)commanded_duty_left,
+                                             (float)commanded_duty_right);
                     competition_runtime_wait_ms(20U);
                 }
             }
-            motor_stop();
-            set_motor_speed(0.0f, (uint8_t)left_motor);
-            set_motor_speed(0.0f, (uint8_t)right_motor);
-            motor_driver_disable();
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
             LCD_Fill(0, 48, 280, 100, BLACK);
             if (selected_task == CAR_TASK_TIMED_RUN) {
                 LCD_ShowString(4, 58, (const unsigned char *)"TASK2 DONE", GREEN, BLACK, 32, 0);
@@ -1922,15 +1921,15 @@ static void lap_test_once(void)
                         approach_pwm(commanded_duty_left, 0, 1);
                     commanded_duty_right =
                         approach_pwm(commanded_duty_right, 0, 1);
-                    motor_pwm_set((float)commanded_duty_left,
-                                  (float)commanded_duty_right);
+                    chassis_actuator_set_pwm((float)commanded_duty_left,
+                                             (float)commanded_duty_right);
                     competition_runtime_wait_ms(20U);
                 }
             }
-            motor_stop();
-            set_motor_speed(0.0f, (uint8_t)left_motor);
-            set_motor_speed(0.0f, (uint8_t)right_motor);
-            motor_driver_disable();
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
             LCD_Fill(0, 48, 280, 100, BLACK);
             LCD_ShowString(4, 58, (const unsigned char *)"LAP STOP", GREEN, BLACK, 32, 0);
             break;
@@ -1975,10 +1974,10 @@ static void lap_test_once(void)
              */
             if ((selected_task != CAR_TASK_LAP_STOP) &&
                 (lost_elapsed_ms >= lost_timeout_ms)) {
-                motor_stop();
-                set_motor_speed(0.0f, (uint8_t)left_motor);
-                set_motor_speed(0.0f, (uint8_t)right_motor);
-                motor_driver_disable();
+                chassis_actuator_stop();
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+                chassis_actuator_disable();
                 LCD_Fill(0, 48, 280, 100, BLACK);
                 LCD_ShowString(4, 58, (const unsigned char *)"LOST STOP", RED, BLACK, 32, 0);
                 break;
@@ -2293,7 +2292,7 @@ static void lap_test_once(void)
                 approach_pwm(commanded_duty_left, target_duty_left, duty_slew_step);
             commanded_duty_right =
                 approach_pwm(commanded_duty_right, target_duty_right, duty_slew_step);
-            motor_pwm_set((float)commanded_duty_left, (float)commanded_duty_right);
+            chassis_actuator_set_pwm((float)commanded_duty_left, (float)commanded_duty_right);
 
             if (log_index < LAP_LOG_SAMPLES)
             {
