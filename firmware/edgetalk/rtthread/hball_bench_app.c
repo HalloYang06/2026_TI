@@ -2673,6 +2673,12 @@ static int hball_bench_start(void)
     {
         return -RT_ERROR;
     }
+#if HBALL_RS00_MOTION_TX_ENABLED
+    /* RS00 can retain enable state across an M33-only reset. */
+    hball_motion_stop_now(
+        HBALL_RS00_BENCH_STOP_MANUAL, hball_now_ms(), RT_FALSE
+    );
+#endif
 
     g_hball_worker = rt_thread_create(
         "hball_can",
