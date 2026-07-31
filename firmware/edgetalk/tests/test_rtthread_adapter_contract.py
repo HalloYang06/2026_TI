@@ -26,6 +26,7 @@ def test_rtthread_adapter_exposes_bounded_manual_motion_shell_commands():
         "hball_control_pid_friction5",
         "hball_control_lqi5",
         "hball_hold_center5",
+        "hball_hold_ff_gain5",
         "hball_hold_latch5",
         "hball_control_level5",
         "hball_q3_status5",

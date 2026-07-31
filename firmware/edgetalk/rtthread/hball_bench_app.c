@@ -8,6 +8,7 @@
 #if HBALL_INTEGRATED_SHADOW
 #include "hball_control_pipeline.h"
 #include "hball_deployment_config.h"
+#include "hball_hold_controller.h"
 #include "hball_m33_inputs.h"
 #endif
 
@@ -31,7 +32,7 @@
 #endif
 
 #if HBALL_INTEGRATED_SHADOW
-#define HBALL_BENCH_VERSION "0.5.0-m33-manual-small-step"
+#define HBALL_BENCH_VERSION "0.6.0-q4-isolated-hold"
 #else
 #define HBALL_BENCH_VERSION "0.3.0-m33-can-readback"
 #endif
@@ -75,6 +76,7 @@
 #define HBALL_BALL_COMMISSION_TX_PERIOD_MS 10U
 #define HBALL_BALL_COMMISSION_TIMEOUT_MS 15000U
 #define HBALL_BALL_HOLD_TIMEOUT_MS 32000U
+#define HBALL_BALL_HOLD_ACCEL_FF_GAIN 0.0F
 
 #ifndef BSP_CANFD0_RX_FIFO0_ELEMENTS
 #error "H-ball CAN build must define the RX FIFO depth"
@@ -177,6 +179,10 @@ static rt_uint32_t g_hball_ball_error_violation_total = 0U;
 static rt_uint32_t g_hball_mission_action_last_ms = 0U;
 static rt_uint32_t g_hball_ball_log_sequence = 0U;
 static rt_uint32_t g_hball_ball_last_log_ms = 0U;
+static hball_hold_controller_config_t g_hball_hold_config;
+static hball_hold_controller_t g_hball_hold_controller;
+static hball_hold_controller_output_t g_hball_hold_output;
+static float g_hball_hold_accel_ff_gain = HBALL_BALL_HOLD_ACCEL_FF_GAIN;
 static int hball_q3_start_common(void);
 static int hball_hold_start_common(
     rt_uint8_t mode, float target_m, const char *name
@@ -1313,7 +1319,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     );
     position_error_m =
         g_hball_ball_target_m - g_hball_ball_output.estimated_position_m;
-    if (g_hball_ball_phase != 4U)
+    if ((g_hball_ball_mode == 1U) && (g_hball_ball_phase != 4U))
     {
         g_hball_ball_position_integral += position_error_m * 0.005F;
         if (g_hball_ball_position_integral
@@ -1336,6 +1342,37 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     if (g_hball_ball_phase == 4U)
     {
         pipe_command_rad = 0.0F;
+    }
+    else if (g_hball_ball_mode != 1U)
+    {
+        hball_hold_controller_input_t hold_input;
+
+        rt_memset(&hold_input, 0, sizeof(hold_input));
+        g_hball_hold_config.command_limit_rad = pipe_limit_rad;
+        hold_input.target_position_m = g_hball_ball_target_m;
+        hold_input.estimated_position_m =
+            g_hball_ball_output.estimated_position_m;
+        hold_input.estimated_velocity_mps =
+            g_hball_ball_output.estimated_velocity_mps;
+        hold_input.longitudinal_accel_mps2 =
+            snapshot.longitudinal_accel_mps2;
+        hold_input.body_pitch_rad = snapshot.body_pitch_rad;
+        hold_input.dt_s = 0.005F;
+        hold_input.feedback_enabled = true;
+        hold_input.feedforward_enabled =
+            (snapshot.valid_flags & HBALL_SENSOR_VALID_IMU) != 0U;
+        if (!hball_hold_controller_step(
+                &g_hball_hold_config,
+                &g_hball_hold_controller,
+                &hold_input,
+                &g_hball_hold_output))
+        {
+            hball_motion_stop_now(
+                HBALL_RS00_BENCH_STOP_SENSOR_INVALID, now_ms, RT_TRUE
+            );
+            return;
+        }
+        pipe_command_rad = g_hball_hold_output.command_rad;
     }
     else if (g_hball_ball_use_lqi)
     {
@@ -1375,13 +1412,6 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
                 g_hball_ball_pid_static_boost_rad, position_error_m
             );
         }
-    }
-    if ((g_hball_ball_mode != 1U)
-        && ((snapshot.valid_flags & HBALL_SENSOR_VALID_IMU) != 0U))
-    {
-        pipe_command_rad += atan2f(
-            snapshot.longitudinal_accel_mps2, 9.80665F
-        ) - snapshot.body_pitch_rad;
     }
     if (pipe_command_rad > pipe_limit_rad)
     {
@@ -2223,6 +2253,29 @@ static int hball_hold_start_common(
         return -RT_ERROR;
     }
     rt_memset(&g_hball_ball_output, 0, sizeof(g_hball_ball_output));
+    rt_memset(&g_hball_hold_output, 0, sizeof(g_hball_hold_output));
+    hball_hold_controller_default_config(&g_hball_hold_config);
+    g_hball_hold_config.kp_rad_per_m = g_hball_ball_pid_kp;
+    g_hball_hold_config.ki_rad_per_m_s = g_hball_ball_pid_ki;
+    g_hball_hold_config.kd_rad_per_mps = g_hball_ball_pid_kd;
+    g_hball_hold_config.integral_limit_m_s =
+        HBALL_BALL_PID_INTEGRAL_LIMIT;
+    g_hball_hold_config.accel_feedforward_gain =
+        g_hball_hold_accel_ff_gain;
+    if (!hball_hold_controller_config_valid(&g_hball_hold_config))
+    {
+        return -RT_ERROR;
+    }
+    hball_hold_controller_reset(
+        &g_hball_hold_controller,
+        ((snapshot.valid_flags & HBALL_SENSOR_VALID_IMU) != 0U)
+            ? snapshot.longitudinal_accel_mps2
+            : 0.0F,
+        ((snapshot.valid_flags & HBALL_SENSOR_VALID_IMU) != 0U)
+            ? snapshot.body_pitch_rad
+            : 0.0F,
+        0.0F
+    );
     g_hball_ball_target_m = target_m;
     g_hball_ball_start_ms = now_ms;
     g_hball_ball_last_step_ms = now_ms;
@@ -2240,11 +2293,12 @@ static int hball_hold_start_common(
     g_hball_ball_active = RT_TRUE;
     g_hball_motion.last_manual_command_ms = now_ms;
     rt_kprintf(
-        "[hball-hold] start mode=%s x_mm=%ld target_mm=%ld timeout_ms=%u\n",
+        "[hball-hold] start mode=%s x_mm=%ld target_mm=%ld timeout_ms=%u accel_ff_x1000=%ld\n",
         name,
         (long)(snapshot.ball_position_m * 1000.0F),
         (long)(target_m * 1000.0F),
-        (unsigned int)HBALL_BALL_HOLD_TIMEOUT_MS
+        (unsigned int)HBALL_BALL_HOLD_TIMEOUT_MS,
+        (long)(g_hball_hold_config.accel_feedforward_gain * 1000.0F)
     );
     return RT_EOK;
 }
@@ -2263,6 +2317,38 @@ static int hball_hold_center5(int argc, char **argv)
 MSH_CMD_EXPORT(
     hball_hold_center5,
     hold ball at visual center for Q4 and Q5 commissioning
+);
+
+static int hball_hold_ff_gain5(int argc, char **argv)
+{
+    long gain_x1000;
+
+    if (argc != 2)
+    {
+        rt_kprintf("usage: hball_hold_ff_gain5 <accel_gain_x1000 0..1000>\n");
+        return -RT_EINVAL;
+    }
+    if (g_hball_ball_active)
+    {
+        rt_kprintf("[hball-hold] feedforward gain change rejected active\n");
+        return -RT_EBUSY;
+    }
+    gain_x1000 = strtol(argv[1], RT_NULL, 10);
+    if ((gain_x1000 < 0L) || (gain_x1000 > 1000L))
+    {
+        rt_kprintf("[hball-hold] accel feedforward outside 0..1000\n");
+        return -RT_EINVAL;
+    }
+    g_hball_hold_accel_ff_gain = (float)gain_x1000 / 1000.0F;
+    rt_kprintf(
+        "[hball-hold] accel_ff_x1000=%ld pitch_ff_x1000=1000\n",
+        gain_x1000
+    );
+    return RT_EOK;
+}
+MSH_CMD_EXPORT(
+    hball_hold_ff_gain5,
+    set isolated Q4 to Q6 longitudinal acceleration feedforward gain
 );
 
 static int hball_hold_latch5(int argc, char **argv)
@@ -2333,6 +2419,19 @@ static void hball_q3_status5(void)
         (unsigned long)g_hball_ball_error_violation_total,
         (unsigned long)g_hball_ball_tx_total
     );
+    if (g_hball_ball_mode != 1U)
+    {
+        rt_kprintf(
+            "[hball-hold] accel_ff_x1000=%ld accel_bias_mm_s2=%ld accel_filtered_mm_s2=%ld feedback_mrad=%ld feedforward_mrad=%ld command_mrad=%ld flags=0x%02lx\n",
+            (long)(g_hball_hold_config.accel_feedforward_gain * 1000.0F),
+            (long)(g_hball_hold_controller.accel_bias_mps2 * 1000.0F),
+            (long)(g_hball_hold_output.filtered_accel_mps2 * 1000.0F),
+            (long)(g_hball_hold_output.feedback_rad * 1000.0F),
+            (long)(g_hball_hold_output.feedforward_rad * 1000.0F),
+            (long)(g_hball_hold_output.command_rad * 1000.0F),
+            (unsigned long)g_hball_hold_output.flags
+        );
+    }
 }
 MSH_CMD_EXPORT(hball_q3_status5, show real Q3 commissioning status);
 #endif

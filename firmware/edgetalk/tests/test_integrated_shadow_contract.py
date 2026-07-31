@@ -48,7 +48,7 @@ def test_can_diagnostics_identify_the_integrated_shadow_image():
     can = CAN.read_text(encoding="utf-8")
 
     assert "#if HBALL_INTEGRATED_SHADOW" in can
-    assert 'HBALL_BENCH_VERSION "0.5.0-m33-manual-small-step"' in can
+    assert 'HBALL_BENCH_VERSION "0.6.0-q4-isolated-hold"' in can
 
 
 def test_m33_input_hub_uses_mutex_and_200_hz_read_only_snapshots():
@@ -79,6 +79,7 @@ def test_m33_observes_m55_shadow_at_1khz_without_any_actuator_path():
     sconscript = SCONSCRIPT.read_text(encoding="utf-8")
 
     assert "hball_control_guard.c" in sconscript
+    assert "hball_hold_controller.c" in sconscript
     assert "hball_m33_control_guard.c" in sconscript
     assert "#define HBALL_M33_GUARD_PERIOD_MS 1U" in source
     assert "rt_thread_delay_until(" in source
