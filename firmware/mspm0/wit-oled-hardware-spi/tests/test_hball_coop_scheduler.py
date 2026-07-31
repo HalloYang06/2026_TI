@@ -46,3 +46,19 @@ def test_scheduler_core_has_no_hardware_or_rtos_dependency() -> None:
         "wit.h",
     ):
         assert forbidden not in combined
+
+
+def test_keil_build_includes_cooperative_scheduler() -> None:
+    project = (PROJECT / "Keil" / "wit-oled-hardware-spi.uvprojx").read_text(
+        encoding="utf-8"
+    )
+    build = (PROJECT / "tools" / "build-keil.ps1").read_text(
+        encoding="utf-8"
+    )
+    generator = (PROJECT / "tools" / "generate-keil-project.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "hball_coop_scheduler.c" in project
+    assert "App\\Runtime\\hball_coop_scheduler.c" in build
+    assert "hball_coop_scheduler.c" in generator
