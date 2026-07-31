@@ -55,6 +55,7 @@ $sources = @(
     'Drivers\CAN\hball_can_port.c', 'Drivers\CAN\hball_mission_client.c',
     'App\Mission\hball_mission_menu.c',
     'App\Mission\hball_mission_policy.c',
+    'App\Runtime\hball_runtime_services.c',
     (Join-Path $missionProtocolDir 'hball_mission_can.c'),
     'Drivers\ENCODER\encoder.c',
     'Drivers\GRAY\beeper.c', 'Drivers\GRAY\gray.c', 'Drivers\GRAY\key.c',
@@ -69,7 +70,8 @@ $sources = @(
 $includeDirs = @(
     "$SdkRoot\source", "$SdkRoot\source\third_party\CMSIS\Core\Include",
     $ProjectRoot, (Join-Path $ProjectRoot 'Debug'),
-    (Join-Path $ProjectRoot 'App\Mission'), $missionProtocolDir
+    (Join-Path $ProjectRoot 'App\Mission'),
+    (Join-Path $ProjectRoot 'App\Runtime'), $missionProtocolDir
 ) + (Get-ChildItem (Join-Path $ProjectRoot 'Drivers') -Directory | ForEach-Object FullName)
 $compileArgs = @('--target=arm-arm-none-eabi', '-mcpu=cortex-m0plus', '-mthumb', '-O0', '-fshort-wchar', '-fshort-enums', '-D__MSPM0G3507__') +
     ($includeDirs | ForEach-Object { "-I$_" })

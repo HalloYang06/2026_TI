@@ -47,3 +47,22 @@ def test_runtime_service_gate_is_independent_of_hardware_drivers() -> None:
     assert "hball_can_port" not in combined
     assert "motor.h" not in combined
     assert "wit.h" not in combined
+
+
+def test_keil_build_includes_runtime_services() -> None:
+    project = (PROJECT / "Keil" / "wit-oled-hardware-spi.uvprojx").read_text(
+        encoding="utf-8"
+    )
+    build = (PROJECT / "tools" / "build-keil.ps1").read_text(
+        encoding="utf-8"
+    )
+    generator = (PROJECT / "tools" / "generate-keil-project.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "hball_runtime_services.c" in project
+    assert "..\\App\\Runtime" in project
+    assert "App\\Runtime\\hball_runtime_services.c" in build
+    assert "App\\Runtime" in build
+    assert "hball_runtime_services.c" in generator
+    assert "..\\App\\Runtime" in generator
