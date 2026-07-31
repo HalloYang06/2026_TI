@@ -79,3 +79,23 @@ def test_manual_csp_session_uses_targeted_100_hz_each_position_velocity_readback
     assert "g_hball_motor.parameters.mech_position_rad" in source
     assert "g_hball_motor.parameters.mech_velocity_rad_s" in source
     assert "HBALL_RS00_BENCH_RETURNING" in source
+
+
+def test_q3_verified_pid_and_sequence_baseline_is_frozen():
+    source = ADAPTER.read_text(encoding="utf-8")
+
+    for definition in (
+        "#define HBALL_BALL_COMMISSION_LEVEL_RAD 1.7205F",
+        "#define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.052359878F",
+        "#define HBALL_BALL_PID_KP 0.70F",
+        "#define HBALL_BALL_PID_KI 0.15F",
+        "#define HBALL_BALL_PID_KD 0.40F",
+        "static float g_hball_ball_pid_static_boost_rad = 0.0F;",
+    ):
+        assert definition in source
+
+    assert "if ((g_hball_ball_mode != 1U)" in source
+    assert "g_hball_ball_target_m = 0.050F;" in source
+    assert "g_hball_ball_target_m = -0.050F;" in source
+    assert ">= 150U" in source
+    assert ">= 300U" in source
