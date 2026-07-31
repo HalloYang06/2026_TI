@@ -61,11 +61,12 @@
 #define HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY 3U
 #define HBALL_RS00_CONFIRM_TOKEN "CONFIRM_NO_LOAD"
 #define HBALL_BALL_COMMISSION_LEVEL_RAD 1.7205F
-#define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.052359878F
-#define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.052359878F
-#define HBALL_BALL_PID_KP 0.70F
-#define HBALL_BALL_PID_KI 0.15F
-#define HBALL_BALL_PID_KD 0.35F
+#define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.034906585F
+#define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.043633231F
+#define HBALL_BALL_Q3_PIPE_RATE_LIMIT_RAD_S 0.50F
+#define HBALL_BALL_PID_KP 0.45F
+#define HBALL_BALL_PID_KI 0.08F
+#define HBALL_BALL_PID_KD 0.12F
 #define HBALL_BALL_PID_BOOST_ENTER_MPS 0.003F
 #define HBALL_BALL_PID_BOOST_EXIT_MPS 0.015F
 #define HBALL_BALL_LQI_KP 1.576194F
@@ -178,6 +179,7 @@ static float g_hball_ball_pid_ki = HBALL_BALL_PID_KI;
 static float g_hball_ball_pid_kd = HBALL_BALL_PID_KD;
 static float g_hball_ball_pid_static_boost_rad = 0.0F;
 static rt_bool_t g_hball_ball_pid_static_boost_active = RT_FALSE;
+static float g_hball_ball_q3_pipe_command_rad = 0.0F;
 static rt_uint8_t g_hball_ball_mode = 0U;
 static rt_bool_t g_hball_ball_use_lqi = RT_FALSE;
 static float g_hball_ball_max_abs_error_m = 0.0F;
@@ -1508,6 +1510,25 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     {
         pipe_command_rad = -pipe_limit_rad;
     }
+    if (g_hball_ball_mode == 1U)
+    {
+        const float max_delta_rad =
+            HBALL_BALL_Q3_PIPE_RATE_LIMIT_RAD_S
+            * HBALL_BALL_CONTROL_DT_S;
+        float delta_rad =
+            pipe_command_rad - g_hball_ball_q3_pipe_command_rad;
+
+        if (delta_rad > max_delta_rad)
+        {
+            delta_rad = max_delta_rad;
+        }
+        else if (delta_rad < -max_delta_rad)
+        {
+            delta_rad = -max_delta_rad;
+        }
+        g_hball_ball_q3_pipe_command_rad += delta_rad;
+        pipe_command_rad = g_hball_ball_q3_pipe_command_rad;
+    }
     if (!hball_fourbar_motor_offset(
             &g_hball_ball_pipeline.fourbar,
             pipe_command_rad,
@@ -2220,6 +2241,7 @@ static int hball_q3_start_common(void)
     g_hball_ball_pid_ki = HBALL_BALL_PID_KI;
     g_hball_ball_pid_kd = HBALL_BALL_PID_KD;
     g_hball_ball_pid_static_boost_rad = 0.0F;
+    g_hball_ball_q3_pipe_command_rad = 0.0F;
     g_hball_ball_position_integral = 0.0F;
     g_hball_ball_previous_error_m = 0.0F;
     g_hball_ball_pid_static_boost_active = RT_FALSE;
