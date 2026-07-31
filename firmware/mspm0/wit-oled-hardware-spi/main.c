@@ -1676,11 +1676,16 @@ static void lap_test_once(void)
     line_mask = line_sample.line_mask;
     if (line_mask == 0U)
     {
-        LCD_Fill(0, 48, 240, 150, BLACK);
+        mission_lcd_fill_serviced(0, 48, 240, 150, BLACK);
         LCD_ShowString(4, 68, (const unsigned char *)"NO LINE", RED, BLACK, 32, 0);
-        while (1) {
-            __WFI();
-        }
+        hball_can_mission_chassis_finish(
+            HBALL_MISSION_CHASSIS_EVENT_STOPPED
+                | HBALL_MISSION_CHASSIS_EVENT_LINE_LOST
+                | HBALL_MISSION_CHASSIS_EVENT_LOCAL_FAULT,
+            tick_ms
+        );
+        competition_runtime_wait_ms(500U);
+        return;
     }
 
     /*
@@ -1735,7 +1740,7 @@ static void lap_test_once(void)
         commanded_duty_right
     );
     hball_can_mission_chassis_start(run_start_ms);
-    LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
+    mission_lcd_fill_serviced(0, 0, LCD_W, LCD_H, BLACK);
     if (selected_task == CAR_TASK_LAP_STOP) {
         LCD_ShowString(4, 4, (const unsigned char *)"TASK1 RUN", GREEN, BLACK, 32, 0);
     } else if (selected_task == CAR_TASK_TIMED_RUN) {

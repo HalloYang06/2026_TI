@@ -192,6 +192,20 @@ static void test_parameter_replies_decode_all_required_motor_data(void)
     assert(monitor.parameter_rx_total == 6U);
     assert(hball_motor_monitor_parameters_fresh(&monitor, 110U, 20U));
     assert(!hball_motor_monitor_parameters_fresh(&monitor, 130U, 20U));
+    assert(hball_motor_monitor_motion_parameters_fresh(
+        &monitor, 110U, 20U
+    ));
+    assert(!hball_motor_monitor_motion_parameters_fresh(
+        &monitor, 130U, 20U
+    ));
+
+    monitor.parameters.valid_flags =
+        HBALL_RS00_PARAMETER_VALID_MECH_POSITION
+        | HBALL_RS00_PARAMETER_VALID_MECH_VELOCITY;
+    assert(hball_motor_monitor_motion_parameters_fresh(
+        &monitor, 110U, 20U
+    ));
+    assert(!hball_motor_monitor_parameters_fresh(&monitor, 110U, 20U));
 }
 
 static void test_parameter_reply_validation_and_timeout_fail_closed(void)

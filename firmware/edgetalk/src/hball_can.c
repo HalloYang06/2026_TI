@@ -415,6 +415,32 @@ bool hball_motor_monitor_parameters_fresh(
         );
 }
 
+bool hball_motor_monitor_motion_parameters_fresh(
+    const hball_motor_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+)
+{
+    const uint8_t required =
+        HBALL_RS00_PARAMETER_VALID_MECH_POSITION
+        | HBALL_RS00_PARAMETER_VALID_MECH_VELOCITY;
+    const int position_slot = hball_rs00_parameter_slot(
+        HBALL_RS00_INDEX_MECH_POSITION
+    );
+    const int velocity_slot = hball_rs00_parameter_slot(
+        HBALL_RS00_INDEX_MECH_VELOCITY
+    );
+
+    return (monitor != NULL)
+        && ((monitor->parameters.valid_flags & required) == required)
+        && ((uint32_t)(now_ms
+                - monitor->parameters.last_update_ms[position_slot])
+            <= timeout_ms)
+        && ((uint32_t)(now_ms
+                - monitor->parameters.last_update_ms[velocity_slot])
+            <= timeout_ms);
+}
+
 bool hball_motor_parameters_fresh(
     const hball_motor_parameters_t *parameters,
     uint32_t now_ms,

@@ -497,6 +497,10 @@ static rt_uint16_t hball_mission_ready_mask(rt_uint32_t now_ms)
     }
     if (hball_motor_monitor_feedback_fresh(
             &g_hball_motor, now_ms, 20U)
+        || hball_motor_monitor_motion_parameters_fresh(
+            &g_hball_motor,
+            now_ms,
+            HBALL_RS00_MOTION_PARAMETER_FRESH_MS)
         || hball_motor_monitor_parameters_fresh(
             &g_hball_motor,
             now_ms,
