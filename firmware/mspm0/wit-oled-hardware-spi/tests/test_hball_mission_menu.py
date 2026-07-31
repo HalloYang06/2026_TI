@@ -26,6 +26,7 @@ def test_hball_mission_menu_host_behavior(tmp_path: Path) -> None:
         f"-I{PROTOCOL_DIR}",
         str(PROTOCOL_DIR / "hball_mission_can.c"),
         str(CAN_DIR / "hball_mission_client.c"),
+        str(MISSION_DIR / "hball_mission_policy.c"),
         str(MISSION_DIR / "hball_mission_menu.c"),
         str(Path(__file__).with_name("hball_mission_menu_host_tests.c")),
         "-o",
@@ -43,6 +44,9 @@ def test_msp_runtime_uses_distributed_menu_with_local_motion() -> None:
     assert "HBALL_MISSION_LOCAL_MOTION_ENABLED 1U" in main
     assert "hball_can_mission_chassis_start" in main
     assert "hball_can_mission_chassis_finish" in main
+    assert "HBALL_MISSION_MENU_LOCAL_START_ACCEPTED" in main
+    assert "hball_mission_policy_get" in main
+    assert "return HBALL_MISSION_Q2_FAST_LAP;" in main
     assert "Q2 FAST LAP" not in main
     assert "hball_mission_menu_view_equal" in main
 

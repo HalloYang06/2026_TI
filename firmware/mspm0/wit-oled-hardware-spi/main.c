@@ -35,6 +35,7 @@
 #include "stdio.h"
 #include "string.h"
 #include "hball_can_port.h"
+#include "hball_mission_policy.h"
 
 /*
  * There is no process command line on the target. Avoid Arm C library
@@ -937,8 +938,16 @@ static uint8_t select_car_task(void)
         {
             beep();
         }
+        else if (result == HBALL_MISSION_MENU_LOCAL_START_ACCEPTED)
+        {
+            beep();
+            delay_cycles(CPUCLK_FREQ / 20U);
+            beep();
+            return HBALL_MISSION_Q2_FAST_LAP;
+        }
         else if (result == HBALL_MISSION_MENU_START_ACCEPTED)
         {
+            hball_mission_policy_t policy;
             uint8_t selected_mission;
 
             beep();
@@ -949,14 +958,17 @@ static uint8_t select_car_task(void)
                 continue;
             }
             selected_mission = snapshot.selected_mission;
+            if (!hball_mission_policy_get(selected_mission, &policy))
+            {
+                continue;
+            }
             while (1)
             {
                 if (hball_can_mission_get_snapshot(&snapshot)
                     && snapshot.status_valid
                     && (snapshot.latest_status.global_state
                         == HBALL_MISSION_STATE_RUNNING)
-                    && (selected_mission
-                        != HBALL_MISSION_Q3_BALL_SEQUENCE))
+                    && policy.chassis_allowed)
                 {
                     return selected_mission;
                 }
@@ -1004,7 +1016,7 @@ static void render_mission_menu(
     LCD_Fill(0, 40, LCD_W, 71, BLACK);
     LCD_ShowString(
         4, 44, (const unsigned char *)view->state_label,
-        (view->status_fresh
+        ((view->local_execution || view->status_fresh)
          && (view->global_state == HBALL_MISSION_STATE_READY))
             ? GREEN : CYAN,
         BLACK, 24, 0

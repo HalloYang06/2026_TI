@@ -1,4 +1,5 @@
 #include "hball_mission_menu.h"
+#include "hball_mission_policy.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -37,6 +38,16 @@ hball_mission_menu_result_t hball_mission_menu_handle(
     }
     if (event == HBALL_MISSION_MENU_EXECUTE)
     {
+        hball_mission_policy_t policy;
+
+        if (!hball_mission_policy_get(client->selected_mission, &policy))
+        {
+            return HBALL_MISSION_MENU_START_BLOCKED;
+        }
+        if (policy.local_start)
+        {
+            return HBALL_MISSION_MENU_LOCAL_START_ACCEPTED;
+        }
         return hball_mission_client_request_start(client, now_ms)
             ? HBALL_MISSION_MENU_START_ACCEPTED
             : HBALL_MISSION_MENU_START_BLOCKED;
@@ -135,8 +146,15 @@ const char *hball_mission_menu_missing_label(
     const hball_mission_client_t *client, uint32_t now_ms
 )
 {
+    hball_mission_policy_t policy;
     uint16_t missing;
 
+    if ((client != NULL)
+        && hball_mission_policy_get(client->selected_mission, &policy)
+        && policy.local_start)
+    {
+        return "MSP LOCAL";
+    }
     if ((client == NULL)
         || !client->status_valid
         || ((uint32_t)(now_ms - client->last_status_ms)
@@ -165,6 +183,8 @@ bool hball_mission_menu_make_view(
     hball_mission_menu_view_t *view
 )
 {
+    hball_mission_policy_t policy;
+
     if ((client == NULL) || (view == NULL))
     {
         return false;
@@ -177,10 +197,18 @@ bool hball_mission_menu_make_view(
     view->missing_label = hball_mission_menu_missing_label(client, now_ms);
     view->epoch = client->candidate_epoch;
     view->start_requested = client->start_requested;
+    view->local_execution =
+        hball_mission_policy_get(client->selected_mission, &policy)
+        && policy.local_start;
     view->status_fresh = client->status_valid
         && ((uint32_t)(now_ms - client->last_status_ms)
             <= HBALL_MISSION_STATUS_FRESH_MS);
-    if (view->status_fresh)
+    if (view->local_execution)
+    {
+        view->global_state = HBALL_MISSION_STATE_READY;
+        view->state_label = "LOCAL READY";
+    }
+    else if (view->status_fresh)
     {
         view->global_state = client->latest_status.global_state;
         view->state_label = hball_mission_menu_state_label(
@@ -203,6 +231,7 @@ bool hball_mission_menu_view_equal(
     return (left->epoch == right->epoch)
         && (left->ready_mask == right->ready_mask)
         && (left->global_state == right->global_state)
+        && (left->local_execution == right->local_execution)
         && (left->status_fresh == right->status_fresh)
         && (left->start_requested == right->start_requested)
         && (strcmp(left->mission_label, right->mission_label) == 0)

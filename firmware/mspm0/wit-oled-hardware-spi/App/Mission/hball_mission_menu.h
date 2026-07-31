@@ -20,6 +20,7 @@ typedef enum
 {
     HBALL_MISSION_MENU_NO_CHANGE = 0,
     HBALL_MISSION_MENU_SELECTED,
+    HBALL_MISSION_MENU_LOCAL_START_ACCEPTED,
     HBALL_MISSION_MENU_START_ACCEPTED,
     HBALL_MISSION_MENU_START_BLOCKED,
     HBALL_MISSION_MENU_LOCKED
@@ -33,6 +34,7 @@ typedef struct
     uint16_t epoch;
     uint16_t ready_mask;
     uint8_t global_state;
+    bool local_execution;
     bool status_fresh;
     bool start_requested;
 } hball_mission_menu_view_t;
