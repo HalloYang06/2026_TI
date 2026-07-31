@@ -36,6 +36,12 @@
 #include "string.h"
 #include "hball_can_port.h"
 
+/*
+ * There is no process command line on the target. Avoid Arm C library
+ * semihosted argv startup, which otherwise stops at BKPT 0xAB after reset.
+ */
+__asm(".global __ARM_use_no_argv\n");
+
 #define APP_MODE_CAR             0U
 #define APP_MODE_GYRO_LCD_TEST   1U
 #define APP_MODE_LCD_TEST        2U

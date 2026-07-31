@@ -15,6 +15,15 @@ def test_msp_can_port_carries_only_mission_control_frames() -> None:
     assert "hball_mission_decode_ui" in source
     assert "hball_can_mission_request_start" in source
     assert "HBALL_CAN_MOTOR_COMMAND_TX_ENABLED 0U" in source
+    assert "element->data[index] = frame->data[index]" in source
+    assert "target->data[index] = (uint8_t)source->data[index]" in source
+    assert "memcpy(element->data" not in source
+
+
+def test_target_startup_does_not_request_semihosted_argv() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+
+    assert "__ARM_use_no_argv" in main
 
 
 def test_keil_project_builds_shared_mission_protocol_and_msp_client() -> None:

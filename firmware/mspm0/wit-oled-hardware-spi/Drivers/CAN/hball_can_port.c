@@ -265,6 +265,8 @@ static void hball_can_frame_to_tx_element(
     const hball_can_frame_t *frame, DL_MCAN_TxBufElement *element
 )
 {
+    uint8_t index;
+
     memset(element, 0, sizeof(*element));
     element->id = frame->id << 18U;
     element->rtr = frame->is_remote;
@@ -272,7 +274,10 @@ static void hball_can_frame_to_tx_element(
     element->dlc = frame->dlc;
     element->brs = frame->brs;
     element->fdf = frame->fdf;
-    memcpy(element->data, frame->data, sizeof(frame->data));
+    for (index = 0U; index < sizeof(frame->data); ++index)
+    {
+        element->data[index] = frame->data[index];
+    }
 }
 
 static void hball_mission_frame_to_can_frame(
@@ -293,12 +298,17 @@ static void hball_rx_element_to_mission_frame(
     hball_mission_can_frame_t *target
 )
 {
+    uint8_t index;
+
     memset(target, 0, sizeof(*target));
     target->id = id;
     target->is_extended = (uint8_t)source->xtd;
     target->is_remote = (uint8_t)source->rtr;
     target->dlc = (uint8_t)source->dlc;
-    memcpy(target->data, source->data, sizeof(target->data));
+    for (index = 0U; index < sizeof(target->data); ++index)
+    {
+        target->data[index] = (uint8_t)source->data[index];
+    }
 }
 
 static void hball_can_refresh_error_status(void)
@@ -477,6 +487,7 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
 static void hball_can_record_rx(const DL_MCAN_RxBufElement *message)
 {
     uint32_t id;
+    uint8_t index;
     hball_mission_can_frame_t mission_frame;
     hball_mission_status_t status;
 
@@ -503,11 +514,13 @@ static void hball_can_record_rx(const DL_MCAN_RxBufElement *message)
     {
         g_hball_can_stats.rx_fd_rejected++;
     }
-    memcpy(
-        (void *)g_hball_can_stats.last_rx_data,
-        message->data,
-        sizeof(g_hball_can_stats.last_rx_data)
-    );
+    for (index = 0U;
+         index < sizeof(g_hball_can_stats.last_rx_data);
+         ++index)
+    {
+        g_hball_can_stats.last_rx_data[index] =
+            (uint8_t)message->data[index];
+    }
 
     if ((message->xtd == 0U) && (id == HBALL_CAN_ID_MISSION_STATUS))
     {

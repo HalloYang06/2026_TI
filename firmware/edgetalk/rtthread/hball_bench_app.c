@@ -98,6 +98,7 @@ static hball_mission_arbiter_t g_hball_mission_arbiter;
 static hball_mission_chassis_status_t g_hball_mission_chassis;
 static rt_uint32_t g_hball_mission_intent_rx = 0U;
 static rt_uint32_t g_hball_mission_intent_invalid = 0U;
+static rt_uint8_t g_hball_mission_last_invalid_intent[8];
 static rt_uint32_t g_hball_mission_chassis_rx = 0U;
 static rt_uint32_t g_hball_mission_chassis_invalid = 0U;
 static rt_uint32_t g_hball_mission_status_tx = 0U;
@@ -412,6 +413,11 @@ static void hball_poll_can(void)
                 }
                 else
                 {
+                    rt_memcpy(
+                        g_hball_mission_last_invalid_intent,
+                        frame.data,
+                        sizeof(g_hball_mission_last_invalid_intent)
+                    );
                     g_hball_mission_intent_invalid++;
                 }
             }
@@ -468,7 +474,11 @@ static rt_uint16_t hball_mission_ready_mask(rt_uint32_t now_ms)
         ready |= HBALL_MISSION_READY_IMU;
     }
     if (hball_motor_monitor_feedback_fresh(
-            &g_hball_motor, now_ms, 20U))
+            &g_hball_motor, now_ms, 20U)
+        || hball_motor_monitor_parameters_fresh(
+            &g_hball_motor,
+            now_ms,
+            HBALL_RS00_MOTION_PARAMETER_FRESH_MS))
     {
         ready |= HBALL_MISSION_READY_RS00_LINK;
     }
@@ -1713,6 +1723,20 @@ static void hball_status(void)
         (unsigned long)g_hball_mission_arbiter.start_accept_total,
         (unsigned long)g_hball_mission_arbiter.start_reject_total
     );
+    if (g_hball_mission_intent_invalid != 0U)
+    {
+        rt_kprintf(
+            "[hball-mission] last_invalid_intent=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+            g_hball_mission_last_invalid_intent[0],
+            g_hball_mission_last_invalid_intent[1],
+            g_hball_mission_last_invalid_intent[2],
+            g_hball_mission_last_invalid_intent[3],
+            g_hball_mission_last_invalid_intent[4],
+            g_hball_mission_last_invalid_intent[5],
+            g_hball_mission_last_invalid_intent[6],
+            g_hball_mission_last_invalid_intent[7]
+        );
+    }
     if (g_hball_last_rx_valid)
     {
         rt_kprintf(
