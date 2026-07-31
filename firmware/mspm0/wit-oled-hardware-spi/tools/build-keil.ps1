@@ -54,6 +54,7 @@ $sources = @(
     'Drivers\CAN\hball_can_protocol.c', 'Drivers\CAN\hball_can_recovery.c',
     'Drivers\CAN\hball_can_port.c', 'Drivers\CAN\hball_mission_client.c',
     'App\Mission\hball_mission_menu.c',
+    'App\Mission\hball_mission_policy.c',
     (Join-Path $missionProtocolDir 'hball_mission_can.c'),
     'Drivers\ENCODER\encoder.c',
     'Drivers\GRAY\beeper.c', 'Drivers\GRAY\gray.c', 'Drivers\GRAY\key.c',

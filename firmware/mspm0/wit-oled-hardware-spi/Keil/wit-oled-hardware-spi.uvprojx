@@ -432,6 +432,11 @@
               <FilePath>..\App\Mission\hball_mission_menu.c</FilePath>
             </File>
             <File>
+              <FileName>hball_mission_policy.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\Mission\hball_mission_policy.c</FilePath>
+            </File>
+            <File>
               <FileName>hball_mission_can.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\shared\protocol\hball_mission_can.c</FilePath>
