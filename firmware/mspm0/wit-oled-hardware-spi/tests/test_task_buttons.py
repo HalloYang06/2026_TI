@@ -69,3 +69,21 @@ def test_task_menu_requires_release_before_power_on_key_arm() -> None:
     )
     event_poll = body.index("get_task_key_event()")
     assert release_gate < event_poll
+
+
+def test_q2_keeps_tested_c94_tracking_parameters() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    q2 = main.split(
+        "if (selected_task == HBALL_MISSION_Q2_FAST_LAP)", 1
+    )[1].split(
+        "else if (selected_task == HBALL_MISSION_Q4_A_TO_B)", 1
+    )[0]
+
+    assert "base_speed = 44;" in q2
+    assert "max_speed = 65;" in q2
+    assert "recovery_inner_speed = 14;" in q2
+    assert "weighted_position_kp = 0.50f;" in q2
+    assert "steering_limit = 20;" in q2
+    assert "steering_slew_step = 2;" in q2
+    assert "run_timeout_ms = 35000U;" in q2
+    assert "TRACK_PHASE_CURVE" not in main
