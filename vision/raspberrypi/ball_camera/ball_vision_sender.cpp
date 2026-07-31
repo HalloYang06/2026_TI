@@ -75,6 +75,36 @@ struct TemplateMatch {
   double score;
 };
 
+bool has_steel_ball_texture(const cv::Mat& gray, const cv::Vec3f& circle) {
+  const int radius = std::clamp(cvRound(circle[2]), 8, 13);
+  const cv::Rect image_bounds(0, 0, gray.cols, gray.rows);
+  const cv::Rect patch_bounds =
+      (cv::Rect(cvRound(circle[0]) - radius, cvRound(circle[1]) - radius,
+                2 * radius + 1, 2 * radius + 1) & image_bounds);
+  if (patch_bounds.width < 2 * radius || patch_bounds.height < 2 * radius) return false;
+
+  const cv::Mat patch = gray(patch_bounds);
+  cv::Mat mask = cv::Mat::zeros(patch.size(), CV_8U);
+  cv::circle(mask,
+             {cvRound(circle[0]) - patch_bounds.x,
+              cvRound(circle[1]) - patch_bounds.y},
+             radius, cv::Scalar(255), cv::FILLED);
+  cv::Scalar mean, deviation;
+  cv::meanStdDev(patch, mean, deviation, mask);
+  double minimum = 0.0;
+  double maximum = 0.0;
+  cv::minMaxLoc(patch, &minimum, &maximum, nullptr, nullptr, mask);
+  cv::Mat laplacian;
+  cv::Laplacian(patch, laplacian, CV_32F, 3);
+  const double edge_energy = cv::mean(cv::abs(laplacian), mask)[0];
+
+  // A real polished steel ball contains a dark body, a bright specular
+  // highlight and a strong curved edge.  Pipe shadows and slow illumination
+  // bands can be circular, but their local contrast and edge energy are low.
+  return deviation[0] >= 20.0 && (maximum - minimum) >= 70.0 &&
+         edge_energy >= 7.0;
+}
+
 double calibrated_position_cm(double pipe_x_px) {
   // One-dimensional projective calibration of the current fixed camera view.
   // It is fitted from the measured -10/-7.5/-5/+5/+7.5/+10 cm marks.  A line
@@ -128,7 +158,9 @@ std::optional<TemplateMatch> find_template_ball(const cv::Mat& pipe,
       std::abs(delta.dot(axis.direction)) > axis.length / 2 - 16.0F) {
     return std::nullopt;
   }
-  return TemplateMatch{cv::Vec3f(point.x, point.y, 10.0F), maximum};
+  const cv::Vec3f candidate(point.x, point.y, 10.0F);
+  if (!has_steel_ball_texture(gray, candidate)) return std::nullopt;
+  return TemplateMatch{candidate, maximum};
 }
 
 void signal_handler(int) { running = false; }
@@ -201,10 +233,12 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
     double score = 2.0 * lateral + 12.0 * std::abs(radius - 10.0) +
                    90.0 * (1.0 - circularity);
     if (previous_fraction) score += 140.0 * std::abs(fraction - *previous_fraction);
+    const cv::Vec3f candidate(point.x - roi_rect.x, point.y - roi_rect.y,
+                              static_cast<float>(radius));
+    if (!has_steel_ball_texture(gray, candidate)) continue;
     if (score < best_score) {
       best_score = score;
-      best = cv::Vec3f(point.x - roi_rect.x, point.y - roi_rect.y,
-                        static_cast<float>(radius));
+      best = candidate;
     }
   }
   if (best) return best;
@@ -226,6 +260,7 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
           std::abs(along) > axis.length / 2 - cfg.edge_ignore) continue;
       const double fraction = (along + axis.length / 2) / axis.length;
       if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.12) continue;
+      if (!has_steel_ball_texture(gray, circle)) continue;
       double score = lateral + 0.5 * std::abs(circle[2] - 10.0F);
       if (previous_fraction) score += 20.0 * std::abs(fraction - *previous_fraction);
       if (score < hough_best_score) {
@@ -261,6 +296,9 @@ std::optional<cv::Vec3f> find_ball(const cv::Mat& roi, const Config& cfg,
     const double radius = std::sqrt(area / CV_PI);
     const double fraction = (along + axis.length / 2) / axis.length;
     if (previous_fraction && std::abs(fraction - *previous_fraction) > 0.12) continue;
+    const cv::Vec3f candidate(static_cast<float>(x), static_cast<float>(y),
+                              static_cast<float>(radius));
+    if (!has_steel_ball_texture(gray, candidate)) continue;
     double score = lateral + 0.03 * std::abs(radius - 10.0);
     if (previous_fraction) {
       score += 20.0 * std::abs(fraction - *previous_fraction);
@@ -390,7 +428,7 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
         pending_reacquire_x = (*contour_circle)[0];
         pending_reacquire_frames = 1;
       }
-      if (pending_reacquire_frames >= 5) {
+      if (pending_reacquire_frames >= 8) {
         circle = contour_circle;
         reacquired = true;
         pending_reacquire_x.reset();
@@ -444,7 +482,7 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
           pending_template_x = (*circle)[0];
           pending_template_frames = 1;
         }
-        if (pending_template_frames >= 5) {
+        if (pending_template_frames >= 8) {
           ball_template = make_ball_template(pipe, *circle);
           pending_template_x.reset();
           pending_template_frames = 0;
