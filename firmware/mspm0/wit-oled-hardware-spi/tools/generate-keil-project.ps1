@@ -97,6 +97,7 @@ $applicationFiles = @(
     ,@('gray.c', '1', '..\Drivers\GRAY\gray.c')
     ,@('key.c', '1', '..\Drivers\GRAY\key.c')
     ,@('led.c', '1', '..\Drivers\GRAY\led.c')
+    ,@('line_sensor_port.c', '1', '..\Drivers\GRAY\line_sensor_port.c')
     ,@('track.c', '1', '..\Drivers\GRAY\track.c')
     ,@('motor.c', '1', '..\Drivers\MOTOR\motor.c')
     ,@('clock.c', '1', '..\Drivers\MSPM0\clock.c')

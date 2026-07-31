@@ -38,6 +38,7 @@
 #include "hball_mission_policy.h"
 #include "hball_runtime_services.h"
 #include "hball_runtime_target.h"
+#include "line_sensor_port.h"
 #include "line_snapshot.h"
 
 /*
@@ -86,7 +87,6 @@ static void encoder_test(void);
 static void format_encoder_count(char label, int32_t count, char text[10]);
 static void format_edge_count(char encoder, char phase, uint32_t count, char text[10]);
 static void track_sensor_test(void);
-static uint8_t read_track_raw(void);
 static void format_track_error(int16_t error, char text[7]);
 static void track_motor_test(void);
 static void track_ground_test(void);
@@ -594,22 +594,6 @@ static void format_edge_count(char encoder, char phase, uint32_t count, char tex
     text[8] = '\0';
 }
 
-static uint8_t read_track_raw(void)
-{
-    uint8_t sensors = 0U;
-
-    if (DL_GPIO_readPins(track_PIN_0_PORT, track_PIN_0_PIN) != 0U) sensors |= (1U << 0);
-    if (DL_GPIO_readPins(track_PIN_1_PORT, track_PIN_1_PIN) != 0U) sensors |= (1U << 1);
-    if (DL_GPIO_readPins(track_PIN_2_PORT, track_PIN_2_PIN) != 0U) sensors |= (1U << 2);
-    if (DL_GPIO_readPins(track_PIN_3_PORT, track_PIN_3_PIN) != 0U) sensors |= (1U << 3);
-    if (DL_GPIO_readPins(track_PIN_4_PORT, track_PIN_4_PIN) != 0U) sensors |= (1U << 4);
-    if (DL_GPIO_readPins(track_PIN_5_PORT, track_PIN_5_PIN) != 0U) sensors |= (1U << 5);
-    if (DL_GPIO_readPins(track_PIN_6_PORT, track_PIN_6_PIN) != 0U) sensors |= (1U << 6);
-    if (DL_GPIO_readPins(track_PIN_7_PORT, track_PIN_7_PIN) != 0U) sensors |= (1U << 7);
-
-    return sensors;
-}
-
 static void format_track_error(int16_t error, char text[7])
 {
     uint16_t magnitude;
@@ -649,7 +633,7 @@ static void track_sensor_test(void)
 
     while (1)
     {
-        raw = read_track_raw();
+        raw = line_sensor_port_read_raw();
         if (raw != last_raw)
         {
             active_count = 0U;
@@ -721,7 +705,7 @@ static void track_motor_test(void)
 
     while (1)
     {
-        raw = read_track_raw();
+        raw = line_sensor_port_read_raw();
         if ((uint16_t)raw != last_raw)
         {
             active_count = 0U;
@@ -802,7 +786,7 @@ static void track_ground_test(void)
 
     mspm0_delay_ms(2000U);
 
-    raw = read_track_raw();
+    raw = line_sensor_port_read_raw();
     line_mask = (uint8_t)(~raw);
     if ((line_mask == 0U) || (line_mask == 0xFFU))
     {
@@ -820,7 +804,7 @@ static void track_ground_test(void)
 
     while ((uint32_t)(tick_ms - run_start_ms) < 5000U)
     {
-        raw = read_track_raw();
+        raw = line_sensor_port_read_raw();
         line_mask = (uint8_t)(~raw);
         active_count = 0U;
         weighted_sum = 0;
@@ -1700,7 +1684,7 @@ static void lap_test_once(void)
         requested_speed_right = task3_start_speed;
     }
 
-    line_sample = line_snapshot_decode(read_track_raw(), tick_ms);
+    line_sample = line_snapshot_decode(line_sensor_port_read_raw(), tick_ms);
     line_mask = line_sample.line_mask;
     if (line_mask == 0U)
     {
@@ -1809,7 +1793,7 @@ static void lap_test_once(void)
             break;
         }
 
-        line_sample = line_snapshot_decode(read_track_raw(), tick_ms);
+        line_sample = line_snapshot_decode(line_sensor_port_read_raw(), tick_ms);
         line_mask = line_sample.line_mask;
         active_count = line_sample.active_count;
 

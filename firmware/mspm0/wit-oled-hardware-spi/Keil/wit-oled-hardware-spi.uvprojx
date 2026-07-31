@@ -502,6 +502,11 @@
               <FilePath>..\Drivers\GRAY\led.c</FilePath>
             </File>
             <File>
+              <FileName>line_sensor_port.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\GRAY\line_sensor_port.c</FilePath>
+            </File>
+            <File>
               <FileName>track.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\GRAY\track.c</FilePath>

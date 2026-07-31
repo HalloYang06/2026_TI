@@ -69,7 +69,12 @@ def test_active_lap_controller_consumes_line_snapshot_without_manual_decode() ->
     lap = main[start:end]
 
     assert '#include "line_snapshot.h"' in main
-    assert lap.count("line_snapshot_decode(read_track_raw(), tick_ms)") >= 2
+    assert (
+        lap.count(
+            "line_snapshot_decode(line_sensor_port_read_raw(), tick_ms)"
+        )
+        >= 2
+    )
     assert "static const int8_t weights[8]" not in lap
     assert "weighted_sum += weights[index];" not in lap
     assert "line_snapshot_has_adjacent(&line_sample, 3U)" in lap

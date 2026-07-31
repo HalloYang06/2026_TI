@@ -1,4 +1,5 @@
 #include "track.h"
+#include "line_sensor_port.h"
 
 #define TRACK_UPDATE_PERIOD_MS   10U
 #define TRACK_FORWARD_TIME_MS   200U
@@ -21,38 +22,6 @@ static uint16_t marker_count = 0;
 static uint16_t marker_goal = 4;
 static uint8_t marker_armed = 0;
 static int8_t last_line_side = 0;
-
-static uint8_t read_track_sensors(void)
-{
-    uint8_t sensors = 0;
-
-    if (DL_GPIO_readPins(track_PIN_0_PORT, track_PIN_0_PIN) == 0U) {
-        sensors |= TRACK_SENSOR(0);
-    }
-    if (DL_GPIO_readPins(track_PIN_1_PORT, track_PIN_1_PIN) == 0U) {
-        sensors |= TRACK_SENSOR(1);
-    }
-    if (DL_GPIO_readPins(track_PIN_2_PORT, track_PIN_2_PIN) == 0U) {
-        sensors |= TRACK_SENSOR(2);
-    }
-    if (DL_GPIO_readPins(track_PIN_3_PORT, track_PIN_3_PIN) == 0U) {
-        sensors |= TRACK_SENSOR(3);
-    }
-    if (DL_GPIO_readPins(track_PIN_4_PORT, track_PIN_4_PIN) == 0U) {
-        sensors |= TRACK_SENSOR(4);
-    }
-    if (DL_GPIO_readPins(track_PIN_5_PORT, track_PIN_5_PIN) == 0U) {
-        sensors |= TRACK_SENSOR(5);
-    }
-    if (DL_GPIO_readPins(track_PIN_6_PORT, track_PIN_6_PIN) == 0U) {
-        sensors |= TRACK_SENSOR(6);
-    }
-    if (DL_GPIO_readPins(track_PIN_7_PORT, track_PIN_7_PIN) == 0U) {
-        sensors |= TRACK_SENSOR(7);
-    }
-
-    return sensors;
-}
 
 static void follow_line(uint8_t sensors)
 {
@@ -166,7 +135,7 @@ void my_track(void)
         return;
     }
 
-    sensors = read_track_sensors();
+    sensors = line_sensor_port_read_active_mask();
     on_turn_marker = ((sensors & TRACK_SENSOR(0)) != 0U) &&
                      ((sensors & TRACK_SENSOR(3)) != 0U);
 
