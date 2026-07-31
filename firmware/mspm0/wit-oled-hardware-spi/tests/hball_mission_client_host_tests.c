@@ -22,7 +22,7 @@ static hball_mission_status_t make_status(
     return status;
 }
 
-static void test_client_starts_in_prepare_and_requires_matching_ready(void)
+static void test_client_starts_in_reset_and_requires_matching_ready(void)
 {
     hball_mission_client_t client;
     hball_mission_intent_t intent;
@@ -33,7 +33,7 @@ static void test_client_starts_in_prepare_and_requires_matching_ready(void)
     assert(client.selected_mission == HBALL_MISSION_Q2_FAST_LAP);
     assert(!hball_mission_client_ready(&client, 10U));
     assert(hball_mission_client_make_intent(&client, &intent));
-    assert(intent.command == HBALL_MISSION_COMMAND_PREPARE);
+    assert(intent.command == HBALL_MISSION_COMMAND_RESET);
 
     status = make_status(1U, HBALL_MISSION_Q3_BALL_SEQUENCE,
                          HBALL_MISSION_STATE_READY, 1U);
@@ -96,6 +96,11 @@ static void test_selection_is_blocked_after_start(void)
     hball_mission_status_t status;
 
     hball_mission_client_init(&client, 0U);
+    assert(!hball_mission_client_select(
+        &client, HBALL_MISSION_Q5_CENTER_LAP, 1U));
+    status = make_status(1U, HBALL_MISSION_Q2_FAST_LAP,
+                         HBALL_MISSION_STATE_READY, 1U);
+    assert(hball_mission_client_accept_status(&client, &status, 2U));
     assert(hball_mission_client_select(
         &client, HBALL_MISSION_Q5_CENTER_LAP, 5U));
     assert(client.selected_mission == HBALL_MISSION_Q5_CENTER_LAP);
@@ -120,7 +125,7 @@ static void test_selection_is_blocked_after_start(void)
 
 int main(void)
 {
-    test_client_starts_in_prepare_and_requires_matching_ready();
+    test_client_starts_in_reset_and_requires_matching_ready();
     test_start_is_one_shot_and_keeps_button_time();
     test_stale_duplicate_and_out_of_order_status_do_not_unlock();
     test_selection_is_blocked_after_start();

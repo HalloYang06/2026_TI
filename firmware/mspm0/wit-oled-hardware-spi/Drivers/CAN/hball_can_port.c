@@ -39,6 +39,7 @@ static bool g_hball_wit_attitude_seen;
 static hball_can_recovery_t g_hball_can_recovery;
 static hball_mission_client_t g_hball_mission_client;
 static hball_mission_ui_t g_hball_mission_ui;
+static void hball_can_drain_fifo0(void);
 static volatile uint32_t g_hball_port_now_ms;
 static uint32_t g_hball_chassis_start_ms;
 static uint8_t g_hball_chassis_phase;
@@ -376,6 +377,12 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
     {
         return;
     }
+    /*
+     * Drain FIFO0 from the 1 ms service path as a fallback for boards where
+     * the MCAN line-1 interrupt is not delivered. The FIFO acknowledge keeps
+     * this harmless when the IRQ path is working normally.
+     */
+    hball_can_drain_fifo0();
     if (hball_can_recovery_should_attempt(
             &g_hball_can_recovery,
             now_ms,
@@ -391,7 +398,15 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
         return;
     }
     telemetry_due = hball_can_stream_due(now_ms, &stream);
-    intent_due = ((now_ms % 50U) == 7U);
+    /*
+     * Give the synchronization intent two adjacent opportunities. A single
+     * 1 ms slot can be lost while the shared TX buffer is still pending.
+     * Intent outranks ordinary IMU telemetry so RESET/PREPARE cannot starve.
+     */
+    intent_due = !g_hball_mission_client.status_valid
+        ? !telemetry_due
+        : (((now_ms % 50U) == 7U)
+           || ((now_ms % 50U) == 8U));
     chassis_due = ((now_ms % 20U) == 9U);
     if ((g_hball_can_stats.bus_off != 0U)
         || (!telemetry_due && !intent_due && !chassis_due))
@@ -405,7 +420,18 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
         return;
     }
 
-    if (telemetry_due)
+    if (intent_due)
+    {
+        if (!hball_mission_client_make_intent(
+                &g_hball_mission_client, &intent)
+            || !hball_mission_encode_intent(&intent, &mission_frame))
+        {
+            g_hball_can_stats.tx_failed++;
+            return;
+        }
+        hball_mission_frame_to_can_frame(&mission_frame, &frame);
+    }
+    else if (telemetry_due)
     {
         hball_can_snapshot_inputs(now_ms, &inputs);
         sequence = g_hball_sequences[stream];
@@ -427,17 +453,6 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
             g_hball_can_stats.tx_failed++;
             return;
         }
-    }
-    else if (intent_due)
-    {
-        if (!hball_mission_client_make_intent(
-                &g_hball_mission_client, &intent)
-            || !hball_mission_encode_intent(&intent, &mission_frame))
-        {
-            g_hball_can_stats.tx_failed++;
-            return;
-        }
-        hball_mission_frame_to_can_frame(&mission_frame, &frame);
     }
     else
     {
@@ -473,7 +488,7 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
     {
         g_hball_sequences[stream]++;
     }
-    if (intent_due && !telemetry_due)
+    if (intent_due)
     {
         g_hball_can_stats.mission_intent_tx++;
     }

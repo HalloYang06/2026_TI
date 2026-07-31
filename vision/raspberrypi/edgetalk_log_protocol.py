@@ -8,6 +8,20 @@ from dataclasses import dataclass
 MAGIC = b"HBLG"
 FRAME_SIZE = 80
 VERSION = 1
+STATUS_Q3_ACTUAL = 1 << 16
+STATUS_CONTROL_ACTIVE = 1 << 17
+STATUS_Q3_PASSED = 1 << 18
+VALUE_NAMES = (
+    "ball_position_m",
+    "estimated_position_m",
+    "estimated_velocity_mps",
+    "estimated_disturbance_mps2",
+    "pipe_target_rad",
+    "motor_angle_rad",
+    "motor_velocity_rad_s",
+    "longitudinal_accel_mps2",
+    "body_pitch_rad",
+)
 _FORMAT = struct.Struct("<4sHHIIIIIIHHI9fI")
 
 
@@ -33,6 +47,16 @@ class ControlLog:
     status_flags: int
     values: tuple[float, ...]
     raw: bytes
+
+    @property
+    def is_q3_actual(self) -> bool:
+        return bool(self.status_flags & STATUS_Q3_ACTUAL)
+
+    def named_values(self) -> dict[str, float]:
+        values = dict(zip(VALUE_NAMES, self.values, strict=True))
+        if self.is_q3_actual:
+            values["target_position_m"] = values["estimated_disturbance_mps2"]
+        return values
 
 
 def decode_frame(frame: bytes) -> ControlLog:

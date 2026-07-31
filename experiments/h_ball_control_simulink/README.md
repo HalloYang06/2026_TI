@@ -57,6 +57,8 @@
 - `run_ball_pipe_demo.m`：运行标称仿真并生成曲线。
 - `run_ball_pipe_sweep.m`：比较摩擦、阻力、延迟等不确定性。
 - `estimate_ball_pipe_parameters.m`：根据斜管实验估计参数。
+- `import_edgetalk_control_log.m`：导入树莓派采集的实控CSV并生成Simulink timeseries。
+- `analyze_edgetalk_q3_log.m`：复算Q3时间、误差和管角曲线。
 
 相机默认值和输出结果均已更新为100 Hz基线。`camera_rate_comparison.png/.mat`包含
 100、60与30 Hz对照，`vehicle_stress_results.mat`和压力测试图片使用100 Hz默认相机。
@@ -240,6 +242,34 @@ MATLAB机构分析表明，`±6°`全部可达，RS00相对水平零位约需运
 - 实际最大允许位置和安全边距。
 
 不要先追求很复杂的控制器。应先让标称模型和实物的开环阶跃曲线接近，再比较 LQI、LADRC 或 MPC。
+
+## 树莓派实物日志回灌Simulink
+
+树莓派相机桥运行时同时落盘：
+
+```bash
+python3 edgetalk_camera_bridge.py \
+  --telemetry-log ~/hball-logs/q3_001.hblg
+```
+
+演示结束后转换CRC有效的Q3实控帧：
+
+```bash
+python3 control_log_to_csv.py \
+  ~/hball-logs/q3_001.hblg ~/hball-logs/q3_001.csv
+```
+
+把CSV复制到运行MATLAB的电脑，在本目录执行：
+
+```matlab
+replay = import_edgetalk_control_log("q3_001.csv");
+metrics = analyze_edgetalk_q3_log("q3_001.csv");
+```
+
+导入器会向base workspace发布`hball_log_*` timeseries，可直接连接
+Simulink的`From Workspace`块。建议先用实物的`pipe_target`作为模型输入，
+对比模型球位与`hball_log_ball_position`，调整摩擦、滚阻、执行器延迟和机构回差；
+只有开环/回放曲线接近后，才在模型中重新优化PID/LQI参数。
 
 ## RS00 控制模式建议
 

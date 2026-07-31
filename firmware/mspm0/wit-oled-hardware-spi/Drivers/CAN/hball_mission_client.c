@@ -14,7 +14,12 @@ void hball_mission_client_init(
     memset(client, 0, sizeof(*client));
     client->candidate_epoch = 1U;
     client->selected_mission = HBALL_MISSION_Q2_FAST_LAP;
-    client->command = HBALL_MISSION_COMMAND_PREPARE;
+    /*
+     * The M33 may still own an active mission when only the MSPM0 resets.
+     * RESET first terminates/adopts that remote context; the M33 then
+     * establishes this candidate context before reporting READY.
+     */
+    client->command = HBALL_MISSION_COMMAND_RESET;
     client->command_time_ms = now_ms;
 }
 
@@ -26,6 +31,7 @@ bool hball_mission_client_select(
 {
     if ((client == NULL)
         || client->start_requested
+        || !client->status_valid
         || !hball_mission_id_valid(mission_id))
     {
         return false;

@@ -92,7 +92,9 @@ def forward_stream(
             written = device.write(frame)
             if written != len(frame):
                 raise OSError(f"short USB CDC write: {written}/{len(frame)}")
-            device.flush()
+            # Do not call flush() per frame: USB CDC disconnect/re-enumeration
+            # can leave pyserial waiting indefinitely. write_timeout bounds
+            # write(), and the next iteration naturally maintains ordering.
             waiting = getattr(device, "in_waiting", 0)
             if waiting:
                 for record in telemetry.push(device.read(waiting)):

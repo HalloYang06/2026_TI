@@ -7,6 +7,19 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Invoke-Tool([string]$FilePath, [object[]]$Arguments, [string]$Failure) {
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = ($Arguments -join ' ')
+    $startInfo.UseShellExecute = $true
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) {
+        throw "$Failure (exit $($process.ExitCode))"
+    }
+}
+
 $keilCandidates = @(
     $KeilBin,
     $env:KEIL_ARMCLANG_BIN,
@@ -66,20 +79,17 @@ foreach ($source in $sources) {
     $objectName = ([IO.Path]::GetFileNameWithoutExtension($sourcePath) + '-' + ([Math]::Abs($sourcePath.ToLowerInvariant().GetHashCode())) + '.o')
     $objectPath = Join-Path $outputDir $objectName
     if ($sourcePath.EndsWith('.s', [StringComparison]::OrdinalIgnoreCase)) {
-        & $assembler '--cpu' 'Cortex-M0+' $sourcePath '-o' $objectPath
+        Invoke-Tool $assembler @('--cpu', 'Cortex-M0+', $sourcePath, '-o', $objectPath) "Assembly failed: $source"
     } else {
-        & $compiler @compileArgs '-c' $sourcePath '-o' $objectPath
+        Invoke-Tool $compiler ($compileArgs + @('-c', $sourcePath, '-o', $objectPath)) "Compilation failed: $source"
     }
-    if ($LASTEXITCODE -ne 0) { throw "Compilation failed: $source" }
     $objects += $objectPath
 }
 
 $elf = Join-Path $outputDir 'wit-oled-hardware-spi.axf'
 $map = Join-Path $listingDir 'wit-oled-hardware-spi.map'
 $driverLib = Join-Path $SdkRoot 'source\ti\driverlib\lib\keil\m0p\mspm0g1x0x_g3x0x\driverlib.a'
-& $linker '--cpu' 'Cortex-M0+' '--strict' "--scatter=$(Join-Path $ProjectRoot 'Keil\mspm0g3507.sct')" '--summary_stderr' '--info' 'summarysizes' '--map' "--list=$map" "--output=$elf" @objects $driverLib
-if ($LASTEXITCODE -ne 0) { throw 'Link failed.' }
+Invoke-Tool $linker (@('--cpu', 'Cortex-M0+', '--strict', "--scatter=$(Join-Path $ProjectRoot 'Keil\mspm0g3507.sct')", '--summary_stderr', '--info', 'summarysizes', '--map', "--list=$map", "--output=$elf") + $objects + @($driverLib)) 'Link failed.'
 
-& $fromElf '--i32' '--output' (Join-Path $outputDir 'wit-oled-hardware-spi.hex') $elf
-if ($LASTEXITCODE -ne 0) { throw 'HEX conversion failed.' }
+Invoke-Tool $fromElf @('--i32', '--output', (Join-Path $outputDir 'wit-oled-hardware-spi.hex'), $elf) 'HEX conversion failed.'
 Write-Host "Built $elf"

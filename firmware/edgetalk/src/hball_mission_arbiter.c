@@ -81,7 +81,8 @@ bool hball_mission_arbiter_accept_intent(
     {
         return false;
     }
-    if (arbiter->context_valid
+    if ((intent->command != HBALL_MISSION_COMMAND_RESET)
+        && arbiter->context_valid
         && hball_mission_epoch_is_older(intent->epoch, arbiter->epoch))
     {
         arbiter->epoch_reject_total++;
@@ -100,6 +101,43 @@ bool hball_mission_arbiter_accept_intent(
         }
         hball_mission_prepare(arbiter, intent, now_ms);
         return true;
+    }
+
+    if ((intent->command == HBALL_MISSION_COMMAND_START)
+        && !arbiter->context_valid)
+    {
+        /*
+         * M33-only reboot recovery: TI legitimately keeps retransmitting
+         * START. Rebuild the matching context, but do not bypass PREPARING
+         * or the 500 ms READY qualification. A later START performs launch.
+         */
+        hball_mission_prepare(arbiter, intent, now_ms);
+        return true;
+    }
+
+    if (intent->command == HBALL_MISSION_COMMAND_RESET)
+    {
+        if (arbiter->context_valid
+            && (arbiter->global_state >= HBALL_MISSION_STATE_START_PENDING)
+            && (arbiter->global_state <= HBALL_MISSION_STATE_FINISHING))
+        {
+            /*
+             * RESET is the cross-MCU recovery command. Keep the old context
+             * for one status cycle so every consumer observes the abort;
+             * a repeated RESET can then establish the caller's context.
+             */
+            arbiter->global_state = HBALL_MISSION_STATE_CONTROLLED_ABORT;
+            arbiter->reason = HBALL_MISSION_REASON_LOCAL_FAULT;
+            arbiter->ready_candidate_valid = false;
+            return true;
+        }
+        if (!arbiter->context_valid
+            || (intent->epoch != arbiter->epoch)
+            || (intent->mission_id != arbiter->mission_id))
+        {
+            hball_mission_prepare(arbiter, intent, now_ms);
+            return true;
+        }
     }
 
     if (!arbiter->context_valid
@@ -137,11 +175,10 @@ bool hball_mission_arbiter_accept_intent(
     }
     if (intent->command == HBALL_MISSION_COMMAND_RESET)
     {
-        if ((arbiter->global_state == HBALL_MISSION_STATE_START_PENDING)
-            || (arbiter->global_state == HBALL_MISSION_STATE_RUNNING)
-            || (arbiter->global_state == HBALL_MISSION_STATE_FINISHING))
+        if ((arbiter->global_state == HBALL_MISSION_STATE_PREPARING)
+            || (arbiter->global_state == HBALL_MISSION_STATE_READY))
         {
-            return false;
+            return true;
         }
         arbiter->global_state = HBALL_MISSION_STATE_PREPARING;
         arbiter->reason = HBALL_MISSION_REASON_NOT_READY;
