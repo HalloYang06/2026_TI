@@ -1087,6 +1087,26 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
     {
         return;
     }
+    if (g_hball_ball_active
+        && (g_hball_ball_control_epoch != 0U)
+        && ((g_hball_ball_control_epoch
+                != g_hball_mission_arbiter.epoch)
+            || (g_hball_ball_control_mission != mission)))
+    {
+        rt_kprintf(
+            "[hball-mission] release old control epoch=%u q=%u for epoch=%u q=%u\n",
+            (unsigned int)g_hball_ball_control_epoch,
+            (unsigned int)g_hball_ball_control_mission,
+            (unsigned int)g_hball_mission_arbiter.epoch,
+            (unsigned int)mission
+        );
+        hball_motion_stop_now(
+            HBALL_RS00_BENCH_STOP_MANUAL, now_ms, RT_TRUE
+        );
+        g_hball_ball_control_epoch = 0U;
+        g_hball_ball_control_mission = 0U;
+        return;
+    }
     if (q456)
     {
         hball_sensor_snapshot_t snapshot;
