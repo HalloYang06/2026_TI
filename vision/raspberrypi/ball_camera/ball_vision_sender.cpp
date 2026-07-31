@@ -99,17 +99,17 @@ cv::Mat make_ball_template(const cv::Mat& pipe, const cv::Vec3f& circle) {
 std::optional<TemplateMatch> find_template_ball(const cv::Mat& pipe,
                                                 const cv::Mat& ball_template,
                                                 float expected_x,
-                                                const PipeAxis& axis) {
+                                                const PipeAxis& axis,
+                                                int search_radius) {
   if (ball_template.empty() || ball_template.cols > pipe.cols || ball_template.rows > pipe.rows) {
     return std::nullopt;
   }
   cv::Mat gray;
   cv::cvtColor(pipe, gray, cv::COLOR_BGR2GRAY);
-  constexpr int kSearchRadius = 32;
   const int half_width = ball_template.cols / 2;
-  const int search_left = std::clamp(cvRound(expected_x) - kSearchRadius - half_width, 0,
+  const int search_left = std::clamp(cvRound(expected_x) - search_radius - half_width, 0,
                                      pipe.cols - ball_template.cols);
-  const int search_right = std::clamp(cvRound(expected_x) + kSearchRadius + half_width,
+  const int search_right = std::clamp(cvRound(expected_x) + search_radius + half_width,
                                       ball_template.cols, pipe.cols);
   const cv::Rect search(search_left, 0, search_right - search_left, pipe.rows);
   cv::Mat correlation;
@@ -123,7 +123,7 @@ std::optional<TemplateMatch> find_template_ball(const cv::Mat& pipe,
                           static_cast<float>(maximum_point.y + ball_template.rows / 2));
   const cv::Point2f delta = point - axis.centre;
   const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
-  if (std::abs(point.x - expected_x) > static_cast<float>(kSearchRadius) ||
+  if (std::abs(point.x - expected_x) > static_cast<float>(search_radius) ||
       lateral > axis.half_width ||
       std::abs(delta.dot(axis.direction)) > axis.length / 2 - 16.0F) {
     return std::nullopt;
@@ -335,6 +335,8 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
   static cv::Mat ball_template;
   static std::optional<float> pending_reacquire_x;
   static int pending_reacquire_frames = 0;
+  static std::optional<float> pending_template_x;
+  static int pending_template_frames = 0;
   if (!configured) {
     tracker.transitionMatrix = (cv::Mat_<float>(2, 2) << 1.0F, 1.0F, 0.0F, 1.0F);
     tracker.measurementMatrix = (cv::Mat_<float>(1, 2) << 1.0F, 0.0F);
@@ -351,8 +353,10 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
     previous_fraction = std::clamp(static_cast<double>(predicted_x) / axis.length, 0.0, 1.0);
   }
   const auto contour_circle = find_ball(pipe, cfg, previous_fraction, axis, roi);
+  const bool tracker_is_moving = tracker_ready && std::abs(tracker.statePre.at<float>(1)) > 1.5F;
+  const int template_search_radius = tracker_is_moving ? 32 : 12;
   const auto template_match = tracker_ready
-      ? find_template_ball(pipe, ball_template, predicted_x, axis)
+      ? find_template_ball(pipe, ball_template, predicted_x, axis, template_search_radius)
       : std::nullopt;
   constexpr double kStrongTemplateScore = 0.84;
   constexpr double kWeakTemplateScore = 0.70;
@@ -371,7 +375,6 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
   } else if (contour_circle) {
     const bool template_agrees = template_match && template_match->score >= kWeakTemplateScore &&
         std::abs((*contour_circle)[0] - template_match->circle[0]) <= kTemplateAgreementPx;
-    const bool tracker_is_moving = tracker_ready && std::abs(tracker.statePre.at<float>(1)) > 1.5F;
     if (ball_template.empty() || !tracker_ready || template_agrees || tracker_is_moving) {
       circle = contour_circle;
       pending_reacquire_x.reset();
@@ -424,7 +427,24 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
       previous_fraction = fraction;
       missed_frames = 0;
       position_cm = calibrated_position_cm(tracked_x);
-      if (!use_template) ball_template = make_ball_template(pipe, *circle);
+      // A template is an identity reference, not a continuously refreshed
+      // appearance model.  Refreshing it from one contour allowed a hand or
+      // pen to overwrite the true ball identity.  Seed it only after five
+      // stable observations at service start, then keep it immutable.
+      if (ball_template.empty() && !use_template) {
+        if (pending_template_x && std::abs((*circle)[0] - *pending_template_x) <= 4.0F) {
+          *pending_template_x = 0.5F * (*pending_template_x + (*circle)[0]);
+          ++pending_template_frames;
+        } else {
+          pending_template_x = (*circle)[0];
+          pending_template_frames = 1;
+        }
+        if (pending_template_frames >= 5) {
+          ball_template = make_ball_template(pipe, *circle);
+          pending_template_x.reset();
+          pending_template_frames = 0;
+        }
+      }
       const cv::Point2f camera_point = map_pipe_point({tracked_x, axis.centre.y});
       const cv::Point display_point(cvRound(camera_point.x), cvRound(camera_point.y));
       cv::circle(image, display_point, 10, cv::Scalar(0, 255, 0), 3, cv::LINE_AA);
