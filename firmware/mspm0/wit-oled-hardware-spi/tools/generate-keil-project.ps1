@@ -39,7 +39,8 @@ $target.TargetOption.TargetArmAds.Cads.VariousControls.Define = '__MSPM0G3507__'
 $include = @(
     "$SdkRoot\source",
     "$SdkRoot\source\third_party\CMSIS\Core\Include",
-    '..', '..\Debug', '..\App\Control', '..\App\Mission', '..\App\Runtime',
+    '..', '..\Debug', '..\App\Chassis', '..\App\Control', '..\App\Mission',
+    '..\App\Runtime',
     '..\Drivers\CAN', '..\Drivers\ENCODER', '..\Drivers\GRAY', '..\Drivers\MOTOR',
     '..\Drivers\MSPM0', '..\Drivers\OLED_Hardware_SPI', '..\Drivers\PID',
     '..\Drivers\UART_VOFA+', '..\Drivers\WIT',
@@ -79,6 +80,7 @@ $applicationFiles = @(
     ,@('startup_mspm0g350x_uvision.s', '2', "$SdkRoot\source\ti\devices\msp\m0p\startup_system_files\keil\startup_mspm0g350x_uvision.s")
     ,@('main.c', '1', '..\main.c')
     ,@('ti_msp_dl_config.c', '1', '..\Debug\ti_msp_dl_config.c')
+    ,@('route_marker_detector.c', '1', '..\App\Chassis\route_marker_detector.c')
     ,@('chassis_actuator.c', '1', '..\App\Control\chassis_actuator.c')
     ,@('line_snapshot.c', '1', '..\App\Control\line_snapshot.c')
     ,@('line_follower.c', '1', '..\App\Control\line_follower.c')

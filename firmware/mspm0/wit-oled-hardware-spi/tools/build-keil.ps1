@@ -51,6 +51,7 @@ New-Item -ItemType Directory -Force -Path $outputDir, $listingDir | Out-Null
 
 $sources = @(
     'main.c', 'Debug\ti_msp_dl_config.c',
+    'App\Chassis\route_marker_detector.c',
     'App\Control\chassis_actuator.c', 'App\Control\line_snapshot.c',
     'App\Control\line_follower.c', 'App\Control\wheel_control.c',
     'Drivers\CAN\hball_can_protocol.c', 'Drivers\CAN\hball_can_recovery.c',
@@ -78,6 +79,7 @@ $sources = @(
 $includeDirs = @(
     "$SdkRoot\source", "$SdkRoot\source\third_party\CMSIS\Core\Include",
     $ProjectRoot, (Join-Path $ProjectRoot 'Debug'),
+    (Join-Path $ProjectRoot 'App\Chassis'),
     (Join-Path $ProjectRoot 'App\Control'),
     (Join-Path $ProjectRoot 'App\Mission'),
     (Join-Path $ProjectRoot 'App\Runtime'), $missionProtocolDir
