@@ -39,6 +39,7 @@
 #include "hball_mission_policy.h"
 #include "hball_runtime_services.h"
 #include "hball_runtime_target.h"
+#include "chassis_motion_profile.h"
 #include "line_follower.h"
 #include "line_sensor_port.h"
 #include "line_snapshot.h"
@@ -78,6 +79,8 @@ _Static_assert(
 #define CAR_TASK_STABLE_LAP      3U
 #define GYRO_LCD_REFRESH_MS 100U
 #define HBALL_MISSION_MENU_RENDER_MIN_MS 1000U
+#define HBALL_Q4_SOFT_START_MS 600U
+#define HBALL_Q4_SOFT_STOP_MS 500U
 #define MOTOR_TEST_DUTY 20.0f
 
 uint8_t oled_buffer[64];
@@ -1595,6 +1598,7 @@ static void lap_test_once(void)
     static line_follower_t line_follower;
     static route_marker_detector_t route_marker_detector;
     static wheel_control_t wheel_control;
+    chassis_motion_profile_t q4_speed_profile;
     line_follower_output_t follower_output;
     line_follower_profile_t follower_profile;
     motion_intent_t wheel_intent;
@@ -1605,6 +1609,7 @@ static void lap_test_once(void)
     uint8_t selected_task;
     uint8_t finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
     bool local_marker_stop_enabled;
+    bool q4_braking = false;
     uint16_t mission_epoch;
     uint32_t run_timeout_ms;
     line_snapshot_t line_sample;
@@ -1620,6 +1625,7 @@ static void lap_test_once(void)
     int32_t current_right_count;
     int32_t left_speed;
     int32_t right_speed;
+    float q4_speed_scale = 1.0F;
     uint32_t run_start_ms;
     uint32_t elapsed_ms;
     uint32_t timeout_trigger_ms;
@@ -1735,8 +1741,20 @@ static void lap_test_once(void)
         return;
     }
 
+    if (selected_task == CAR_TASK_TIMED_RUN)
+    {
+        commanded_duty_left = 0;
+        commanded_duty_right = 0;
+    }
     chassis_actuator_start_synchronized((float)commanded_duty_left, (float)commanded_duty_right);
     run_start_ms = tick_ms;
+    chassis_motion_profile_start(
+        &q4_speed_profile,
+        selected_task == CAR_TASK_TIMED_RUN ? 0.0F : 1.0F,
+        1.0F,
+        run_start_ms,
+        selected_task == CAR_TASK_TIMED_RUN ? HBALL_Q4_SOFT_START_MS : 0U
+    );
     line_follower_init(&line_follower, follower_profile, run_start_ms);
     (void)route_marker_detector_init(
         &route_marker_detector, &marker_config, run_start_ms);
@@ -1793,6 +1811,19 @@ static void lap_test_once(void)
         if ((selected_task == CAR_TASK_STABLE_LAP) &&
             (run_timeout_ms >= 500U)) {
             timeout_trigger_ms = run_timeout_ms - 500U;
+        }
+        if ((selected_task == CAR_TASK_TIMED_RUN)
+            && !q4_braking
+            && (elapsed_ms >= (run_timeout_ms - HBALL_Q4_SOFT_STOP_MS)))
+        {
+            q4_braking = true;
+            chassis_motion_profile_start(
+                &q4_speed_profile,
+                q4_speed_scale,
+                0.0F,
+                tick_ms,
+                HBALL_Q4_SOFT_STOP_MS
+            );
         }
         if ((run_timeout_ms != 0U) && (elapsed_ms >= timeout_trigger_ms))
         {
@@ -1874,6 +1905,20 @@ static void lap_test_once(void)
             &follower_output
         );
         wheel_intent = follower_output.intent;
+        if (selected_task == CAR_TASK_TIMED_RUN)
+        {
+            q4_speed_scale = chassis_motion_profile_sample(
+                &q4_speed_profile, tick_ms
+            );
+            wheel_intent.requested_speed_left =
+                chassis_motion_profile_scale_i16(
+                    wheel_intent.requested_speed_left, q4_speed_scale
+                );
+            wheel_intent.requested_speed_right =
+                chassis_motion_profile_scale_i16(
+                    wheel_intent.requested_speed_right, q4_speed_scale
+                );
+        }
         error = follower_output.error;
 
         if (follower_output.reset_wheel_integrators)

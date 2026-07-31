@@ -82,6 +82,7 @@ $applicationFiles = @(
     ,@('ti_msp_dl_config.c', '1', '..\Debug\ti_msp_dl_config.c')
     ,@('route_marker_detector.c', '1', '..\App\Chassis\route_marker_detector.c')
     ,@('chassis_actuator.c', '1', '..\App\Control\chassis_actuator.c')
+    ,@('chassis_motion_profile.c', '1', '..\App\Control\chassis_motion_profile.c')
     ,@('line_snapshot.c', '1', '..\App\Control\line_snapshot.c')
     ,@('line_follower.c', '1', '..\App\Control\line_follower.c')
     ,@('wheel_control.c', '1', '..\App\Control\wheel_control.c')

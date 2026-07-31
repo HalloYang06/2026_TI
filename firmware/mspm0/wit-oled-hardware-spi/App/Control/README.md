@@ -17,6 +17,11 @@ module.
 and output slew. It consumes atomic encoder counts and requested wheel speeds;
 it returns a PWM request without reading registers or calling the actuator.
 
+`ChassisMotionProfile` is a pure minimum-jerk scale generator. Mission code
+chooses the start time and duration, applies the returned scale to a
+`MotionIntent`, and remains responsible for normal-stop versus hard-fault stop
+policy. The profile has no actuator, transport, sensor, or mission dependency.
+
 `MotionIntent` is the timestamped, hardware-independent handoff between line
 following and wheel control. Its speed unit remains encoder counts per 100 ms
 to preserve the verified controller. A valid intent may still represent
