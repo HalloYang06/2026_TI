@@ -69,3 +69,23 @@ def test_task_menu_requires_release_before_power_on_key_arm() -> None:
     )
     event_poll = body.index("get_task_key_event()")
     assert release_gate < event_poll
+
+
+def test_q3_waits_for_ball_control_without_starting_chassis() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    dispatch = _function_body(
+        main,
+        "static void lap_test(void)\n{",
+        "static void wait_ball_only_mission",
+    )
+    ball_only = _function_body(
+        main,
+        "static void wait_ball_only_mission(uint8_t selected_mission)\n{",
+        "static void lap_test_once",
+    )
+
+    assert "hball_mission_runs_chassis(selected_mission)" in dispatch
+    assert "hball_mission_runs_ball_control(selected_mission)" in dispatch
+    assert "wait_ball_only_mission(selected_mission)" in dispatch
+    assert "DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN)" in ball_only
+    assert "motor_pwm_set" not in ball_only
