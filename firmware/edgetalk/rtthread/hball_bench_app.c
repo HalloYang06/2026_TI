@@ -1684,14 +1684,11 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         g_hball_ball_settle_since_ms = 0U;
         rt_kprintf("[hball-q3] fail 5 s deadline; returning level\n");
     }
-    else if ((g_hball_ball_phase != 4U)
-        && ((g_hball_ball_mode == 1U)
-            || (HBALL_BALL_HOLD_TIMEOUT_MS != 0U))
+    else if ((g_hball_ball_mode != 1U)
+        && (g_hball_ball_phase != 4U)
+        && (HBALL_BALL_HOLD_TIMEOUT_MS != 0U)
         && ((rt_uint32_t)(now_ms - g_hball_ball_start_ms)
-        >= ((g_hball_ball_mode == 1U)
-            ? HBALL_BALL_COMMISSION_TIMEOUT_MS
-            : HBALL_BALL_HOLD_TIMEOUT_MS))
-        )
+            >= HBALL_BALL_HOLD_TIMEOUT_MS))
     {
         g_hball_ball_phase = 4U;
         g_hball_ball_settle_since_ms = 0U;
