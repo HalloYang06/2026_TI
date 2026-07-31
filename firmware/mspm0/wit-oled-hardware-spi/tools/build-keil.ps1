@@ -51,7 +51,7 @@ New-Item -ItemType Directory -Force -Path $outputDir, $listingDir | Out-Null
 
 $sources = @(
     'main.c', 'Debug\ti_msp_dl_config.c',
-    'App\Control\chassis_actuator.c',
+    'App\Control\chassis_actuator.c', 'App\Control\line_snapshot.c',
     'Drivers\CAN\hball_can_protocol.c', 'Drivers\CAN\hball_can_recovery.c',
     'Drivers\CAN\hball_can_port.c', 'Drivers\CAN\hball_mission_client.c',
     'App\Mission\hball_mission_menu.c',

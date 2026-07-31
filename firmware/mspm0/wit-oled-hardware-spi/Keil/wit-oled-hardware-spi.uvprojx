@@ -417,6 +417,11 @@
               <FilePath>..\App\Control\chassis_actuator.c</FilePath>
             </File>
             <File>
+              <FileName>line_snapshot.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\Control\line_snapshot.c</FilePath>
+            </File>
+            <File>
               <FileName>hball_can_protocol.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\CAN\hball_can_protocol.c</FilePath>
