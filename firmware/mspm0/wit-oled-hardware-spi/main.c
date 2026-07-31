@@ -1677,6 +1677,10 @@ static void lap_test_once(void)
     LCD_BLK_Set();
     selected_task = select_car_task();
     selected_mission = selected_task;
+    if (selected_mission == HBALL_MISSION_Q2_FAST_LAP)
+    {
+        hball_can_port_set_realtime_suspended(true);
+    }
     if (selected_task == HBALL_MISSION_Q2_FAST_LAP)
     {
         selected_task = CAR_TASK_LAP_STOP;
@@ -2365,6 +2369,10 @@ static void lap_test_once(void)
                 : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A,
             tick_ms
         );
+    }
+    else
+    {
+        hball_can_port_set_realtime_suspended(false);
     }
 }
     

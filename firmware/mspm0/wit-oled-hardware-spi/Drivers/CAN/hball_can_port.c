@@ -40,7 +40,9 @@ static hball_can_recovery_t g_hball_can_recovery;
 static hball_mission_client_t g_hball_mission_client;
 static hball_mission_ui_t g_hball_mission_ui;
 static volatile bool g_hball_rx_drain_active;
+static volatile bool g_hball_realtime_suspended;
 static void hball_can_drain_fifo0(void);
+static void hball_can_discard_fifo0(void);
 static volatile uint32_t g_hball_port_now_ms;
 static uint32_t g_hball_chassis_start_ms;
 static uint8_t g_hball_chassis_phase;
@@ -358,6 +360,7 @@ void hball_can_port_init(void)
     g_hball_chassis_events = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
     memset(&g_hball_mission_ui, 0, sizeof(g_hball_mission_ui));
     g_hball_rx_drain_active = false;
+    g_hball_realtime_suspended = false;
     hball_mission_client_init(&g_hball_mission_client, 0U);
     hball_can_recovery_init(&g_hball_can_recovery);
 
@@ -370,6 +373,31 @@ void hball_can_port_init(void)
     NVIC_SetPriority(MCAN0_INST_INT_IRQN, 2U);
     NVIC_EnableIRQ(MCAN0_INST_INT_IRQN);
     g_hball_can_stats.initialized = 1U;
+}
+
+void hball_can_port_set_realtime_suspended(bool suspended)
+{
+    uint32_t interrupt_status;
+
+    if (suspended)
+    {
+        g_hball_realtime_suspended = true;
+        NVIC_DisableIRQ(MCAN0_INST_INT_IRQN);
+        NVIC_ClearPendingIRQ(MCAN0_INST_INT_IRQN);
+        return;
+    }
+
+    hball_can_discard_fifo0();
+    interrupt_status = DL_MCAN_getIntrStatus(MCAN0_INST);
+    DL_MCAN_clearIntrStatus(
+        MCAN0_INST, interrupt_status, DL_MCAN_INTR_SRC_MCAN_LINE_1
+    );
+    NVIC_ClearPendingIRQ(MCAN0_INST_INT_IRQN);
+    g_hball_realtime_suspended = false;
+    if (g_hball_can_stats.initialized != 0U)
+    {
+        NVIC_EnableIRQ(MCAN0_INST_INT_IRQN);
+    }
 }
 
 void hball_can_port_tick_1ms(uint32_t now_ms)
@@ -387,7 +415,8 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
     bool chassis_due;
 
     g_hball_port_now_ms = now_ms;
-    if (g_hball_can_stats.initialized == 0U)
+    if ((g_hball_can_stats.initialized == 0U)
+        || g_hball_realtime_suspended)
     {
         return;
     }
@@ -617,6 +646,22 @@ static void hball_can_drain_fifo0(void)
         DL_MCAN_getRxFIFOStatus(MCAN0_INST, &fifo_status);
     }
     g_hball_rx_drain_active = false;
+}
+
+static void hball_can_discard_fifo0(void)
+{
+    DL_MCAN_RxFIFOStatus fifo_status;
+
+    memset(&fifo_status, 0, sizeof(fifo_status));
+    fifo_status.num = DL_MCAN_RX_FIFO_NUM_0;
+    DL_MCAN_getRxFIFOStatus(MCAN0_INST, &fifo_status);
+    while (fifo_status.fillLvl != 0U)
+    {
+        DL_MCAN_writeRxFIFOAck(
+            MCAN0_INST, fifo_status.num, fifo_status.getIdx
+        );
+        DL_MCAN_getRxFIFOStatus(MCAN0_INST, &fifo_status);
+    }
 }
 
 void MCAN0_INST_IRQHandler(void)
