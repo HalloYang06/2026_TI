@@ -105,10 +105,11 @@ std::optional<TemplateMatch> find_template_ball(const cv::Mat& pipe,
   }
   cv::Mat gray;
   cv::cvtColor(pipe, gray, cv::COLOR_BGR2GRAY);
+  constexpr int kSearchRadius = 32;
   const int half_width = ball_template.cols / 2;
-  const int search_left = std::clamp(cvRound(expected_x) - 56 - half_width, 0,
+  const int search_left = std::clamp(cvRound(expected_x) - kSearchRadius - half_width, 0,
                                      pipe.cols - ball_template.cols);
-  const int search_right = std::clamp(cvRound(expected_x) + 56 + half_width,
+  const int search_right = std::clamp(cvRound(expected_x) + kSearchRadius + half_width,
                                       ball_template.cols, pipe.cols);
   const cv::Rect search(search_left, 0, search_right - search_left, pipe.rows);
   cv::Mat correlation;
@@ -117,12 +118,12 @@ std::optional<TemplateMatch> find_template_ball(const cv::Mat& pipe,
   double maximum = 0.0;
   cv::Point maximum_point;
   cv::minMaxLoc(correlation, &minimum, &maximum, nullptr, &maximum_point);
-  if (maximum < 0.66) return std::nullopt;
+  if (maximum < 0.70) return std::nullopt;
   const cv::Point2f point(static_cast<float>(search.x + maximum_point.x + half_width),
                           static_cast<float>(maximum_point.y + ball_template.rows / 2));
   const cv::Point2f delta = point - axis.centre;
   const double lateral = std::abs(delta.x * -axis.direction.y + delta.y * axis.direction.x);
-  if (std::abs(point.x - expected_x) > 56.0F ||
+  if (std::abs(point.x - expected_x) > static_cast<float>(kSearchRadius) ||
       lateral > axis.half_width ||
       std::abs(delta.dot(axis.direction)) > axis.length / 2 - 16.0F) {
     return std::nullopt;
@@ -332,6 +333,8 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
   static int missed_frames = 0;
   static bool configured = false;
   static cv::Mat ball_template;
+  static std::optional<float> pending_reacquire_x;
+  static int pending_reacquire_frames = 0;
   if (!configured) {
     tracker.transitionMatrix = (cv::Mat_<float>(2, 2) << 1.0F, 1.0F, 0.0F, 1.0F);
     tracker.measurementMatrix = (cv::Mat_<float>(1, 2) << 1.0F, 0.0F);
@@ -351,14 +354,50 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
   const auto template_match = tracker_ready
       ? find_template_ball(pipe, ball_template, predicted_x, axis)
       : std::nullopt;
-  // A strong image correlation is substantially steadier than a changing
-  // reflected contour while the ball is still.  On a real movement the old
-  // template score drops and the normal contour detector takes over at once.
-  const bool use_template = template_match && template_match->score >= 0.80;
-  const auto circle = use_template
-      ? std::optional<cv::Vec3f>(template_match->circle)
-      : contour_circle ? contour_circle
-      : template_match ? std::optional<cv::Vec3f>(template_match->circle) : std::nullopt;
+  constexpr double kStrongTemplateScore = 0.84;
+  constexpr double kWeakTemplateScore = 0.70;
+  constexpr float kTemplateAgreementPx = 10.0F;
+  bool use_template = false;
+  bool reacquired = false;
+  std::optional<cv::Vec3f> circle;
+  // A strong template locks the identity of the ball.  A passing pen can be
+  // circular enough for the contour filter, but it must not pull a stationary
+  // track away from the already-matched steel ball.
+  if (template_match && template_match->score >= kStrongTemplateScore) {
+    circle = template_match->circle;
+    use_template = true;
+    pending_reacquire_x.reset();
+    pending_reacquire_frames = 0;
+  } else if (contour_circle) {
+    const bool template_agrees = template_match && template_match->score >= kWeakTemplateScore &&
+        std::abs((*contour_circle)[0] - template_match->circle[0]) <= kTemplateAgreementPx;
+    const bool tracker_is_moving = tracker_ready && std::abs(tracker.statePre.at<float>(1)) > 1.5F;
+    if (ball_template.empty() || !tracker_ready || template_agrees || tracker_is_moving) {
+      circle = contour_circle;
+      pending_reacquire_x.reset();
+      pending_reacquire_frames = 0;
+    } else {
+      // The template is lost and a new contour disagrees with a stationary
+      // track.  Demand three coherent image observations before re-locking.
+      if (pending_reacquire_x &&
+          std::abs((*contour_circle)[0] - *pending_reacquire_x) <= 8.0F) {
+        *pending_reacquire_x = 0.5F * (*pending_reacquire_x + (*contour_circle)[0]);
+        ++pending_reacquire_frames;
+      } else {
+        pending_reacquire_x = (*contour_circle)[0];
+        pending_reacquire_frames = 1;
+      }
+      if (pending_reacquire_frames >= 3) {
+        circle = contour_circle;
+        reacquired = true;
+        pending_reacquire_x.reset();
+        pending_reacquire_frames = 0;
+      }
+    }
+  } else if (template_match) {
+    circle = template_match->circle;
+    use_template = true;
+  }
   bool found = false;
   double position_cm = 0.0;
   float center_x_px = 0.0F;
@@ -368,7 +407,8 @@ void annotate(cv::Mat& image, const cv::Mat& pipe, const Config& cfg, Frames& fr
   bool rejected = false;
   if (circle) {
     const float measured_x = (*circle)[0];
-    const bool innovation_ok = !tracker_ready || std::abs(measured_x - predicted_x) <= 55.0F;
+    const float innovation_limit = reacquired ? 40.0F : 32.0F;
+    const bool innovation_ok = !tracker_ready || std::abs(measured_x - predicted_x) <= innovation_limit;
     if (innovation_ok) {
       float tracked_x = measured_x;
       if (!tracker_ready) {
