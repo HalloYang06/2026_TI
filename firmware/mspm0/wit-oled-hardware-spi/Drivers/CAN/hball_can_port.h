@@ -24,6 +24,7 @@ typedef struct
     uint32_t rx_fd_rejected;
     uint32_t rx_fifo_full;
     uint32_t rx_fifo_lost;
+    uint32_t rx_budget_exhausted;
     uint32_t bus_off_events;
     uint32_t protocol_error_events;
     uint32_t message_ram_errors;

@@ -12,6 +12,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#define HBALL_CAN_RX_BUDGET_PER_SERVICE 8U
+
 /* Automated builds and tests must never create an actuator command frame. */
 #define HBALL_CAN_MOTOR_COMMAND_TX_ENABLED 0U
 
@@ -39,7 +41,7 @@ static bool g_hball_wit_attitude_seen;
 static hball_can_recovery_t g_hball_can_recovery;
 static hball_mission_client_t g_hball_mission_client;
 static hball_mission_ui_t g_hball_mission_ui;
-static void hball_can_drain_fifo0(void);
+static void hball_can_drain_fifo0(uint8_t max_frames);
 static volatile uint32_t g_hball_port_now_ms;
 static uint32_t g_hball_chassis_start_ms;
 static uint8_t g_hball_chassis_phase;
@@ -382,7 +384,7 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
      * the MCAN line-1 interrupt is not delivered. The FIFO acknowledge keeps
      * this harmless when the IRQ path is working normally.
      */
-    hball_can_drain_fifo0();
+    hball_can_drain_fifo0(HBALL_CAN_RX_BUDGET_PER_SERVICE);
     if (hball_can_recovery_should_attempt(
             &g_hball_can_recovery,
             now_ms,
@@ -567,15 +569,16 @@ static void hball_can_record_rx(const DL_MCAN_RxBufElement *message)
     }
 }
 
-static void hball_can_drain_fifo0(void)
+static void hball_can_drain_fifo0(uint8_t max_frames)
 {
     DL_MCAN_RxBufElement message;
     DL_MCAN_RxFIFOStatus fifo_status;
+    uint8_t drained = 0U;
 
     memset(&fifo_status, 0, sizeof(fifo_status));
     fifo_status.num = DL_MCAN_RX_FIFO_NUM_0;
     DL_MCAN_getRxFIFOStatus(MCAN0_INST, &fifo_status);
-    while (fifo_status.fillLvl != 0U)
+    while ((fifo_status.fillLvl != 0U) && (drained < max_frames))
     {
         DL_MCAN_readMsgRam(
             MCAN0_INST,
@@ -587,7 +590,12 @@ static void hball_can_drain_fifo0(void)
         DL_MCAN_writeRxFIFOAck(
             MCAN0_INST, fifo_status.num, fifo_status.getIdx);
         hball_can_record_rx(&message);
+        drained++;
         DL_MCAN_getRxFIFOStatus(MCAN0_INST, &fifo_status);
+    }
+    if (fifo_status.fillLvl != 0U)
+    {
+        g_hball_can_stats.rx_budget_exhausted++;
     }
 }
 
@@ -608,7 +616,7 @@ void MCAN0_INST_IRQHandler(void)
 
     if ((interrupt_status & (MCAN_IR_RF0N_MASK | MCAN_IR_RF0F_MASK)) != 0U)
     {
-        hball_can_drain_fifo0();
+        hball_can_drain_fifo0(HBALL_CAN_RX_BUDGET_PER_SERVICE);
     }
     if ((interrupt_status & MCAN_IR_TC_MASK) != 0U)
     {

@@ -83,3 +83,18 @@ def test_mspm0_can_port_is_integrated_without_motor_commands() -> None:
     assert "HBALL_CAN_MOTOR_COMMAND_TX_ENABLED 0U" in port
     for forbidden in ("motor_enable", "set_zero", "loc_ref", "limit_cur"):
         assert forbidden not in port.lower()
+
+
+def test_can_rx_drain_has_a_fixed_per_service_budget() -> None:
+    header = (CAN_DIR / "hball_can_port.h").read_text(encoding="utf-8")
+    port = (CAN_DIR / "hball_can_port.c").read_text(encoding="utf-8")
+
+    assert "#define HBALL_CAN_RX_BUDGET_PER_SERVICE 8U" in port
+    assert "hball_can_drain_fifo0(uint8_t max_frames)" in port
+    assert "drained < max_frames" in port
+    assert "rx_budget_exhausted" in header
+    assert "g_hball_can_stats.rx_budget_exhausted++" in port
+    assert port.count(
+        "hball_can_drain_fifo0(HBALL_CAN_RX_BUDGET_PER_SERVICE);"
+    ) == 2
+    assert "while (fifo_status.fillLvl != 0U)" not in port
