@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define HBALL_MISSION_STATUS_FRESH_MS 150U
+#define HBALL_MISSION_STATUS_FRESH_MS 500U
 
 typedef struct
 {
@@ -23,6 +23,7 @@ typedef struct
     uint32_t accepted_status_total;
     uint32_t duplicate_status_total;
     uint32_t out_of_order_status_total;
+    uint32_t status_resync_total;
     uint32_t epoch_mismatch_total;
     bool status_valid;
     bool start_requested;

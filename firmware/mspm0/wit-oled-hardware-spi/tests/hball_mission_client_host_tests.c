@@ -78,16 +78,34 @@ static void test_stale_duplicate_and_out_of_order_status_do_not_unlock(void)
     status = make_status(1U, HBALL_MISSION_Q2_FAST_LAP,
                          HBALL_MISSION_STATE_READY, 10U);
     assert(hball_mission_client_accept_status(&client, &status, 100U));
-    assert(hball_mission_client_ready(&client, 249U));
-    assert(!hball_mission_client_ready(&client, 251U));
+    assert(hball_mission_client_ready(&client, 599U));
+    assert(!hball_mission_client_ready(&client, 601U));
 
-    assert(!hball_mission_client_accept_status(&client, &status, 260U));
+    assert(!hball_mission_client_accept_status(&client, &status, 500U));
     assert(client.duplicate_status_total == 1U);
-    assert(!hball_mission_client_ready(&client, 260U));
+    assert(hball_mission_client_ready(&client, 500U));
 
     status.status_sequence = 9U;
-    assert(!hball_mission_client_accept_status(&client, &status, 270U));
+    assert(!hball_mission_client_accept_status(&client, &status, 510U));
     assert(client.out_of_order_status_total == 1U);
+}
+
+static void test_stale_sequence_rebases_after_m33_reboot(void)
+{
+    hball_mission_client_t client;
+    hball_mission_status_t status;
+
+    hball_mission_client_init(&client, 0U);
+    status = make_status(1U, HBALL_MISSION_Q2_FAST_LAP,
+                         HBALL_MISSION_STATE_READY, 200U);
+    assert(hball_mission_client_accept_status(&client, &status, 100U));
+
+    status.status_sequence = 1U;
+    assert(!hball_mission_client_accept_status(&client, &status, 200U));
+    assert(client.out_of_order_status_total == 1U);
+    assert(hball_mission_client_accept_status(&client, &status, 601U));
+    assert(client.status_resync_total == 1U);
+    assert(hball_mission_client_ready(&client, 601U));
 }
 
 static void test_selection_is_allowed_without_status_but_blocked_after_start(void)
@@ -124,6 +142,7 @@ int main(void)
     test_client_starts_in_reset_and_requires_matching_ready();
     test_start_is_one_shot_and_keeps_button_time();
     test_stale_duplicate_and_out_of_order_status_do_not_unlock();
+    test_stale_sequence_rebases_after_m33_reboot();
     test_selection_is_allowed_without_status_but_blocked_after_start();
     return 0;
 }

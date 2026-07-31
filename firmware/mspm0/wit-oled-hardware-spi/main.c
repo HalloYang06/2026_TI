@@ -77,6 +77,7 @@ _Static_assert(
 #define CAR_TASK_TIMED_RUN       2U
 #define CAR_TASK_STABLE_LAP      3U
 #define GYRO_LCD_REFRESH_MS 100U
+#define HBALL_MISSION_MENU_RENDER_MIN_MS 1000U
 #define MOTOR_TEST_DUTY 20.0f
 
 uint8_t oled_buffer[64];
@@ -98,6 +99,13 @@ static void track_ground_test(void);
 static void lap_test(void);
 static void lap_test_once(void);
 static void competition_runtime_wait_ms(uint32_t duration_ms);
+static void mission_lcd_fill_serviced(
+    unsigned int xsta,
+    unsigned int ysta,
+    unsigned int xend,
+    unsigned int yend,
+    unsigned int color
+);
 static uint8_t select_car_task(void);
 static void render_mission_menu(
     const hball_mission_menu_view_t *view
@@ -891,6 +899,30 @@ static void competition_runtime_wait_ms(uint32_t duration_ms)
     hball_runtime_target_poll(tick_ms);
 }
 
+static void mission_lcd_fill_serviced(
+    unsigned int xsta,
+    unsigned int ysta,
+    unsigned int xend,
+    unsigned int yend,
+    unsigned int color
+)
+{
+    unsigned int row = ysta;
+
+    while (row < yend)
+    {
+        unsigned int next_row = row + 8U;
+
+        if (next_row > yend)
+        {
+            next_row = yend;
+        }
+        LCD_Fill(xsta, row, xend, next_row, color);
+        hball_runtime_target_poll(tick_ms);
+        row = next_row;
+    }
+}
+
 static uint8_t select_car_task(void)
 {
     hball_mission_client_t snapshot;
@@ -900,8 +932,9 @@ static uint8_t select_car_task(void)
     hball_mission_menu_result_t result;
     task_key_event_t key_event;
     bool last_view_valid = false;
+    uint32_t last_render_ms = 0U;
 
-    LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
+    mission_lcd_fill_serviced(0, 0, LCD_W, LCD_H, BLACK);
 
     while (1)
     {
@@ -909,11 +942,15 @@ static uint8_t select_car_task(void)
         if (hball_can_mission_get_snapshot(&snapshot)
             && hball_mission_menu_make_view(&snapshot, tick_ms, &view)
             && (!last_view_valid
+                || ((uint32_t)(tick_ms - last_render_ms)
+                    >= HBALL_MISSION_MENU_RENDER_MIN_MS))
+            && (!last_view_valid
                 || !hball_mission_menu_view_equal(&last_view, &view)))
         {
             render_mission_menu(&view);
             last_view = view;
             last_view_valid = true;
+            last_render_ms = tick_ms;
         }
         key_event = get_task_key_event();
         if (key_event == TASK_KEY_EVENT_NONE)
@@ -1007,13 +1044,13 @@ static void render_mission_menu(
     }
     format_hex16(view->ready_mask, ready_text);
 
-    LCD_Fill(0, 0, LCD_W, 39, BLACK);
+    mission_lcd_fill_serviced(0, 0, LCD_W, 39, BLACK);
     LCD_ShowString(
         4, 4,
         (const unsigned char *)view->mission_label,
         GREEN, BLACK, 32, 0
     );
-    LCD_Fill(0, 40, LCD_W, 71, BLACK);
+    mission_lcd_fill_serviced(0, 40, LCD_W, 71, BLACK);
     LCD_ShowString(
         4, 44, (const unsigned char *)view->state_label,
         ((view->local_execution || view->status_fresh)
@@ -1021,7 +1058,7 @@ static void render_mission_menu(
             ? GREEN : CYAN,
         BLACK, 24, 0
     );
-    LCD_Fill(0, 72, LCD_W, 103, BLACK);
+    mission_lcd_fill_serviced(0, 72, LCD_W, 103, BLACK);
     LCD_ShowString(4, 76, (const unsigned char *)"E:", WHITE, BLACK, 24, 0);
     LCD_ShowIntNum(36, 76, view->epoch, 4, WHITE, BLACK, 24);
     LCD_ShowString(116, 76, (const unsigned char *)"R:", WHITE, BLACK, 24, 0);
@@ -1029,14 +1066,14 @@ static void render_mission_menu(
         148, 76, (const unsigned char *)ready_text,
         WHITE, BLACK, 24, 0
     );
-    LCD_Fill(0, 104, LCD_W, 135, BLACK);
+    mission_lcd_fill_serviced(0, 104, LCD_W, 135, BLACK);
     LCD_ShowString(4, 108, (const unsigned char *)"MISS:", YELLOW, BLACK, 24, 0);
     LCD_ShowString(
         76, 108, (const unsigned char *)view->missing_label,
         (view->missing_label[0] == 'A') ? GREEN : YELLOW,
         BLACK, 24, 0
     );
-    LCD_Fill(0, 136, LCD_W, 203, BLACK);
+    mission_lcd_fill_serviced(0, 136, LCD_W, 203, BLACK);
     if (view->start_requested)
     {
         LCD_ShowString(4, 140, (const unsigned char *)"START SENT", MAGENTA, BLACK, 24, 0);

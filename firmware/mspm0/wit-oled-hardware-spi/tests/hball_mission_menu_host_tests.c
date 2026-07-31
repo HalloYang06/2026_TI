@@ -210,7 +210,7 @@ static void test_display_reports_stale_status_and_first_missing_ready_bit(void)
     assert(hball_mission_client_accept_status(&client, &status, 12U));
     assert(strcmp(hball_mission_menu_missing_label(&client, 12U),
                   "CHASSIS") == 0);
-    assert(strcmp(hball_mission_menu_missing_label(&client, 163U),
+    assert(strcmp(hball_mission_menu_missing_label(&client, 513U),
                   "M33 STATUS") == 0);
 }
 
@@ -261,7 +261,7 @@ static void test_view_changes_only_when_displayed_content_changes(void)
     assert(hball_mission_menu_make_view(&client, 100U, &same));
     assert(hball_mission_menu_view_equal(&first, &same));
 
-    assert(hball_mission_menu_make_view(&client, 163U, &stale));
+    assert(hball_mission_menu_make_view(&client, 513U, &stale));
     assert(!hball_mission_menu_view_equal(&first, &stale));
     assert(strcmp(stale.state_label, "NO STATUS") == 0);
     assert(strcmp(stale.missing_label, "M33 STATUS") == 0);

@@ -54,6 +54,7 @@ bool hball_mission_client_accept_status(
 )
 {
     uint8_t sequence_delta;
+    bool status_timed_out;
 
     if ((client == NULL) || (status == NULL))
     {
@@ -67,18 +68,34 @@ bool hball_mission_client_accept_status(
     }
     if (client->status_valid)
     {
+        status_timed_out = (uint32_t)(now_ms - client->last_status_ms)
+            > HBALL_MISSION_STATUS_FRESH_MS;
         sequence_delta = (uint8_t)(
             status->status_sequence - client->latest_status.status_sequence
         );
         if (sequence_delta == 0U)
         {
-            client->duplicate_status_total++;
-            return false;
+            if (status_timed_out)
+            {
+                client->status_resync_total++;
+            }
+            else
+            {
+                client->duplicate_status_total++;
+                return false;
+            }
         }
-        if (sequence_delta >= 128U)
+        else if (sequence_delta >= 128U)
         {
-            client->out_of_order_status_total++;
-            return false;
+            if (status_timed_out)
+            {
+                client->status_resync_total++;
+            }
+            else
+            {
+                client->out_of_order_status_total++;
+                return false;
+            }
         }
     }
 
