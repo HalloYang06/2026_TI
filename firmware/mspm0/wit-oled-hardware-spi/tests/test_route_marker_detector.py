@@ -71,3 +71,39 @@ def test_route_marker_detector_is_in_both_keil_source_manifests() -> None:
     assert "route_marker_detector.c" in project
     assert "App\\Chassis\\route_marker_detector.c" in build
     assert "route_marker_detector.c" in generator
+
+
+def test_active_lap_uses_route_marker_detector_facts() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    lap = main[
+        main.index("static void lap_test_once(void)\n{") :
+        main.index("void TIMER_0_INST_IRQHandler(void)")
+    ]
+    compact = "".join(lap.split())
+
+    assert '#include "route_marker_detector.h"' in main
+    assert "staticroute_marker_detector_troute_marker_detector;" in compact
+    assert "route_marker_detector_config_tmarker_config;" in compact
+    assert "route_marker_detector_output_tmarker_output;" in compact
+    assert "marker_config.marker_active_threshold=3U;" in compact
+    assert "marker_config.marker_adjacent_width=3U;" in compact
+    assert "marker_config.marker_active_threshold=4U;" in compact
+    assert "marker_config.marker_adjacent_width=4U;" in compact
+    assert "marker_config.start_clear_confirm_ms=120U;" in compact
+    assert "marker_config.marker_min_elapsed_ms=18000U;" in compact
+    assert "marker_config.marker_min_elapsed_ms=23000U;" in compact
+    assert "marker_config.marker_confirm_ms=20U;" in compact
+    assert "route_marker_detector_init(" in compact
+    assert "route_marker_detector_step(" in compact
+    assert "marker_output.force_straight" in compact
+    assert "marker_output.marker_confirmed" in compact
+
+    for obsolete in (
+        "finish_armed",
+        "wide_finish_pattern",
+        "finish_stop_confirmed",
+        "start_line_clear_start_ms",
+        "finish_candidate_start_ms",
+        "line_snapshot_has_adjacent(&line_sample",
+    ):
+        assert obsolete not in lap

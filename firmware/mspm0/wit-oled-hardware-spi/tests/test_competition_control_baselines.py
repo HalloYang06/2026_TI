@@ -45,7 +45,8 @@ def test_q2_verified_tracking_parameters_and_cadences_are_pinned() -> None:
 
     for statement in (
         "follower_profile = LINE_FOLLOWER_PROFILE_Q2_FAST_LAP;",
-        "finish_line_min_run_ms = 18000U;",
+        "marker_config.marker_min_elapsed_ms = 18000U;",
+        "marker_config.marker_confirm_ms = 20U;",
         "run_timeout_ms = 0U;",
     ):
         assert statement in q2

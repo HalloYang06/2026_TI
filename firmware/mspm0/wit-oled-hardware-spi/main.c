@@ -42,6 +42,7 @@
 #include "line_sensor_port.h"
 #include "line_snapshot.h"
 #include "motion_intent.h"
+#include "route_marker_detector.h"
 #include "wheel_control.h"
 
 /*
@@ -1543,25 +1544,21 @@ static void lap_test_once(void)
     static int16_t log_actual_right[LAP_LOG_SAMPLES];
     static uint8_t log_duty_left[LAP_LOG_SAMPLES];
     static uint8_t log_duty_right[LAP_LOG_SAMPLES];
-    const uint32_t start_line_clear_confirm_ms = 120U;
-    uint32_t finish_line_min_run_ms = 10000U;
     hball_mission_policy_t mission_policy;
     static line_follower_t line_follower;
+    static route_marker_detector_t route_marker_detector;
     static wheel_control_t wheel_control;
     line_follower_output_t follower_output;
     line_follower_profile_t follower_profile;
     motion_intent_t wheel_intent;
+    route_marker_detector_config_t marker_config;
+    route_marker_detector_output_t marker_output;
     wheel_control_output_t wheel_output;
     uint8_t selected_task;
-    uint8_t finish_line_enabled;
-    uint8_t finish_active_threshold = 3U;
+    bool local_marker_stop_enabled;
     uint32_t run_timeout_ms;
     line_snapshot_t line_sample;
     uint8_t line_mask;
-    uint8_t active_count;
-    uint8_t finish_armed = 0U;
-    uint8_t wide_finish_pattern;
-    uint8_t finish_stop_confirmed = 0U;
     uint16_t log_index = 0U;
     int16_t error = 0;
     int16_t commanded_duty_left = 15;
@@ -1577,8 +1574,6 @@ static void lap_test_once(void)
     uint32_t elapsed_ms;
     uint32_t timeout_trigger_ms;
     uint32_t finish_elapsed_ms = 0U;
-    uint32_t start_line_clear_start_ms = 0U;
-    uint32_t finish_candidate_start_ms = 0U;
     char time_text[8];
 
     chassis_actuator_init();
@@ -1595,29 +1590,39 @@ static void lap_test_once(void)
         return;
     }
     hball_runtime_services_apply_policy(&mission_policy);
+    marker_config.marker_active_threshold = 3U;
+    marker_config.marker_adjacent_width = 0U;
+    marker_config.start_clear_max_active = 4U;
+    marker_config.start_clear_confirm_ms = 120U;
+    marker_config.marker_min_elapsed_ms = 10000U;
+    marker_config.marker_confirm_ms = 0U;
     if (selected_task == HBALL_MISSION_Q2_FAST_LAP)
     {
         selected_task = CAR_TASK_LAP_STOP;
         follower_profile = LINE_FOLLOWER_PROFILE_Q2_FAST_LAP;
-        finish_line_enabled = 1U;
-        finish_active_threshold = 3U;
-        finish_line_min_run_ms = 18000U;
+        local_marker_stop_enabled = true;
+        marker_config.marker_active_threshold = 3U;
+        marker_config.marker_adjacent_width = 3U;
+        marker_config.marker_min_elapsed_ms = 18000U;
+        marker_config.marker_confirm_ms = 20U;
         run_timeout_ms = 0U;
     }
     else if (selected_task == HBALL_MISSION_Q4_A_TO_B)
     {
         selected_task = CAR_TASK_TIMED_RUN;
         follower_profile = LINE_FOLLOWER_PROFILE_Q4_TIMED_RUN;
-        finish_line_enabled = 0U;
+        local_marker_stop_enabled = false;
         run_timeout_ms = 7800U;
     }
     else
     {
         selected_task = CAR_TASK_STABLE_LAP;
         follower_profile = LINE_FOLLOWER_PROFILE_STABLE_LAP;
-        finish_line_enabled = 0U;
-        finish_active_threshold = 4U;
-        finish_line_min_run_ms = 23000U;
+        local_marker_stop_enabled = false;
+        marker_config.marker_active_threshold = 4U;
+        marker_config.marker_adjacent_width = 4U;
+        marker_config.marker_min_elapsed_ms = 23000U;
+        marker_config.marker_confirm_ms = 20U;
         run_timeout_ms = 28000U;
     }
     line_sample = line_snapshot_decode(line_sensor_port_read_raw(), tick_ms);
@@ -1649,6 +1654,8 @@ static void lap_test_once(void)
     chassis_actuator_start_synchronized((float)commanded_duty_left, (float)commanded_duty_right);
     run_start_ms = tick_ms;
     line_follower_init(&line_follower, follower_profile, run_start_ms);
+    (void)route_marker_detector_init(
+        &route_marker_detector, &marker_config, run_start_ms);
     wheel_control_init(
         &wheel_control,
         run_start_ms,
@@ -1709,86 +1716,10 @@ static void lap_test_once(void)
 
         line_sample = line_snapshot_decode(line_sensor_port_read_raw(), tick_ms);
         line_mask = line_sample.line_mask;
-        active_count = line_sample.active_count;
+        (void)route_marker_detector_step(
+            &route_marker_detector, &line_sample, &marker_output);
 
-        /*
-         * Task 1 uses three active sensors and task 3 uses four. Start-line
-         * clearing and the minimum run time prevent an immediate start stop.
-         */
-        wide_finish_pattern =
-            (active_count >= finish_active_threshold) ? 1U : 0U;
-
-        if ((selected_task == CAR_TASK_LAP_STOP) &&
-            (wide_finish_pattern != 0U))
-        {
-            /*
-             * Task 1 finish line must cover three adjacent channels.
-             * Elapsed time and a short confirmation suppress start-line and
-             * single-sample false detections.
-             */
-            if (!line_snapshot_has_adjacent(&line_sample, 3U)) {
-                wide_finish_pattern = 0U;
-            }
-        }
-        if ((selected_task == CAR_TASK_STABLE_LAP) &&
-            (wide_finish_pattern != 0U))
-        {
-            /*
-             * Task 3 accepts only four adjacent sensors.  This rejects
-             * sparse multi-sensor patterns that occur during a bend.
-             */
-            if (!line_snapshot_has_adjacent(&line_sample, 4U)) {
-                wide_finish_pattern = 0U;
-            }
-        }
-
-        /*
-         * The car starts on the same transverse line.  Arm finish detection
-         * only after a normal-width line has been observed continuously.
-         */
-        if (finish_armed == 0U)
-        {
-            if ((active_count > 0U) &&
-                (active_count <= 4U) &&
-                (wide_finish_pattern == 0U))
-            {
-                if (start_line_clear_start_ms == 0U) {
-                    start_line_clear_start_ms = tick_ms;
-                } else if ((uint32_t)(tick_ms - start_line_clear_start_ms) >=
-                           start_line_clear_confirm_ms) {
-                    finish_armed = 1U;
-                }
-            }
-            else
-            {
-                start_line_clear_start_ms = 0U;
-            }
-        }
-
-        finish_stop_confirmed = 0U;
-        if ((wide_finish_pattern != 0U) &&
-            (finish_line_enabled != 0U) &&
-            (finish_armed != 0U) &&
-            (elapsed_ms >= finish_line_min_run_ms))
-        {
-            if ((selected_task == CAR_TASK_LAP_STOP) ||
-                (selected_task == CAR_TASK_STABLE_LAP)) {
-                if (finish_candidate_start_ms == 0U) {
-                    finish_candidate_start_ms = tick_ms;
-                } else if ((uint32_t)(tick_ms - finish_candidate_start_ms) >=
-                           20U) {
-                    finish_stop_confirmed = 1U;
-                }
-            } else {
-                finish_stop_confirmed = 1U;
-            }
-        }
-        else
-        {
-            finish_candidate_start_ms = 0U;
-        }
-
-        if (finish_stop_confirmed != 0U)
+        if (local_marker_stop_enabled && marker_output.marker_confirmed)
         {
             finish_elapsed_ms = elapsed_ms;
             if (selected_task == CAR_TASK_STABLE_LAP)
@@ -1821,7 +1752,7 @@ static void lap_test_once(void)
         (void)line_follower_step(
             &line_follower,
             &line_sample,
-            (wide_finish_pattern != 0U) && (finish_armed == 0U),
+            marker_output.force_straight,
             &follower_output
         );
         wheel_intent = follower_output.intent;

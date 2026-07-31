@@ -64,6 +64,9 @@ def test_keil_build_includes_line_snapshot() -> None:
 
 def test_active_lap_controller_consumes_line_snapshot_without_manual_decode() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    marker_source = (
+        PROJECT / "App" / "Chassis" / "route_marker_detector.c"
+    ).read_text(encoding="utf-8")
     start = main.index("static void lap_test_once(void)\n{")
     end = main.index("void TIMER_0_INST_IRQHandler(void)", start)
     lap = main[start:end]
@@ -77,5 +80,6 @@ def test_active_lap_controller_consumes_line_snapshot_without_manual_decode() ->
     )
     assert "static const int8_t weights[8]" not in lap
     assert "weighted_sum += weights[index];" not in lap
-    assert "line_snapshot_has_adjacent(&line_sample, 3U)" in lap
-    assert "line_snapshot_has_adjacent(&line_sample, 4U)" in lap
+    assert "line_snapshot_has_adjacent(" in marker_source
+    assert "route_marker_detector_step(" in lap
+    assert "&line_sample," in lap
