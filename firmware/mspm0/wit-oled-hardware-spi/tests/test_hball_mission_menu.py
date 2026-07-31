@@ -55,6 +55,18 @@ def test_msp_runtime_uses_distributed_menu_with_local_motion() -> None:
     assert "LCD_Fill(0, 0, LCD_W, LCD_H, BLACK)" not in render
 
 
+def test_lap_runtime_makes_the_menu_visible_before_waiting_for_input() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    lap = main[
+        main.index("static void lap_test_once(void)\n{") :
+        main.index("void TIMER_0_INST_IRQHandler(void)")
+    ]
+
+    backlight = lap.index("LCD_BLK_Set();")
+    blocking_menu = lap.index("selected_task = select_car_task();")
+    assert backlight < blocking_menu
+
+
 def test_keil_build_includes_mission_menu_adapter() -> None:
     project = (
         PROJECT / "Keil" / "wit-oled-hardware-spi.uvprojx"
