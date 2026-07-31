@@ -37,7 +37,19 @@ def test_wit_dma_starts_before_non_returning_application_mode() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
 
     assert main.count("WIT_Init();") == 1
-    assert main.index("WIT_Init();") < main.index("#if APP_MODE == APP_MODE_LCD_TEST")
+    assert main.index("WIT_Init();") < main.index(
+        "#if APP_MODE == APP_MODE_CAN_TELEMETRY_TEST"
+    )
+
+
+def test_can_isr_uses_project_startup_with_one_kibibyte_stack() -> None:
+    startup = (PROJECT / "startup_mspm0g350x_uvision.s").read_text(
+        encoding="utf-8"
+    )
+    build = (PROJECT / "tools" / "build-keil.ps1").read_text(encoding="utf-8")
+
+    assert "Stack_Size      EQU     0x00000400" in startup
+    assert "'startup_mspm0g350x_uvision.s'" in build
 
 
 def test_wit_dma_completion_and_uart_timeout_share_stream_parser() -> None:

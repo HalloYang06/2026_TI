@@ -55,12 +55,13 @@ __asm(".global __ARM_use_no_argv\n");
 #define APP_MODE_SPEED_PI_TEST   10U
 #define APP_MODE_PWM_SWEEP_TEST  11U
 #define APP_MODE_MOTOR_MAP_TEST  12U
-#define APP_MODE                 APP_MODE_LAP_TEST
-#define HBALL_MISSION_LOCAL_MOTION_ENABLED 1U
+#define APP_MODE_CAN_TELEMETRY_TEST 13U
+#define APP_MODE                 APP_MODE_CAN_TELEMETRY_TEST
+#define HBALL_MISSION_LOCAL_MOTION_ENABLED 0U
 
 _Static_assert(
-    HBALL_MISSION_LOCAL_MOTION_ENABLED == 1U,
-    "competition mission menu must control local motion"
+    HBALL_MISSION_LOCAL_MOTION_ENABLED == 0U,
+    "Q4 stability branch must keep chassis motion disabled"
 );
 
 #define CAR_TASK_LAP_STOP        1U
@@ -190,11 +191,31 @@ int main(void){
      */
     WIT_Init();
     hball_can_port_init();
-#if (APP_MODE != APP_MODE_GYRO_LCD_TEST) && (APP_MODE != APP_MODE_ENCODER_TEST)
+#if (APP_MODE != APP_MODE_GYRO_LCD_TEST) \
+    && (APP_MODE != APP_MODE_ENCODER_TEST) \
+    && (APP_MODE != APP_MODE_CAN_TELEMETRY_TEST)
     SysTick_Init();
 #endif
 
-#if APP_MODE == APP_MODE_LCD_TEST
+#if APP_MODE == APP_MODE_CAN_TELEMETRY_TEST
+    motor_stop();
+    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    lcd_init();
+    LCD_BLK_Set();
+    LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
+    LCD_ShowString(
+        4, 4,
+        (const unsigned char *)"CAN TELEMETRY ONLY",
+        GREEN, BLACK, 24, 0
+    );
+    SysTick_Init();
+    while (1)
+    {
+        motor_stop();
+        DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+        __WFI();
+    }
+#elif APP_MODE == APP_MODE_LCD_TEST
     motor_stop();
     DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
     lcd_init();

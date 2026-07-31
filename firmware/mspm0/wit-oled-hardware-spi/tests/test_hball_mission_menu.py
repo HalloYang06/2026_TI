@@ -40,7 +40,8 @@ def test_msp_runtime_uses_distributed_menu_with_local_motion() -> None:
 
     assert "hball_can_mission_menu_handle" in main
     assert "hball_can_mission_get_snapshot" in main
-    assert "HBALL_MISSION_LOCAL_MOTION_ENABLED 1U" in main
+    assert "HBALL_MISSION_LOCAL_MOTION_ENABLED 0U" in main
+    assert "APP_MODE                 APP_MODE_CAN_TELEMETRY_TEST" in main
     assert "hball_can_mission_chassis_start" in main
     assert "hball_can_mission_chassis_finish" in main
     assert "Q2 FAST LAP" not in main

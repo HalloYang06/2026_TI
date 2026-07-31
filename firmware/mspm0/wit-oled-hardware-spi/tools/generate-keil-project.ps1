@@ -74,7 +74,7 @@ $libraryFiles = @(
     ,@('driverlib.a', '2', "$SdkRoot\source\ti\driverlib\lib\keil\m0p\mspm0g1x0x_g3x0x\driverlib.a")
 )
 $applicationFiles = @(
-    ,@('startup_mspm0g350x_uvision.s', '2', "$SdkRoot\source\ti\devices\msp\m0p\startup_system_files\keil\startup_mspm0g350x_uvision.s")
+    ,@('startup_mspm0g350x_uvision.s', '2', '..\startup_mspm0g350x_uvision.s')
     ,@('main.c', '1', '..\main.c')
     ,@('ti_msp_dl_config.c', '1', '..\Debug\ti_msp_dl_config.c')
     ,@('hball_can_protocol.c', '1', '..\Drivers\CAN\hball_can_protocol.c')
