@@ -18,6 +18,7 @@
 #define HBALL_USB_THREAD_TIMESLICE 10U
 #define HBALL_USB_POLL_MS 2U
 #define HBALL_USB_DISCONNECTED_POLL_MS 20U
+#define HBALL_USB_VISION_SEQUENCE_RESYNC_MS 500U
 #define HBALL_USB_READY_PERIOD_MS 1000U
 #define HBALL_VISION_TARGET_HZ 100U
 #define HBALL_VISION_ACCEPT_HZ 240U
@@ -49,6 +50,7 @@ typedef struct
     rt_uint32_t vision_position_valid_total;
     rt_uint32_t vision_duplicate_total;
     rt_uint32_t vision_out_of_order_total;
+    rt_uint32_t vision_sequence_resync_total;
     rt_uint32_t vision_gap_total;
     rt_uint32_t last_vision_rx_ms;
     rt_uint32_t last_vision_sequence;
@@ -277,6 +279,7 @@ static void hball_usb_accept_vision(
 
     RT_UNUSED(context);
     g_hball_usb_stats.binary_mode = RT_TRUE;
+    receive_ms = (rt_uint32_t)rt_tick_get_millisecond();
     if (g_hball_usb_stats.vision_sequence_initialized)
     {
         sequence_delta = measurement->sequence
@@ -288,10 +291,16 @@ static void hball_usb_accept_vision(
         }
         if (sequence_delta >= UINT32_C(0x80000000))
         {
-            g_hball_usb_stats.vision_out_of_order_total++;
-            return;
+            if ((rt_uint32_t)(receive_ms
+                    - g_hball_usb_stats.last_vision_rx_ms)
+                <= HBALL_USB_VISION_SEQUENCE_RESYNC_MS)
+            {
+                g_hball_usb_stats.vision_out_of_order_total++;
+                return;
+            }
+            g_hball_usb_stats.vision_sequence_resync_total++;
         }
-        if (sequence_delta > 1U)
+        else if (sequence_delta > 1U)
         {
             g_hball_usb_stats.vision_gap_total += sequence_delta - 1U;
         }
@@ -299,7 +308,6 @@ static void hball_usb_accept_vision(
 
     g_hball_usb_stats.vision_sequence_initialized = RT_TRUE;
     g_hball_usb_stats.vision_rx_total++;
-    receive_ms = (rt_uint32_t)rt_tick_get_millisecond();
     hball_rate_meter_accept(&g_hball_vision_rate, receive_ms);
     if ((measurement->flags & HBALL_VISION_FLAG_POSITION_VALID) != 0U)
     {
@@ -494,11 +502,12 @@ static void hball_usb_status(void)
         (unsigned long)g_hball_usb_stats.overflow_total
     );
     rt_kprintf(
-        "[hball-usb] vision_rx=%lu position_valid=%lu dup=%lu ooo=%lu gap=%lu vision_crc=%lu header=%lu range=%lu discard=%lu\n",
+        "[hball-usb] vision_rx=%lu position_valid=%lu dup=%lu ooo=%lu resync=%lu gap=%lu vision_crc=%lu header=%lu range=%lu discard=%lu\n",
         (unsigned long)g_hball_usb_stats.vision_rx_total,
         (unsigned long)g_hball_usb_stats.vision_position_valid_total,
         (unsigned long)g_hball_usb_stats.vision_duplicate_total,
         (unsigned long)g_hball_usb_stats.vision_out_of_order_total,
+        (unsigned long)g_hball_usb_stats.vision_sequence_resync_total,
         (unsigned long)g_hball_usb_stats.vision_gap_total,
         (unsigned long)g_hball_vision_stream.crc_failure_total,
         (unsigned long)g_hball_vision_stream.header_failure_total,
