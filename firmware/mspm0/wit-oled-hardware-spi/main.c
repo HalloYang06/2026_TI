@@ -1680,6 +1680,7 @@ static void lap_test_once(void)
     if (selected_mission == HBALL_MISSION_Q2_FAST_LAP)
     {
         hball_can_port_set_realtime_suspended(true);
+        WIT_SetRealtimeSuspended(true);
     }
     if (selected_task == HBALL_MISSION_Q2_FAST_LAP)
     {
@@ -2372,6 +2373,7 @@ static void lap_test_once(void)
     }
     else
     {
+        WIT_SetRealtimeSuspended(false);
         hball_can_port_set_realtime_suspended(false);
     }
 }
