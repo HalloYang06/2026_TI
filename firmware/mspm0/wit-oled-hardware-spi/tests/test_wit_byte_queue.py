@@ -42,3 +42,15 @@ def test_keil_build_includes_wit_byte_queue() -> None:
     assert "wit_byte_queue.c" in project
     assert "Drivers\\WIT\\wit_byte_queue.c" in build
     assert "wit_byte_queue.c" in generator
+
+
+def test_wit_foreground_service_has_a_fixed_byte_budget() -> None:
+    header = (WIT_DIR / "wit.h").read_text(encoding="utf-8")
+    source = (WIT_DIR / "wit.c").read_text(encoding="utf-8")
+
+    assert "#define WIT_FOREGROUND_BUDGET_PER_SERVICE 32U" in header
+    assert "uint16_t WIT_QueueBytesFromISR(" in header
+    assert "uint16_t WIT_Service(uint16_t max_bytes);" in header
+    assert "wit_byte_queue_push(" in source
+    assert "wit_byte_queue_pop(" in source
+    assert source.count("WIT_ProcessBytes(buffer, count);") == 1

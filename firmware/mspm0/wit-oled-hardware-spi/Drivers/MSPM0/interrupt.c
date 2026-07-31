@@ -78,7 +78,7 @@ static void wit_process_dma_chunk(void)
         : 0U;
     if (process_imu)
     {
-        WIT_ProcessBytes(wit_dmaBuffer, received);
+        (void)WIT_QueueBytesFromISR(wit_dmaBuffer, received);
     }
 
     while (DL_UART_isRXFIFOEmpty(UART_WIT_INST) == false)
@@ -86,7 +86,7 @@ static void wit_process_dma_chunk(void)
         fifo_byte = DL_UART_receiveData(UART_WIT_INST);
         if (process_imu)
         {
-            WIT_ProcessBytes(&fifo_byte, 1U);
+            (void)WIT_QueueBytesFromISR(&fifo_byte, 1U);
         }
     }
 

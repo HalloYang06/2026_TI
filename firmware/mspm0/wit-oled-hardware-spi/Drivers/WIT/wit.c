@@ -1,6 +1,7 @@
 #include "wit.h"
 
 #include "wit_jy901s_config.h"
+#include "wit_byte_queue.h"
 #include "wit_parser.h"
 
 #include <stddef.h>
@@ -15,8 +16,14 @@ volatile uint32_t wit_unknown_frame_count;
 volatile uint32_t wit_accel_frame_count;
 volatile uint32_t wit_gyro_frame_count;
 volatile uint32_t wit_angle_frame_count;
+volatile uint32_t wit_queue_enqueued_byte_count;
+volatile uint32_t wit_queue_dropped_byte_count;
+volatile uint32_t wit_serviced_byte_count;
+volatile uint16_t wit_queue_depth;
+volatile uint16_t wit_queue_high_water;
 
 static wit_parser_t g_wit_parser;
+static wit_byte_queue_t g_wit_byte_queue;
 
 static void wit_jy901s_write_register(uint8_t address, uint16_t value)
 {
@@ -117,6 +124,46 @@ void WIT_ProcessBytes(const uint8_t *data, uint16_t length)
     }
 }
 
+uint16_t WIT_QueueBytesFromISR(const uint8_t *data, uint16_t length)
+{
+    const uint16_t accepted = wit_byte_queue_push(
+        &g_wit_byte_queue, data, length
+    );
+
+    wit_queue_enqueued_byte_count += accepted;
+    wit_queue_dropped_byte_count =
+        wit_byte_queue_dropped(&g_wit_byte_queue);
+    wit_queue_depth = wit_byte_queue_depth(&g_wit_byte_queue);
+    wit_queue_high_water = wit_byte_queue_high_water(&g_wit_byte_queue);
+    return accepted;
+}
+
+uint16_t WIT_Service(uint16_t max_bytes)
+{
+    uint8_t buffer[WIT_FOREGROUND_BUDGET_PER_SERVICE];
+    uint16_t serviced = 0U;
+
+    while (serviced < max_bytes)
+    {
+        const uint16_t remaining = (uint16_t)(max_bytes - serviced);
+        const uint16_t capacity =
+            (remaining < sizeof(buffer)) ? remaining : sizeof(buffer);
+        const uint16_t count = wit_byte_queue_pop(
+            &g_wit_byte_queue, buffer, capacity
+        );
+
+        if (count == 0U)
+        {
+            break;
+        }
+        WIT_ProcessBytes(buffer, count);
+        serviced = (uint16_t)(serviced + count);
+    }
+    wit_serviced_byte_count += serviced;
+    wit_queue_depth = wit_byte_queue_depth(&g_wit_byte_queue);
+    return serviced;
+}
+
 void WIT_Init(void)
 {
     wit_rx_byte_count = 0U;
@@ -126,7 +173,13 @@ void WIT_Init(void)
     wit_accel_frame_count = 0U;
     wit_gyro_frame_count = 0U;
     wit_angle_frame_count = 0U;
+    wit_queue_enqueued_byte_count = 0U;
+    wit_queue_dropped_byte_count = 0U;
+    wit_serviced_byte_count = 0U;
+    wit_queue_depth = 0U;
+    wit_queue_high_water = 0U;
     wit_parser_init(&g_wit_parser);
+    wit_byte_queue_init(&g_wit_byte_queue);
     for (uint8_t i = 0U; i < sizeof(wit_dmaBuffer); ++i)
     {
         wit_dmaBuffer[i] = 0U;

@@ -40,7 +40,7 @@ def test_wit_dma_starts_before_non_returning_application_mode() -> None:
     assert main.index("WIT_Init();") < main.index("#if APP_MODE == APP_MODE_LCD_TEST")
 
 
-def test_wit_dma_completion_and_uart_timeout_share_stream_parser() -> None:
+def test_wit_dma_completion_and_uart_timeout_share_foreground_queue() -> None:
     interrupt = (PROJECT / "Drivers" / "MSPM0" / "interrupt.c").read_text(
         encoding="utf-8"
     )
@@ -48,10 +48,12 @@ def test_wit_dma_completion_and_uart_timeout_share_stream_parser() -> None:
     build = (PROJECT / "tools" / "build-keil.ps1").read_text(encoding="utf-8")
 
     assert "void DMA_IRQHandler(void)" in interrupt
-    assert "WIT_ProcessBytes" in interrupt
+    assert "WIT_ProcessBytes" not in interrupt
+    assert "WIT_QueueBytesFromISR" in interrupt
     assert "DL_DMA_EVENT_IIDX_DMACH0" in interrupt
     assert "DL_DMA_enableInterrupt(DMA, DL_DMA_INTERRUPT_CHANNEL0)" in wit
     assert "Drivers\\WIT\\wit_parser.c" in build
+    assert "Drivers\\WIT\\wit_byte_queue.c" in build
 
 
 def test_jy901s_accel_gyro_angle_reports_are_enabled_before_dma() -> None:

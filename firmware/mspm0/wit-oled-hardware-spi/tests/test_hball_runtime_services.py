@@ -98,4 +98,5 @@ def test_imu_interrupt_obeys_runtime_gate() -> None:
 
     assert "process_imu = hball_runtime_services_imu_enabled();" in wit
     assert "if (process_imu)" in wit
-    assert wit.count("WIT_ProcessBytes(") == 2
+    assert "WIT_ProcessBytes(" not in wit
+    assert wit.count("WIT_QueueBytesFromISR(") == 2

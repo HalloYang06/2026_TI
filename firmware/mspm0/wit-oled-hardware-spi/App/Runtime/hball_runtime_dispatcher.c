@@ -10,7 +10,9 @@ static bool hball_runtime_hooks_valid(
         && (hooks->enter_critical != NULL)
         && (hooks->exit_critical != NULL)
         && (hooks->can_enabled != NULL)
-        && (hooks->can_service != NULL);
+        && (hooks->can_service != NULL)
+        && (hooks->imu_enabled != NULL)
+        && (hooks->imu_service != NULL);
 }
 
 bool hball_runtime_dispatcher_init(
@@ -50,7 +52,8 @@ void hball_runtime_dispatcher_poll(
     uint32_t now_ms
 )
 {
-    uint8_t consumed = 0U;
+    uint8_t can_consumed = 0U;
+    uint8_t imu_consumed = 0U;
 
     if ((dispatcher == NULL) || !dispatcher->initialized)
     {
@@ -58,15 +61,27 @@ void hball_runtime_dispatcher_poll(
     }
 
     dispatcher->hooks.enter_critical(dispatcher->hooks.context);
-    while ((consumed < HBALL_COOP_MAX_PENDING)
+    while ((can_consumed < HBALL_COOP_MAX_PENDING)
         && hball_coop_scheduler_take(
             &dispatcher->scheduler, HBALL_COOP_TASK_CAN))
     {
-        consumed++;
+        can_consumed++;
+    }
+    while ((imu_consumed < HBALL_COOP_MAX_PENDING)
+        && hball_coop_scheduler_take(
+            &dispatcher->scheduler, HBALL_COOP_TASK_IMU))
+    {
+        imu_consumed++;
     }
     dispatcher->hooks.exit_critical(dispatcher->hooks.context);
 
-    if ((consumed != 0U)
+    /* Parse fresh IMU bytes before CAN snapshots them in the same release. */
+    if ((imu_consumed != 0U)
+        && dispatcher->hooks.imu_enabled(dispatcher->hooks.context))
+    {
+        dispatcher->hooks.imu_service(dispatcher->hooks.context, now_ms);
+    }
+    if ((can_consumed != 0U)
         && dispatcher->hooks.can_enabled(dispatcher->hooks.context))
     {
         dispatcher->hooks.can_service(dispatcher->hooks.context, now_ms);

@@ -4,6 +4,7 @@
 #include "hball_runtime_dispatcher.h"
 #include "hball_runtime_services.h"
 #include "ti_msp_dl_config.h"
+#include "wit.h"
 
 #include <string.h>
 
@@ -53,6 +54,23 @@ static void hball_runtime_target_can_service(
     g_hball_runtime_target_stats.last_can_service_ms = now_ms;
 }
 
+static bool hball_runtime_target_imu_enabled(void *context)
+{
+    (void)context;
+    return hball_runtime_services_imu_enabled();
+}
+
+static void hball_runtime_target_imu_service(
+    void *context,
+    uint32_t now_ms
+)
+{
+    (void)context;
+    (void)WIT_Service(WIT_FOREGROUND_BUDGET_PER_SERVICE);
+    g_hball_runtime_target_stats.imu_service_total++;
+    g_hball_runtime_target_stats.last_imu_service_ms = now_ms;
+}
+
 bool hball_runtime_target_init(void)
 {
     const hball_runtime_dispatcher_hooks_t hooks = {
@@ -60,6 +78,8 @@ bool hball_runtime_target_init(void)
         hball_runtime_target_exit_critical,
         hball_runtime_target_can_enabled,
         hball_runtime_target_can_service,
+        hball_runtime_target_imu_enabled,
+        hball_runtime_target_imu_service,
         &g_hball_runtime_context,
     };
     bool initialized;
@@ -97,9 +117,17 @@ void hball_runtime_target_poll(uint32_t now_ms)
         hball_runtime_dispatcher_pending(
             &g_hball_runtime_dispatcher, HBALL_COOP_TASK_CAN
         );
+    g_hball_runtime_target_stats.imu_pending =
+        hball_runtime_dispatcher_pending(
+            &g_hball_runtime_dispatcher, HBALL_COOP_TASK_IMU
+        );
     g_hball_runtime_target_stats.can_deadline_miss_total =
         hball_runtime_dispatcher_missed(
             &g_hball_runtime_dispatcher, HBALL_COOP_TASK_CAN
+        );
+    g_hball_runtime_target_stats.imu_deadline_miss_total =
+        hball_runtime_dispatcher_missed(
+            &g_hball_runtime_dispatcher, HBALL_COOP_TASK_IMU
         );
 }
 

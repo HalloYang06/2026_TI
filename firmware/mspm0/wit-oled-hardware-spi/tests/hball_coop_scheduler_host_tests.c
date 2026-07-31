@@ -6,6 +6,7 @@ static void test_period_table_matches_control_architecture(void)
 {
     assert(hball_coop_scheduler_period_ms(HBALL_COOP_TASK_SAFETY) == 1U);
     assert(hball_coop_scheduler_period_ms(HBALL_COOP_TASK_CAN) == 1U);
+    assert(hball_coop_scheduler_period_ms(HBALL_COOP_TASK_IMU) == 1U);
     assert(hball_coop_scheduler_period_ms(HBALL_COOP_TASK_MISSION) == 5U);
     assert(hball_coop_scheduler_period_ms(HBALL_COOP_TASK_BUTTON) == 5U);
     assert(hball_coop_scheduler_period_ms(HBALL_COOP_TASK_LINE) == 10U);
@@ -26,6 +27,7 @@ static void test_tick_publishes_each_task_at_its_period(void)
     }
     assert(hball_coop_scheduler_pending(&scheduler, HBALL_COOP_TASK_SAFETY) == 3U);
     assert(hball_coop_scheduler_pending(&scheduler, HBALL_COOP_TASK_CAN) == 3U);
+    assert(hball_coop_scheduler_pending(&scheduler, HBALL_COOP_TASK_IMU) == 3U);
     assert(hball_coop_scheduler_pending(&scheduler, HBALL_COOP_TASK_MISSION) == 0U);
 
     hball_coop_scheduler_tick_isr(&scheduler);

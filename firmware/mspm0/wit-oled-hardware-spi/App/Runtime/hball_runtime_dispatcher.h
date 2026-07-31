@@ -20,6 +20,8 @@ typedef struct
     hball_runtime_critical_fn exit_critical;
     hball_runtime_enabled_fn can_enabled;
     hball_runtime_service_fn can_service;
+    hball_runtime_enabled_fn imu_enabled;
+    hball_runtime_service_fn imu_service;
     void *context;
 } hball_runtime_dispatcher_hooks_t;
 

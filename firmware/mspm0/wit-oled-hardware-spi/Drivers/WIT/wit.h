@@ -21,6 +21,7 @@
 #include "ti_msp_dl_config.h"
 
 #define WIT_DMA_TRANSFER_SIZE 32U
+#define WIT_FOREGROUND_BUDGET_PER_SERVICE 32U
 
 typedef struct {
     float pitch;
@@ -45,8 +46,15 @@ extern volatile uint32_t wit_unknown_frame_count;
 extern volatile uint32_t wit_accel_frame_count;
 extern volatile uint32_t wit_gyro_frame_count;
 extern volatile uint32_t wit_angle_frame_count;
+extern volatile uint32_t wit_queue_enqueued_byte_count;
+extern volatile uint32_t wit_queue_dropped_byte_count;
+extern volatile uint32_t wit_serviced_byte_count;
+extern volatile uint16_t wit_queue_depth;
+extern volatile uint16_t wit_queue_high_water;
 
 void WIT_Init(void);
 void WIT_ProcessBytes(const uint8_t *data, uint16_t length);
+uint16_t WIT_QueueBytesFromISR(const uint8_t *data, uint16_t length);
+uint16_t WIT_Service(uint16_t max_bytes);
 
 #endif /* #ifndef __WIT_H */

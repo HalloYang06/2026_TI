@@ -5,6 +5,7 @@
 static const uint16_t g_hball_coop_period_ms[HBALL_COOP_TASK_COUNT] = {
     1U,
     1U,
+    1U,
     5U,
     5U,
     10U,

@@ -15,10 +15,14 @@ typedef struct
     uint32_t tick_total;
     uint32_t poll_total;
     uint32_t can_service_total;
+    uint32_t imu_service_total;
     uint32_t can_deadline_miss_total;
+    uint32_t imu_deadline_miss_total;
     uint32_t last_poll_ms;
     uint32_t last_can_service_ms;
+    uint32_t last_imu_service_ms;
     uint8_t can_pending;
+    uint8_t imu_pending;
     uint8_t initialized;
 } hball_runtime_target_stats_t;
 
