@@ -39,6 +39,7 @@ static bool g_hball_wit_attitude_seen;
 static hball_can_recovery_t g_hball_can_recovery;
 static hball_mission_client_t g_hball_mission_client;
 static hball_mission_ui_t g_hball_mission_ui;
+static volatile bool g_hball_rx_drain_active;
 static void hball_can_drain_fifo0(void);
 static volatile uint32_t g_hball_port_now_ms;
 static uint32_t g_hball_chassis_start_ms;
@@ -356,6 +357,7 @@ void hball_can_port_init(void)
     g_hball_chassis_phase = HBALL_MISSION_STATE_READY;
     g_hball_chassis_events = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
     memset(&g_hball_mission_ui, 0, sizeof(g_hball_mission_ui));
+    g_hball_rx_drain_active = false;
     hball_mission_client_init(&g_hball_mission_client, 0U);
     hball_can_recovery_init(&g_hball_can_recovery);
 
@@ -584,6 +586,16 @@ static void hball_can_drain_fifo0(void)
     DL_MCAN_RxBufElement message;
     DL_MCAN_RxFIFOStatus fifo_status;
 
+    /*
+     * SysTick provides a polling fallback while the MCAN IRQ is the normal
+     * receive path. SysTick has higher priority and can preempt that IRQ, so
+     * reject the nested drain before both contexts touch FIFO0 concurrently.
+     */
+    if (g_hball_rx_drain_active)
+    {
+        return;
+    }
+    g_hball_rx_drain_active = true;
     memset(&fifo_status, 0, sizeof(fifo_status));
     fifo_status.num = DL_MCAN_RX_FIFO_NUM_0;
     DL_MCAN_getRxFIFOStatus(MCAN0_INST, &fifo_status);
@@ -601,6 +613,7 @@ static void hball_can_drain_fifo0(void)
         hball_can_record_rx(&message);
         DL_MCAN_getRxFIFOStatus(MCAN0_INST, &fifo_status);
     }
+    g_hball_rx_drain_active = false;
 }
 
 void MCAN0_INST_IRQHandler(void)

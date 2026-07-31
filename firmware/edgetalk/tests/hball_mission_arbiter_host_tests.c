@@ -24,7 +24,10 @@ static void test_prepare_requires_complete_mask_for_500_ms(void)
     assert(hball_mission_arbiter_accept_intent(&arbiter, &intent, 10U));
     assert(arbiter.global_state == HBALL_MISSION_STATE_PREPARING);
     required = hball_mission_required_ready_mask(intent.mission_id);
-    assert((required & HBALL_MISSION_READY_IMU) != 0U);
+    assert((required & HBALL_MISSION_READY_CHASSIS) != 0U);
+    assert((required & HBALL_MISSION_READY_IMU) == 0U);
+    assert((required & HBALL_MISSION_READY_VISION) == 0U);
+    assert((required & HBALL_MISSION_READY_RS00_LINK) == 0U);
 
     hball_mission_arbiter_update_ready(&arbiter, required, 100U);
     assert(arbiter.global_state == HBALL_MISSION_STATE_PREPARING);
@@ -35,7 +38,7 @@ static void test_prepare_requires_complete_mask_for_500_ms(void)
 
     hball_mission_arbiter_update_ready(
         &arbiter,
-        (uint16_t)(required & ~HBALL_MISSION_READY_VISION),
+        (uint16_t)(required & ~HBALL_MISSION_READY_CHASSIS),
         601U
     );
     assert(arbiter.global_state == HBALL_MISSION_STATE_PREPARING);
@@ -100,6 +103,18 @@ static void test_q3_uses_available_stationary_dependencies(void)
     assert((required & HBALL_MISSION_READY_CHASSIS) != 0U);
     assert((required & HBALL_MISSION_READY_IMU) == 0U);
     assert((required & HBALL_MISSION_READY_VISION) != 0U);
+}
+
+static void test_q4_requires_mobile_ball_dependencies(void)
+{
+    const uint16_t required = hball_mission_required_ready_mask(
+        HBALL_MISSION_Q4_A_TO_B
+    );
+
+    assert((required & HBALL_MISSION_READY_CHASSIS) != 0U);
+    assert((required & HBALL_MISSION_READY_IMU) != 0U);
+    assert((required & HBALL_MISSION_READY_VISION) != 0U);
+    assert((required & HBALL_MISSION_READY_RS00_LINK) != 0U);
 }
 
 static void test_status_mirrors_context_and_increments_sequence(void)
@@ -292,6 +307,7 @@ int main(void)
     test_start_outside_ready_is_rejected_and_not_queued();
     test_epoch_and_mission_must_match_after_start();
     test_q3_uses_available_stationary_dependencies();
+    test_q4_requires_mobile_ball_dependencies();
     test_status_mirrors_context_and_increments_sequence();
     test_execution_transitions_are_explicit_and_bounded();
     test_repeated_reset_does_not_restart_ready_stabilization();

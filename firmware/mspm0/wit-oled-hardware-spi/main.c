@@ -1578,6 +1578,9 @@ static void lap_test_once(void)
     const int16_t task3_start_speed = 28;
     const int16_t task3_curve_min_speed = 40;
     const uint32_t task3_start_ramp_ms = 1000U;
+    const int16_t task2_start_speed = 28;
+    const int16_t task2_start_duty = 8;
+    const uint32_t task2_start_ramp_ms = 800U;
     uint8_t selected_task;
     uint8_t finish_line_enabled;
     uint8_t finish_active_threshold = 3U;
@@ -1682,11 +1685,20 @@ static void lap_test_once(void)
     desired_speed_right = base_speed;
     requested_speed_left = base_speed;
     requested_speed_right = base_speed;
-    if (selected_task == CAR_TASK_STABLE_LAP) {
-        desired_speed_left = task3_start_speed;
-        desired_speed_right = task3_start_speed;
-        requested_speed_left = task3_start_speed;
-        requested_speed_right = task3_start_speed;
+    if ((selected_task == CAR_TASK_TIMED_RUN)
+        || (selected_task == CAR_TASK_STABLE_LAP)) {
+        const int16_t start_speed =
+            (selected_task == CAR_TASK_TIMED_RUN)
+                ? task2_start_speed : task3_start_speed;
+
+        desired_speed_left = start_speed;
+        desired_speed_right = start_speed;
+        requested_speed_left = start_speed;
+        requested_speed_right = start_speed;
+    }
+    if (selected_task == CAR_TASK_TIMED_RUN) {
+        commanded_duty_left = task2_start_duty;
+        commanded_duty_right = task2_start_duty;
     }
 
     raw = read_track_raw();
@@ -1757,8 +1769,17 @@ static void lap_test_once(void)
             timeout_trigger_ms = run_timeout_ms - 500U;
         }
         task3_ramped_base_speed = base_speed;
-        if ((selected_task == CAR_TASK_STABLE_LAP) &&
-            (elapsed_ms < task3_start_ramp_ms))
+        if ((selected_task == CAR_TASK_TIMED_RUN)
+            && (elapsed_ms < task2_start_ramp_ms))
+        {
+            task3_ramped_base_speed =
+                task2_start_speed +
+                (int16_t)(((int32_t)(base_speed - task2_start_speed) *
+                           (int32_t)elapsed_ms) /
+                          (int32_t)task2_start_ramp_ms);
+        }
+        else if ((selected_task == CAR_TASK_STABLE_LAP)
+                 && (elapsed_ms < task3_start_ramp_ms))
         {
             task3_ramped_base_speed =
                 task3_start_speed +
@@ -1928,7 +1949,8 @@ static void lap_test_once(void)
             /* Starting on A's transverse line: drive straight until it is cleared. */
             target_steering = 0;
             desired_speed_left =
-                (selected_task == CAR_TASK_STABLE_LAP) ?
+                ((selected_task == CAR_TASK_TIMED_RUN)
+                 || (selected_task == CAR_TASK_STABLE_LAP)) ?
                 task3_ramped_base_speed : base_speed;
             desired_speed_right = desired_speed_left;
             requested_speed_left =
@@ -2032,7 +2054,9 @@ static void lap_test_once(void)
             error_magnitude =
                 (error < 0) ? (int16_t)(-error) : error;
             steering_error = error;
-            control_base_speed = base_speed;
+            control_base_speed =
+                (selected_task == CAR_TASK_TIMED_RUN)
+                    ? task3_ramped_base_speed : base_speed;
 
             if (selected_task == CAR_TASK_LAP_STOP)
             {

@@ -65,6 +65,12 @@
 #define HBALL_BALL_PID_KP 0.70F
 #define HBALL_BALL_PID_KI 0.15F
 #define HBALL_BALL_PID_KD 0.40F
+#define HBALL_MOBILE_PID_KP 0.70F
+#define HBALL_MOBILE_PID_KI 0.15F
+#define HBALL_MOBILE_PID_KD 0.40F
+#define HBALL_MOBILE_IMU_FF_GAIN 0.50F
+#define HBALL_MOBILE_IMU_FF_ALPHA 0.10F
+#define HBALL_MOBILE_IMU_FF_LIMIT_RAD 0.026179939F
 #define HBALL_BALL_PID_BOOST_ENTER_MPS 0.003F
 #define HBALL_BALL_PID_BOOST_EXIT_MPS 0.015F
 #define HBALL_BALL_LQI_KP 1.576194F
@@ -177,6 +183,7 @@ static float g_hball_ball_pid_static_boost_rad = 0.0F;
 static rt_bool_t g_hball_ball_pid_static_boost_active = RT_FALSE;
 static rt_uint8_t g_hball_ball_mode = 0U;
 static rt_bool_t g_hball_ball_use_lqi = RT_FALSE;
+static float g_hball_mobile_imu_ff_rad = 0.0F;
 static float g_hball_ball_max_abs_error_m = 0.0F;
 static rt_uint32_t g_hball_ball_error_violation_total = 0U;
 static rt_uint32_t g_hball_mission_action_last_ms = 0U;
@@ -1161,6 +1168,12 @@ static int hball_mission_q3_level_tick(rt_uint32_t now_ms)
     return 0;
 }
 
+static rt_bool_t hball_mission_uses_ball_control(rt_uint8_t mission)
+{
+    return (mission >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+        && (mission <= HBALL_MISSION_Q6_HOLD_POSITION_LAP);
+}
+
 static void hball_mission_action_tick(rt_uint32_t now_ms)
 {
     const rt_uint8_t state = g_hball_mission_arbiter.global_state;
@@ -1219,7 +1232,7 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
         return;
     }
     if ((state != HBALL_MISSION_STATE_START_PENDING)
-        || (mission != HBALL_MISSION_Q3_BALL_SEQUENCE))
+        || !hball_mission_uses_ball_control(mission))
     {
         hball_mission_level_reset();
     }
@@ -1241,7 +1254,7 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
         {
             int result = -RT_ERROR;
 
-            if (mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
+            if (hball_mission_uses_ball_control(mission))
             {
                 const int level_result =
                     hball_mission_q3_level_tick(now_ms);
@@ -1263,9 +1276,12 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
                     );
                     return;
                 }
-                result = hball_q3_start_common();
+                if (mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
+                {
+                    result = hball_q3_start_common();
+                }
             }
-            else if ((mission == HBALL_MISSION_Q4_A_TO_B)
+            if ((mission == HBALL_MISSION_Q4_A_TO_B)
                      || (mission == HBALL_MISSION_Q5_CENTER_LAP))
             {
                 result = hball_hold_start_common(
@@ -1569,9 +1585,23 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     if ((g_hball_ball_mode != 1U)
         && ((snapshot.valid_flags & HBALL_SENSOR_VALID_IMU) != 0U))
     {
-        pipe_command_rad += atan2f(
+        float imu_ff_rad = atan2f(
             snapshot.longitudinal_accel_mps2, 9.80665F
         ) - snapshot.body_pitch_rad;
+
+        g_hball_mobile_imu_ff_rad += HBALL_MOBILE_IMU_FF_ALPHA
+            * (imu_ff_rad - g_hball_mobile_imu_ff_rad);
+        imu_ff_rad = HBALL_MOBILE_IMU_FF_GAIN
+            * g_hball_mobile_imu_ff_rad;
+        if (imu_ff_rad > HBALL_MOBILE_IMU_FF_LIMIT_RAD)
+        {
+            imu_ff_rad = HBALL_MOBILE_IMU_FF_LIMIT_RAD;
+        }
+        else if (imu_ff_rad < -HBALL_MOBILE_IMU_FF_LIMIT_RAD)
+        {
+            imu_ff_rad = -HBALL_MOBILE_IMU_FF_LIMIT_RAD;
+        }
+        pipe_command_rad += imu_ff_rad;
     }
     if (pipe_command_rad > pipe_limit_rad)
     {
@@ -2427,6 +2457,12 @@ static int hball_hold_start_common(
     g_hball_ball_phase = (mode == 2U) ? 5U : 6U;
     g_hball_ball_mode = mode;
     g_hball_ball_q3_passed = RT_FALSE;
+    g_hball_ball_use_lqi = RT_FALSE;
+    g_hball_ball_pid_kp = HBALL_MOBILE_PID_KP;
+    g_hball_ball_pid_ki = HBALL_MOBILE_PID_KI;
+    g_hball_ball_pid_kd = HBALL_MOBILE_PID_KD;
+    g_hball_ball_pid_static_boost_rad = 0.0F;
+    g_hball_mobile_imu_ff_rad = 0.0F;
     g_hball_ball_position_integral = 0.0F;
     g_hball_ball_previous_error_m = 0.0F;
     g_hball_ball_pid_static_boost_active = RT_FALSE;

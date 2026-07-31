@@ -49,12 +49,19 @@ uint16_t hball_mission_menu_required_mask(uint8_t mission_id)
     uint16_t required =
         HBALL_MISSION_READY_M33_ALIVE
         | HBALL_MISSION_READY_MSP_LINK
-        | HBALL_MISSION_READY_CHASSIS
-        | HBALL_MISSION_READY_PI_USB
-        | HBALL_MISSION_READY_VISION
-        | HBALL_MISSION_READY_RS00_LINK;
+        | HBALL_MISSION_READY_CHASSIS;
 
-    if (mission_id != HBALL_MISSION_Q3_BALL_SEQUENCE)
+    if (!hball_mission_id_valid(mission_id))
+    {
+        return 0U;
+    }
+    if (mission_id >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+    {
+        required |= HBALL_MISSION_READY_PI_USB
+            | HBALL_MISSION_READY_VISION
+            | HBALL_MISSION_READY_RS00_LINK;
+    }
+    if (mission_id >= HBALL_MISSION_Q4_A_TO_B)
     {
         required |= HBALL_MISSION_READY_IMU;
     }
