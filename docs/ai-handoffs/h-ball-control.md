@@ -6,6 +6,28 @@ Role: H-ball EdgeTalk USB/CAN/LQG integration + RS00两连杆仿真
 
 Updated: 2026-07-31
 
+## 2026-07-31 MSPM0活跃循迹状态迁出main
+
+Owner: Codex
+
+- 分支`codex/mspm0-runtime-decoupling`已把`lap_test_once()`中的Q2、Q4和稳定循迹状态
+  迁入纯`App/Control/LineFollower`；模块只消费`LineSnapshot + profile + timestamp +
+  force_straight`，输出带时间戳`MotionIntent`、重捕获积分复位事件和丢线超时事件。
+- 保留原双时基：`LineFollower`仍由比赛循环每10 ms更新请求，`WheelControl`仍每100 ms
+  消费一次。Stable重捕获状态必须等`wheel_control_step()`成功、PWM已应用后才ack，期间持续
+  使用原来的重捕获滤波/斜率和搜索方向锁存。
+- Q2参数和时序未调参：63基速、55弯道基速、20 ms入弯确认、80 ms出弯确认、250 ms
+  提速坡道、300 ms两段丢线搜索以及Q2不触发700 ms丢线停止全部保留。Q4继续50直接
+  起步/7800 ms任务超时；Stable继续28到46的一秒起步坡道、3:2整数滤波、中心死区、
+  预瞄限幅、40 ms毛刺保持和700 ms丢线停止。
+- 主机测试新增黄金轨迹并更新旧参数归属测试；全量结果为`71 passed`。Keil ArmClang
+  构建成功，`Code=44928, RO=15424, RW=144, ZI=8424`，连续栈区仍为`0x800` B；
+  `lap_test_once`自动局部帧从约`0x2FC`降到`0x1B4`（另有保存寄存器20 B）。
+- 未烧录、未模拟按键、未启动任务、未使能电机。生成HEX仅为编译证据，SHA-256为
+  `F4E327D8AAB4437C7812B527FFA89F4A5D518486D5E819F8152F501C004875B8`。
+- 下一独立切片应把终点/起点线确认、任务deadline、停止原因和运行阶段迁入Mission
+  Runtime；不要把这些重新塞进LineFollower，也不要在该切片顺带调Q2/Q4参数。
+
 ## 2026-07-31 MSPM0控制所有权继续收拢
 
 Owner: Codex

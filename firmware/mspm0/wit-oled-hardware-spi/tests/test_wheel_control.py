@@ -85,8 +85,9 @@ def test_active_lap_runtime_delegates_wheel_pid_ownership() -> None:
     assert "wheel_control_reset_integrators(&wheel_control)" in compact
     assert "wheel_control_step(&wheel_control" in compact
     assert "motion_intent_twheel_intent;" in compact
-    assert "wheel_intent.valid=true;" in compact
-    assert "wheel_intent.timestamp_ms=line_sample.timestamp_ms;" in compact
+    assert "wheel_intent=follower_output.intent;" in compact
+    assert "wheel_intent.valid=true;" not in compact
+    assert "wheel_intent.timestamp_ms=line_sample.timestamp_ms;" not in compact
     assert "&wheel_intent,&wheel_output" in compact
     assert "PID_Update(&LEFT)" not in compact
     assert "PID_Update(&RIGHT)" not in compact

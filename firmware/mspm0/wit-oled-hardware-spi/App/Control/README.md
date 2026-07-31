@@ -22,6 +22,15 @@ following and wheel control. Its speed unit remains encoder counts per 100 ms
 to preserve the verified controller. A valid intent may still represent
 stateful lost-line recovery even when the current `LineSnapshot` is invalid.
 
+`LineFollower` owns the active Q2, Q4, and stable-lap line-following state. It
+runs from the 10 ms competition loop, consumes only a `LineSnapshot`, profile,
+timestamp, and the caller's start-line straight-through decision, then emits a
+`MotionIntent`. Q2 curve timing, lost-line search, stable-lap filtering and
+reacquisition latching live here. Finish detection, mission deadlines, display,
+encoder sampling, wheel PID, and actuation remain outside this module. A
+reacquisition stays pending until the 100 ms wheel controller has successfully
+applied the corresponding intent and the caller acknowledges it.
+
 The first migration step is deliberately behavior-preserving: the adapter
 keeps the existing PWM signs, limits, startup ordering, and stop sequences.
 It does not tune Q2/Q4 or move PID work into an interrupt. Follow-up slices can
@@ -39,6 +48,8 @@ Ownership rules:
 - No automated test may enable the actuator or start a mission.
 - `LineSnapshot` produces facts only; it cannot select a task or request
   chassis motion.
+- `LineFollower` cannot read GPIO, mission globals, displays, transports,
+  encoders, or actuator state.
 - `WheelControl` alone updates the active lap runtime's wheel PID state; the
   caller owns atomic encoder sampling and the final actuator request. It may
   consume only an explicitly valid `MotionIntent`.

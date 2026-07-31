@@ -422,6 +422,11 @@
               <FilePath>..\App\Control\line_snapshot.c</FilePath>
             </File>
             <File>
+              <FileName>line_follower.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\Control\line_follower.c</FilePath>
+            </File>
+            <File>
               <FileName>wheel_control.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\App\Control\wheel_control.c</FilePath>

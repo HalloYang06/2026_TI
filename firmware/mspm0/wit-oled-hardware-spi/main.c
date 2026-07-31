@@ -38,6 +38,7 @@
 #include "hball_mission_policy.h"
 #include "hball_runtime_services.h"
 #include "hball_runtime_target.h"
+#include "line_follower.h"
 #include "line_sensor_port.h"
 #include "line_snapshot.h"
 #include "motion_intent.h"
@@ -1533,11 +1534,6 @@ static void lap_test(void)
 static void lap_test_once(void)
 {
     enum { LAP_LOG_SAMPLES = 350 };
-    enum {
-        TRACK_PHASE_STRAIGHT = 0,
-        TRACK_PHASE_CURVE,
-        TRACK_PHASE_EXIT_RAMP
-    };
     static uint16_t log_time_ms[LAP_LOG_SAMPLES];
     static uint8_t log_line_mask[LAP_LOG_SAMPLES];
     static int8_t log_error[LAP_LOG_SAMPLES];
@@ -1547,29 +1543,13 @@ static void lap_test_once(void)
     static int16_t log_actual_right[LAP_LOG_SAMPLES];
     static uint8_t log_duty_left[LAP_LOG_SAMPLES];
     static uint8_t log_duty_right[LAP_LOG_SAMPLES];
-    /* Task 2 needs enough margin to pass B within eight seconds. */
-    int16_t base_speed = 50;
-    const int16_t min_speed = 10;
-    int16_t max_speed = 70;
-    int16_t recovery_inner_speed = 14;
-    int16_t recovery_outer_speed = 52;
-    float weighted_position_kp = 0.50f;
-    int16_t steering_limit = 20;
-    int16_t steering_slew_step = 2;
-    const uint32_t lost_timeout_ms = 700U;
     const uint32_t start_line_clear_confirm_ms = 120U;
     uint32_t finish_line_min_run_ms = 10000U;
-    const int16_t task1_curve_speed = 55;
-    const int16_t curve_enter_error = 15;
-    const int16_t curve_exit_error = 6;
-    const uint32_t curve_enter_confirm_ms = 20U;
-    const uint32_t curve_exit_confirm_ms = 80U;
-    const uint32_t curve_exit_ramp_ms = 250U;
-    const int16_t task3_start_speed = 28;
-    const int16_t task3_curve_min_speed = 40;
-    const uint32_t task3_start_ramp_ms = 1000U;
     hball_mission_policy_t mission_policy;
+    static line_follower_t line_follower;
     static wheel_control_t wheel_control;
+    line_follower_output_t follower_output;
+    line_follower_profile_t follower_profile;
     motion_intent_t wheel_intent;
     wheel_control_output_t wheel_output;
     uint8_t selected_task;
@@ -1582,26 +1562,8 @@ static void lap_test_once(void)
     uint8_t finish_armed = 0U;
     uint8_t wide_finish_pattern;
     uint8_t finish_stop_confirmed = 0U;
-    uint8_t line_was_lost = 0U;
-    uint8_t line_reacquired = 0U;
     uint16_t log_index = 0U;
     int16_t error = 0;
-    int16_t error_magnitude = 0;
-    int16_t steering_error = 0;
-    int16_t control_base_speed;
-    int16_t task3_ramped_base_speed = base_speed;
-    int16_t task3_curve_floor;
-    int16_t task3_filtered_error = 0;
-    int16_t task3_steering_command = 0;
-    int16_t task3_curve_feedforward = 0;
-    uint8_t task3_filter_ready = 0U;
-    int8_t last_line_side = 0;
-    uint8_t track_phase = TRACK_PHASE_STRAIGHT;
-    int16_t target_steering = 0;
-    int16_t desired_speed_left = base_speed;
-    int16_t desired_speed_right = base_speed;
-    int16_t requested_speed_left = base_speed;
-    int16_t requested_speed_right = base_speed;
     int16_t commanded_duty_left = 15;
     int16_t commanded_duty_right = 15;
     int16_t stop_start_duty_left;
@@ -1615,11 +1577,6 @@ static void lap_test_once(void)
     uint32_t elapsed_ms;
     uint32_t timeout_trigger_ms;
     uint32_t finish_elapsed_ms = 0U;
-    uint32_t lost_start_ms = 0U;
-    uint32_t lost_elapsed_ms = 0U;
-    uint32_t curve_enter_start_ms = 0U;
-    uint32_t curve_exit_start_ms = 0U;
-    uint32_t curve_ramp_start_ms = 0U;
     uint32_t start_line_clear_start_ms = 0U;
     uint32_t finish_candidate_start_ms = 0U;
     char time_text[8];
@@ -1641,13 +1598,7 @@ static void lap_test_once(void)
     if (selected_task == HBALL_MISSION_Q2_FAST_LAP)
     {
         selected_task = CAR_TASK_LAP_STOP;
-        base_speed = 63;
-        max_speed = 80;
-        recovery_inner_speed = 24;
-        recovery_outer_speed = 52;
-        weighted_position_kp = 0.65f;
-        steering_limit = 28;
-        steering_slew_step = 5;
+        follower_profile = LINE_FOLLOWER_PROFILE_Q2_FAST_LAP;
         finish_line_enabled = 1U;
         finish_active_threshold = 3U;
         finish_line_min_run_ms = 18000U;
@@ -1656,31 +1607,19 @@ static void lap_test_once(void)
     else if (selected_task == HBALL_MISSION_Q4_A_TO_B)
     {
         selected_task = CAR_TASK_TIMED_RUN;
+        follower_profile = LINE_FOLLOWER_PROFILE_Q4_TIMED_RUN;
         finish_line_enabled = 0U;
         run_timeout_ms = 7800U;
     }
     else
     {
         selected_task = CAR_TASK_STABLE_LAP;
-        base_speed = 46;
-        max_speed = 65;
-        steering_slew_step = 3;
+        follower_profile = LINE_FOLLOWER_PROFILE_STABLE_LAP;
         finish_line_enabled = 0U;
         finish_active_threshold = 4U;
         finish_line_min_run_ms = 23000U;
         run_timeout_ms = 28000U;
     }
-    desired_speed_left = base_speed;
-    desired_speed_right = base_speed;
-    requested_speed_left = base_speed;
-    requested_speed_right = base_speed;
-    if (selected_task == CAR_TASK_STABLE_LAP) {
-        desired_speed_left = task3_start_speed;
-        desired_speed_right = task3_start_speed;
-        requested_speed_left = task3_start_speed;
-        requested_speed_right = task3_start_speed;
-    }
-
     line_sample = line_snapshot_decode(line_sensor_port_read_raw(), tick_ms);
     line_mask = line_sample.line_mask;
     if (line_mask == 0U)
@@ -1709,6 +1648,7 @@ static void lap_test_once(void)
 
     chassis_actuator_start_synchronized((float)commanded_duty_left, (float)commanded_duty_right);
     run_start_ms = tick_ms;
+    line_follower_init(&line_follower, follower_profile, run_start_ms);
     wheel_control_init(
         &wheel_control,
         run_start_ms,
@@ -1733,16 +1673,6 @@ static void lap_test_once(void)
         if ((selected_task == CAR_TASK_STABLE_LAP) &&
             (run_timeout_ms >= 500U)) {
             timeout_trigger_ms = run_timeout_ms - 500U;
-        }
-        task3_ramped_base_speed = base_speed;
-        if ((selected_task == CAR_TASK_STABLE_LAP) &&
-            (elapsed_ms < task3_start_ramp_ms))
-        {
-            task3_ramped_base_speed =
-                task3_start_speed +
-                (int16_t)(((int32_t)(base_speed - task3_start_speed) *
-                           (int32_t)elapsed_ms) /
-                          (int32_t)task3_start_ramp_ms);
         }
         if ((run_timeout_ms != 0U) && (elapsed_ms >= timeout_trigger_ms))
         {
@@ -1888,319 +1818,36 @@ static void lap_test_once(void)
             break;
         }
 
-        if ((wide_finish_pattern != 0U) && (finish_armed == 0U))
+        (void)line_follower_step(
+            &line_follower,
+            &line_sample,
+            (wide_finish_pattern != 0U) && (finish_armed == 0U),
+            &follower_output
+        );
+        wheel_intent = follower_output.intent;
+        error = follower_output.error;
+
+        if (follower_output.reset_wheel_integrators)
         {
-            /* Starting on A's transverse line: drive straight until it is cleared. */
-            target_steering = 0;
-            desired_speed_left =
-                (selected_task == CAR_TASK_STABLE_LAP) ?
-                task3_ramped_base_speed : base_speed;
-            desired_speed_right = desired_speed_left;
-            requested_speed_left =
-                approach_pwm(requested_speed_left, desired_speed_left,
-                             (line_reacquired != 0U) ? 15 : 2);
-            requested_speed_right =
-                approach_pwm(requested_speed_right, desired_speed_right,
-                             (line_reacquired != 0U) ? 15 : 2);
-            line_was_lost = 0U;
-            lost_start_ms = 0U;
+            wheel_control_reset_integrators(&wheel_control);
         }
-        else if (active_count == 0U)
+        if (follower_output.lost_timeout)
         {
-            line_was_lost = 1U;
-            curve_enter_start_ms = 0U;
-            curve_exit_start_ms = 0U;
-            if (selected_task == CAR_TASK_LAP_STOP) {
-                track_phase = TRACK_PHASE_CURVE;
-            }
-            if (lost_start_ms == 0U) {
-                lost_start_ms = tick_ms;
-                lost_elapsed_ms = 0U;
-            } else {
-                lost_elapsed_ms = (uint32_t)(tick_ms - lost_start_ms);
-            }
-
-            /*
-             * Task 1 must finish the lap.  A fast curve exit can hide the
-             * line for longer than the old 700 ms limit, so keep searching
-             * instead of ending the run.  Other tasks retain the safety stop.
-             */
-            if ((selected_task != CAR_TASK_LAP_STOP) &&
-                (lost_elapsed_ms >= lost_timeout_ms)) {
-                chassis_actuator_stop();
-                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
-                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
-                chassis_actuator_disable();
-                LCD_Fill(0, 48, 280, 100, BLACK);
-                LCD_ShowString(4, 58, (const unsigned char *)"LOST STOP", RED, BLACK, 32, 0);
-                break;
-            }
-
-            /*
-             * Search toward the side where the line was last observed.
-             * This recovers the brief line loss that can occur at a curve
-             * entrance while still stopping on a genuine departure.
-            */
-            if ((selected_task == CAR_TASK_STABLE_LAP) &&
-                (lost_elapsed_ms < 40U)) {
-                /*
-                 * The log shows isolated 0x00 samples at curve transitions.
-                 * Hold the previous wheel request briefly so a single sensor
-                 * dropout cannot produce a 52/14 speed jump.
-                 */
-            } else if (selected_task == CAR_TASK_STABLE_LAP) {
-                /* A genuine loss uses a gentler search than the fast task. */
-                if (last_line_side < 0) {
-                    requested_speed_left = 20;
-                    requested_speed_right = 50;
-                } else if (last_line_side > 0) {
-                    requested_speed_left = 50;
-                    requested_speed_right = 20;
-                } else {
-                    requested_speed_left = 36;
-                    requested_speed_right = 36;
-                }
-            } else if ((selected_task == CAR_TASK_LAP_STOP) &&
-                (lost_elapsed_ms >= 300U)) {
-                /* Slow down and tighten the turn until a sensor sees the line. */
-                if (last_line_side < 0) {
-                    requested_speed_left = 8;
-                    requested_speed_right = 44;
-                } else if (last_line_side > 0) {
-                    requested_speed_left = 44;
-                    requested_speed_right = 8;
-                } else {
-                    requested_speed_left = 30;
-                    requested_speed_right = 30;
-                }
-            } else if (last_line_side < 0) {
-                requested_speed_left = recovery_inner_speed;
-                requested_speed_right = recovery_outer_speed;
-            } else if (last_line_side > 0) {
-                requested_speed_left = recovery_outer_speed;
-                requested_speed_right = recovery_inner_speed;
-            } else {
-                requested_speed_left = 42;
-                requested_speed_right = 42;
-            }
-        }
-        else
-        {
-            if (line_was_lost != 0U) {
-                line_reacquired = 1U;
-                line_was_lost = 0U;
-                wheel_control_reset_integrators(&wheel_control);
-            }
-            lost_start_ms = 0U;
-            error = line_sample.weighted_error;
-            error_magnitude =
-                (error < 0) ? (int16_t)(-error) : error;
-            steering_error = error;
-            control_base_speed = base_speed;
-
-            if (selected_task == CAR_TASK_LAP_STOP)
-            {
-                if (track_phase == TRACK_PHASE_STRAIGHT)
-                {
-                    if (error_magnitude >= curve_enter_error)
-                    {
-                        if (curve_enter_start_ms == 0U) {
-                            curve_enter_start_ms = tick_ms;
-                        } else if ((uint32_t)(tick_ms - curve_enter_start_ms) >=
-                                   curve_enter_confirm_ms) {
-                            track_phase = TRACK_PHASE_CURVE;
-                            curve_enter_start_ms = 0U;
-                            curve_exit_start_ms = 0U;
-                        }
-                    }
-                    else
-                    {
-                        curve_enter_start_ms = 0U;
-                    }
-                }
-
-                if (track_phase == TRACK_PHASE_CURVE)
-                {
-                    control_base_speed = task1_curve_speed;
-                    if (error_magnitude <= curve_exit_error)
-                    {
-                        if (curve_exit_start_ms == 0U) {
-                            curve_exit_start_ms = tick_ms;
-                        } else if ((uint32_t)(tick_ms - curve_exit_start_ms) >=
-                                   curve_exit_confirm_ms) {
-                            track_phase = TRACK_PHASE_EXIT_RAMP;
-                            curve_ramp_start_ms = tick_ms;
-                            curve_exit_start_ms = 0U;
-                        }
-                    }
-                    else
-                    {
-                        curve_exit_start_ms = 0U;
-                    }
-                }
-                else if (track_phase == TRACK_PHASE_EXIT_RAMP)
-                {
-                    uint32_t ramp_elapsed_ms =
-                        (uint32_t)(tick_ms - curve_ramp_start_ms);
-
-                    if (error_magnitude >= curve_enter_error)
-                    {
-                        track_phase = TRACK_PHASE_CURVE;
-                        control_base_speed = task1_curve_speed;
-                        curve_exit_start_ms = 0U;
-                    }
-                    else if (ramp_elapsed_ms >= curve_exit_ramp_ms)
-                    {
-                        track_phase = TRACK_PHASE_STRAIGHT;
-                        control_base_speed = base_speed;
-                    }
-                    else
-                    {
-                        control_base_speed =
-                            task1_curve_speed +
-                            (int16_t)(((int32_t)(base_speed - task1_curve_speed) *
-                                       (int32_t)ramp_elapsed_ms) /
-                                      (int32_t)curve_exit_ramp_ms);
-                    }
-                }
-            }
-            else if (selected_task == CAR_TASK_STABLE_LAP)
-            {
-                /*
-                 * Smooth the discrete eight-sensor position changes without
-                 * adding a straight/curve state transition.  A newly found
-                 * line is accepted immediately; normal samples use a 0.4
-                 * low-pass coefficient.
-                 */
-                if ((task3_filter_ready == 0U) ||
-                    (line_reacquired != 0U)) {
-                    task3_filtered_error = error;
-                    task3_filter_ready = 1U;
-                } else {
-                    task3_filtered_error =
-                        (int16_t)(((int32_t)task3_filtered_error * 3 +
-                                   (int32_t)error * 2) / 5);
-                }
-
-                steering_error = task3_filtered_error;
-                error_magnitude =
-                    (steering_error < 0) ?
-                    (int16_t)(-steering_error) : steering_error;
-
-                /*
-                 * Eight sensors have no single center channel.  Treat either
-                 * middle channel (error -5 or +5) as centered so the car does
-                 * not hunt back and forth between 0x08 and 0x10.
-                 */
-                if (error_magnitude <= 5) {
-                    steering_error = 0;
-                }
-
-                /*
-                 * Raw error leads the filtered error at curve entry.  Use
-                 * their difference as a small continuous preview term to
-                 * turn earlier without introducing a hard mode switch.
-                 */
-                task3_curve_feedforward =
-                    (int16_t)(((int32_t)(error - task3_filtered_error) * 3) /
-                              10);
-                if (task3_curve_feedforward > 4) {
-                    task3_curve_feedforward = 4;
-                }
-                if (task3_curve_feedforward < -4) {
-                    task3_curve_feedforward = -4;
-                }
-
-                /*
-                 * Keep the ramped task-3 speed on a straight and reduce it
-                 * continuously toward 40 as the curve grows.
-                 */
-                control_base_speed =
-                    task3_ramped_base_speed -
-                    (int16_t)(error_magnitude / 4);
-                task3_curve_floor =
-                    (task3_ramped_base_speed < task3_curve_min_speed) ?
-                    task3_ramped_base_speed : task3_curve_min_speed;
-                if (control_base_speed < task3_curve_floor) {
-                    control_base_speed = task3_curve_floor;
-                }
-            }
-
-            /*
-             * Weighted-position proportional steering.
-             * The weights are ten times the sensor-slot offset, therefore
-             * Kp=0.50 produces about 5 counts/100 ms of steering per slot.
-             * There is no straight/curve mode switch and no speed step.
-             */
-            target_steering =
-                (int16_t)(weighted_position_kp * (float)steering_error);
-            if (selected_task == CAR_TASK_STABLE_LAP) {
-                target_steering += task3_curve_feedforward;
-            }
-            if (target_steering > steering_limit) {
-                target_steering = steering_limit;
-            }
-            if (target_steering < -steering_limit) {
-                target_steering = (int16_t)(-steering_limit);
-            }
-
-            if (selected_task == CAR_TASK_STABLE_LAP)
-            {
-                task3_steering_command =
-                    approach_pwm(task3_steering_command, target_steering,
-                                 (line_reacquired != 0U) ? 4 : 2);
-                target_steering = task3_steering_command;
-            }
-
-            desired_speed_left = control_base_speed + target_steering;
-            desired_speed_right = control_base_speed - target_steering;
-            if (desired_speed_left < min_speed) desired_speed_left = min_speed;
-            if (desired_speed_left > max_speed) desired_speed_left = max_speed;
-            if (desired_speed_right < min_speed) desired_speed_right = min_speed;
-            if (desired_speed_right > max_speed) desired_speed_right = max_speed;
-
-            requested_speed_left =
-                approach_pwm(requested_speed_left, desired_speed_left,
-                             (line_reacquired != 0U) ?
-                             ((selected_task == CAR_TASK_STABLE_LAP) ? 5 : 15) :
-                             steering_slew_step);
-            requested_speed_right =
-                approach_pwm(requested_speed_right, desired_speed_right,
-                             (line_reacquired != 0U) ?
-                             ((selected_task == CAR_TASK_STABLE_LAP) ? 5 : 15) :
-                             steering_slew_step);
-
-            /*
-             * During task 3 recovery, keep the original search direction
-             * through the first reacquired control period.  This rejects a
-             * single opposite-edge sensor glitch that previously reversed
-             * the search turn and caused LOST STOP.
-             */
-            if (!((selected_task == CAR_TASK_STABLE_LAP) &&
-                  (line_reacquired != 0U))) {
-                if (error < -3) {
-                    last_line_side = -1;
-                } else if (error > 3) {
-                    last_line_side = 1;
-                }
-            }
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
+            LCD_Fill(0, 48, 280, 100, BLACK);
+            LCD_ShowString(
+                4, 58, (const unsigned char *)"LOST STOP",
+                RED, BLACK, 32, 0);
+            break;
         }
 
         if (wheel_control_due(&wheel_control, tick_ms))
         {
-            int16_t duty_slew_step;
-
-            duty_slew_step =
-                (line_reacquired != 0U) ?
-                ((selected_task == CAR_TASK_STABLE_LAP) ? 6 : 15) :
-                ((active_count == 0U) ? 10 :
-                 (((selected_task == CAR_TASK_LAP_STOP) &&
-                   (error_magnitude >= curve_enter_error)) ? 8 : 3));
-            wheel_intent.valid = true;
-            wheel_intent.timestamp_ms = line_sample.timestamp_ms;
-            wheel_intent.requested_speed_left = requested_speed_left;
-            wheel_intent.requested_speed_right = requested_speed_right;
-            wheel_intent.duty_slew_step = duty_slew_step;
             __disable_irq();
             current_left_count = Get_Encoder_countB;
             current_right_count = Get_Encoder_countA;
@@ -2211,34 +1858,39 @@ static void lap_test_once(void)
              * 100 ms normalization, integral bounds, and output slew.  This
              * caller owns only the atomic encoder snapshot and final actuation.
              */
-            (void)wheel_control_step(
+            if (wheel_control_step(
                 &wheel_control,
                 tick_ms,
                 current_left_count,
                 current_right_count,
                 &wheel_intent,
                 &wheel_output
-            );
-            left_speed = wheel_output.measured_left_speed;
-            right_speed = wheel_output.measured_right_speed;
-            commanded_duty_left = wheel_output.duty_left;
-            commanded_duty_right = wheel_output.duty_right;
-            chassis_actuator_set_pwm((float)commanded_duty_left, (float)commanded_duty_right);
-
-            if (log_index < LAP_LOG_SAMPLES)
+            ))
             {
-                log_time_ms[log_index] = (uint16_t)elapsed_ms;
-                log_line_mask[log_index] = line_mask;
-                log_error[log_index] = (int8_t)error;
-                log_target_left[log_index] = (uint8_t)requested_speed_left;
-                log_target_right[log_index] = (uint8_t)requested_speed_right;
-                log_actual_left[log_index] = (int16_t)left_speed;
-                log_actual_right[log_index] = (int16_t)right_speed;
-                log_duty_left[log_index] = (uint8_t)commanded_duty_left;
-                log_duty_right[log_index] = (uint8_t)commanded_duty_right;
-                log_index++;
+                left_speed = wheel_output.measured_left_speed;
+                right_speed = wheel_output.measured_right_speed;
+                commanded_duty_left = wheel_output.duty_left;
+                commanded_duty_right = wheel_output.duty_right;
+                chassis_actuator_set_pwm((float)commanded_duty_left,
+                                         (float)commanded_duty_right);
+
+                if (log_index < LAP_LOG_SAMPLES)
+                {
+                    log_time_ms[log_index] = (uint16_t)elapsed_ms;
+                    log_line_mask[log_index] = line_mask;
+                    log_error[log_index] = (int8_t)error;
+                    log_target_left[log_index] =
+                        (uint8_t)wheel_intent.requested_speed_left;
+                    log_target_right[log_index] =
+                        (uint8_t)wheel_intent.requested_speed_right;
+                    log_actual_left[log_index] = (int16_t)left_speed;
+                    log_actual_right[log_index] = (int16_t)right_speed;
+                    log_duty_left[log_index] = (uint8_t)commanded_duty_left;
+                    log_duty_right[log_index] = (uint8_t)commanded_duty_right;
+                    log_index++;
+                }
+                line_follower_ack_motion_applied(&line_follower);
             }
-            line_reacquired = 0U;
         }
 
         competition_runtime_wait_ms(10U);

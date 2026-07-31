@@ -18,6 +18,9 @@ def test_q2_verified_tracking_parameters_and_cadences_are_pinned() -> None:
     wheel_source = (
         PROJECT / "App" / "Control" / "wheel_control.c"
     ).read_text(encoding="utf-8")
+    follower_source = (
+        PROJECT / "App" / "Control" / "line_follower.c"
+    ).read_text(encoding="utf-8")
     lap = _function_body(
         main,
         "static void lap_test_once(void)\n{",
@@ -29,13 +32,19 @@ def test_q2_verified_tracking_parameters_and_cadences_are_pinned() -> None:
     ]
 
     for statement in (
-        "base_speed = 63;",
-        "max_speed = 80;",
-        "recovery_inner_speed = 24;",
-        "recovery_outer_speed = 52;",
-        "weighted_position_kp = 0.65f;",
-        "steering_limit = 28;",
-        "steering_slew_step = 5;",
+        "config.base_speed = 63;",
+        "config.initial_speed = 63;",
+        "config.max_speed = 80;",
+        "config.recovery_inner_speed = 24;",
+        "config.recovery_outer_speed = 52;",
+        "config.position_kp = 0.65f;",
+        "config.steering_limit = 28;",
+        "config.request_slew_step = 5;",
+    ):
+        assert statement in follower_source
+
+    for statement in (
+        "follower_profile = LINE_FOLLOWER_PROFILE_Q2_FAST_LAP;",
         "finish_line_min_run_ms = 18000U;",
         "run_timeout_ms = 0U;",
     ):
@@ -50,6 +59,9 @@ def test_q2_verified_tracking_parameters_and_cadences_are_pinned() -> None:
 
 def test_q4_keeps_verified_direct_start_without_unverified_ramp() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    follower_source = (
+        PROJECT / "App" / "Control" / "line_follower.c"
+    ).read_text(encoding="utf-8")
     lap = _function_body(
         main,
         "static void lap_test_once(void)\n{",
@@ -61,7 +73,10 @@ def test_q4_keeps_verified_direct_start_without_unverified_ramp() -> None:
     ]
 
     assert "selected_task = CAR_TASK_TIMED_RUN;" in q4
+    assert "follower_profile = LINE_FOLLOWER_PROFILE_Q4_TIMED_RUN;" in q4
     assert "run_timeout_ms = 7800U;" in q4
+    assert "config.base_speed = 50;" in follower_source
+    assert "config.initial_speed = 50;" in follower_source
     assert "task2_start_speed" not in lap
     assert "task2_start_ramp_ms" not in lap
     assert "if (selected_task == CAR_TASK_STABLE_LAP)" in lap
