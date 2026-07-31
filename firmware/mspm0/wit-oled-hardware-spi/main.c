@@ -81,6 +81,7 @@ _Static_assert(
 #define HBALL_MISSION_MENU_RENDER_MIN_MS 1000U
 #define HBALL_Q4_SOFT_START_MS 600U
 #define HBALL_Q4_SOFT_STOP_MS 500U
+#define HBALL_Q4_DUTY_SLEW_STEP 5
 #define MOTOR_TEST_DUTY 20.0f
 
 uint8_t oled_buffer[64];
@@ -1475,7 +1476,7 @@ static void speed_pi_test(void)
     );
     memset(&intent, 0, sizeof(intent));
     intent.valid = true;
-    intent.duty_slew_step = 2;
+    intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
     LCD_Fill(0, 50, 240, 110, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"RUN 3 SEC", GREEN, BLACK, 32, 0);
 
@@ -1734,6 +1735,16 @@ static void lap_test_once(void)
         return;
     }
 
+    mission_lcd_fill_serviced(0, 0, LCD_W, LCD_H, BLACK);
+    if (selected_task == CAR_TASK_LAP_STOP) {
+        LCD_ShowString(4, 4, (const unsigned char *)"TASK1 RUN", GREEN, BLACK, 32, 0);
+    } else if (selected_task == CAR_TASK_TIMED_RUN) {
+        LCD_ShowString(4, 4, (const unsigned char *)"TASK2 RUN", CYAN, BLACK, 32, 0);
+    } else {
+        LCD_ShowString(4, 4, (const unsigned char *)"TASK3 RUN", MAGENTA, BLACK, 32, 0);
+    }
+    LCD_ShowString(4, 106, (const unsigned char *)"T:00.0", YELLOW, BLACK, 32, 0);
+
     if (selected_task == CAR_TASK_TIMED_RUN)
     {
         commanded_duty_left = 0;
@@ -1758,15 +1769,6 @@ static void lap_test_once(void)
         commanded_duty_right
     );
     hball_can_mission_chassis_start(run_start_ms);
-    mission_lcd_fill_serviced(0, 0, LCD_W, LCD_H, BLACK);
-    if (selected_task == CAR_TASK_LAP_STOP) {
-        LCD_ShowString(4, 4, (const unsigned char *)"TASK1 RUN", GREEN, BLACK, 32, 0);
-    } else if (selected_task == CAR_TASK_TIMED_RUN) {
-        LCD_ShowString(4, 4, (const unsigned char *)"TASK2 RUN", CYAN, BLACK, 32, 0);
-    } else {
-        LCD_ShowString(4, 4, (const unsigned char *)"TASK3 RUN", MAGENTA, BLACK, 32, 0);
-    }
-    LCD_ShowString(4, 106, (const unsigned char *)"T:00.0", YELLOW, BLACK, 32, 0);
 
     while (1)
     {
@@ -1911,6 +1913,7 @@ static void lap_test_once(void)
                 chassis_motion_profile_scale_i16(
                     wheel_intent.requested_speed_right, q4_speed_scale
                 );
+            wheel_intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
         }
         error = follower_output.error;
 
