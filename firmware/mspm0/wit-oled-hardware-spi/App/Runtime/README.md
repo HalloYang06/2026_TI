@@ -12,3 +12,9 @@ runs; Q3-Q6 keep both services enabled.
 
 No function in this directory may call HAL, motor, CAN-port, WIT, LCD, delay, or
 blocking APIs.
+
+`hball_coop_scheduler` centralizes the fixed 1/5/10/100 ms release periods.
+SysTick calls only `tick_isr`, which increments saturating pending counters and
+deadline-miss statistics. The foreground dispatcher consumes at most bounded
+work per pass. Its `take` operation must be wrapped in a target critical section;
+the scheduler core remains hardware- and RTOS-independent for host testing.
