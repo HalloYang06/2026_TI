@@ -11,7 +11,8 @@ typedef enum
 {
     TASK_KEY_EVENT_NONE = 0,
     TASK_KEY_EVENT_SELECT,
-    TASK_KEY_EVENT_EXECUTE
+    TASK_KEY_EVENT_EXECUTE,
+    TASK_KEY_EVENT_LEVEL
 } task_key_event_t;
 
 int get_keynum(void);

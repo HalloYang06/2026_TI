@@ -10,6 +10,24 @@ static uint8_t task_key_is_pressed(uint32_t pin)
 
 task_key_event_t get_task_key_event(void)
 {
+    static uint8_t level_key_latched;
+    const uint8_t level_pressed =
+        (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U)
+            ? 1U : 0U;
+
+    if (level_pressed == 0U)
+    {
+        level_key_latched = 0U;
+    }
+    else if (level_key_latched == 0U)
+    {
+        delay_cycles(TASK_KEY_DEBOUNCE_CYCLES);
+        if (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U)
+        {
+            level_key_latched = 1U;
+            return TASK_KEY_EVENT_LEVEL;
+        }
+    }
     uint8_t select_pressed = task_key_is_pressed(TASK_KEY_SELECT_PIN);
     uint8_t execute_pressed = task_key_is_pressed(TASK_KEY_EXECUTE_PIN);
     uint32_t active_pin;

@@ -125,6 +125,24 @@ bool hball_mission_client_request_start(
     return true;
 }
 
+bool hball_mission_client_request_level(
+    hball_mission_client_t *client, uint32_t now_ms
+)
+{
+    if ((client == NULL)
+        || (client->selected_mission != HBALL_MISSION_Q3_BALL_SEQUENCE)
+        || !client->status_valid
+        || ((uint32_t)(now_ms - client->last_status_ms)
+            > HBALL_MISSION_STATUS_FRESH_MS))
+    {
+        return false;
+    }
+    client->command = HBALL_MISSION_COMMAND_LEVEL;
+    client->command_time_ms = now_ms;
+    client->start_requested = false;
+    return true;
+}
+
 bool hball_mission_client_make_intent(
     const hball_mission_client_t *client,
     hball_mission_intent_t *intent

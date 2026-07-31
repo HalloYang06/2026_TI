@@ -79,3 +79,20 @@ def test_manual_csp_session_uses_targeted_100_hz_each_position_velocity_readback
     assert "g_hball_motor.parameters.mech_position_rad" in source
     assert "g_hball_motor.parameters.mech_velocity_rad_s" in source
     assert "HBALL_RS00_BENCH_RETURNING" in source
+
+
+def test_q3_frozen_baseline_is_isolated_from_mobile_hold_tuning():
+    source = ADAPTER.read_text(encoding="utf-8")
+    q3_start = source[
+        source.index("static int hball_q3_start_common(void)"):
+        source.index("static int hball_q3_start5(", source.index(
+            "static int hball_q3_start_common(void)"
+        ))
+    ]
+
+    assert "#define HBALL_BALL_PID_KP 0.70F" in source
+    assert "#define HBALL_BALL_PID_KI 0.15F" in source
+    assert "#define HBALL_BALL_PID_KD 0.40F" in source
+    assert "g_hball_ball_use_lqi = RT_FALSE;" in q3_start
+    assert "g_hball_ball_pid_static_boost_rad = 0.0F;" in q3_start
+    assert "(g_hball_ball_mode != 1U)" in source

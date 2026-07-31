@@ -928,6 +928,23 @@ static uint8_t select_car_task(void)
         {
             mission_event = HBALL_MISSION_MENU_EXECUTE;
         }
+        else if (key_event == TASK_KEY_EVENT_LEVEL)
+        {
+            if (hball_can_mission_request_level(tick_ms))
+            {
+                beep();
+                LCD_ShowString(
+                    4, 172, (const unsigned char *)"B21 LEVEL",
+                    YELLOW, BLACK, 24, 0
+                );
+            }
+            else
+            {
+                beep();
+                beep();
+            }
+            continue;
+        }
         else
         {
             continue;

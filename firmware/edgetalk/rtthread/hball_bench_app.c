@@ -64,7 +64,7 @@
 #define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.052359878F
 #define HBALL_BALL_PID_KP 0.70F
 #define HBALL_BALL_PID_KI 0.15F
-#define HBALL_BALL_PID_KD 0.35F
+#define HBALL_BALL_PID_KD 0.40F
 #define HBALL_BALL_PID_BOOST_ENTER_MPS 0.003F
 #define HBALL_BALL_PID_BOOST_EXIT_MPS 0.015F
 #define HBALL_BALL_LQI_KP 1.576194F
@@ -75,6 +75,11 @@
 #define HBALL_BALL_COMMISSION_TX_PERIOD_MS 10U
 #define HBALL_BALL_COMMISSION_TIMEOUT_MS 15000U
 #define HBALL_BALL_HOLD_TIMEOUT_MS 32000U
+#define HBALL_MISSION_LEVEL_STEP_RAD 0.020F
+#define HBALL_MISSION_LEVEL_TOLERANCE_RAD 0.003F
+#define HBALL_MISSION_LEVEL_VELOCITY_RAD_S 0.080F
+#define HBALL_MISSION_LEVEL_SETTLE_MS 100U
+#define HBALL_MISSION_LEVEL_TIMEOUT_MS 1500U
 
 #ifndef BSP_CANFD0_RX_FIFO0_ELEMENTS
 #error "H-ball CAN build must define the RX FIFO depth"
@@ -175,6 +180,11 @@ static rt_bool_t g_hball_ball_use_lqi = RT_FALSE;
 static float g_hball_ball_max_abs_error_m = 0.0F;
 static rt_uint32_t g_hball_ball_error_violation_total = 0U;
 static rt_uint32_t g_hball_mission_action_last_ms = 0U;
+static rt_uint32_t g_hball_mission_level_start_ms = 0U;
+static rt_uint32_t g_hball_mission_level_settle_ms = 0U;
+static rt_uint32_t g_hball_mission_level_last_tx_ms = 0U;
+static rt_bool_t g_hball_manual_level_requested = RT_FALSE;
+static rt_bool_t g_hball_manual_level_complete = RT_FALSE;
 static rt_uint32_t g_hball_ball_log_sequence = 0U;
 static rt_uint32_t g_hball_ball_last_log_ms = 0U;
 static int hball_q3_start_common(void);
@@ -418,6 +428,18 @@ static void hball_poll_can(void)
                     && hball_mission_arbiter_accept_intent(
                         &g_hball_mission_arbiter, &intent, now_ms))
                 {
+                    if (intent.command == HBALL_MISSION_COMMAND_LEVEL)
+                    {
+                        if (!g_hball_manual_level_requested)
+                        {
+                            g_hball_manual_level_requested = RT_TRUE;
+                            g_hball_manual_level_complete = RT_FALSE;
+                        }
+                    }
+                    else if (intent.command == HBALL_MISSION_COMMAND_START)
+                    {
+                        g_hball_manual_level_requested = RT_FALSE;
+                    }
                     g_hball_mission_intent_rx++;
                 }
                 else
@@ -490,6 +512,10 @@ static rt_uint16_t hball_mission_ready_mask(rt_uint32_t now_ms)
             HBALL_RS00_MOTION_PARAMETER_FRESH_MS))
     {
         ready |= HBALL_MISSION_READY_RS00_LINK;
+    }
+    if (g_hball_manual_level_complete)
+    {
+        ready |= HBALL_MISSION_READY_START_GEOMETRY;
     }
 #if HBALL_INTEGRATED_SHADOW
     {
@@ -1044,6 +1070,97 @@ static hball_motion_request_t hball_motion_take_request(float *step_rad)
 }
 
 #if HBALL_RS00_MOTION_TX_ENABLED && HBALL_INTEGRATED_SHADOW
+static void hball_mission_level_reset(void)
+{
+    g_hball_mission_level_start_ms = 0U;
+    g_hball_mission_level_settle_ms = 0U;
+    g_hball_mission_level_last_tx_ms = 0U;
+}
+
+static int hball_mission_q3_level_tick(rt_uint32_t now_ms)
+{
+    hball_can_frame_t frame;
+    float error_rad;
+    float command_rad;
+
+    if (!hball_motion_parameter_fresh(
+            HBALL_RS00_PARAMETER_VALID_MECH_POSITION,
+            HBALL_RS00_PARAMETER_SLOT_MECH_POSITION,
+            now_ms)
+        || !hball_motion_parameter_fresh(
+            HBALL_RS00_PARAMETER_VALID_MECH_VELOCITY,
+            HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY,
+            now_ms))
+    {
+        return 0;
+    }
+    if (g_hball_mission_level_start_ms == 0U)
+    {
+        g_hball_mission_level_start_ms = now_ms;
+        rt_kprintf(
+            "[hball-mission] Q3 leveling start pos_mrad=%ld target_mrad=%ld\n",
+            (long)(g_hball_motor.parameters.mech_position_rad * 1000.0F),
+            (long)(HBALL_BALL_COMMISSION_LEVEL_RAD * 1000.0F)
+        );
+    }
+    if ((rt_uint32_t)(now_ms - g_hball_mission_level_start_ms)
+        >= HBALL_MISSION_LEVEL_TIMEOUT_MS)
+    {
+        rt_kprintf(
+            "[hball-mission] Q3 leveling timeout pos_mrad=%ld vel_mrad_s=%ld\n",
+            (long)(g_hball_motor.parameters.mech_position_rad * 1000.0F),
+            (long)(g_hball_motor.parameters.mech_velocity_rad_s * 1000.0F)
+        );
+        return -1;
+    }
+
+    error_rad = HBALL_BALL_COMMISSION_LEVEL_RAD
+        - g_hball_motor.parameters.mech_position_rad;
+    if ((fabsf(error_rad) <= HBALL_MISSION_LEVEL_TOLERANCE_RAD)
+        && (fabsf(g_hball_motor.parameters.mech_velocity_rad_s)
+            <= HBALL_MISSION_LEVEL_VELOCITY_RAD_S))
+    {
+        if (g_hball_mission_level_settle_ms == 0U)
+        {
+            g_hball_mission_level_settle_ms = now_ms;
+        }
+        else if ((rt_uint32_t)(now_ms - g_hball_mission_level_settle_ms)
+            >= HBALL_MISSION_LEVEL_SETTLE_MS)
+        {
+            rt_kprintf(
+                "[hball-mission] Q3 leveling ready pos_mrad=%ld\n",
+                (long)(g_hball_motor.parameters.mech_position_rad * 1000.0F)
+            );
+            return 1;
+        }
+    }
+    else
+    {
+        g_hball_mission_level_settle_ms = 0U;
+    }
+
+    if ((rt_uint32_t)(now_ms - g_hball_mission_level_last_tx_ms)
+        < HBALL_BALL_COMMISSION_TX_PERIOD_MS)
+    {
+        return 0;
+    }
+    g_hball_mission_level_last_tx_ms = now_ms;
+    command_rad = HBALL_BALL_COMMISSION_LEVEL_RAD;
+    if (fabsf(error_rad) > HBALL_MISSION_LEVEL_STEP_RAD)
+    {
+        command_rad = g_hball_motor.parameters.mech_position_rad
+            + copysignf(HBALL_MISSION_LEVEL_STEP_RAD, error_rad);
+    }
+    if (!hball_rs00_control_make_position_reference(
+            HBALL_RS00_MOTOR_ID, command_rad, &frame)
+        || (hball_motion_send_frame(&frame, RT_NULL) != RT_EOK))
+    {
+        return -1;
+    }
+    g_hball_motion.last_manual_command_ms = now_ms;
+    return 0;
+}
+
 static void hball_mission_action_tick(rt_uint32_t now_ms)
 {
     const rt_uint8_t state = g_hball_mission_arbiter.global_state;
@@ -1051,7 +1168,60 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
 
     if (!g_hball_mission_arbiter.context_valid)
     {
+        hball_mission_level_reset();
         return;
+    }
+    if (g_hball_ball_active
+        && (g_hball_ball_mode == 1U)
+        && (mission != HBALL_MISSION_Q3_BALL_SEQUENCE))
+    {
+        g_hball_ball_phase = 4U;
+        g_hball_ball_settle_since_ms = 0U;
+    }
+    if (g_hball_manual_level_requested
+        && (mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
+        && ((state == HBALL_MISSION_STATE_PREPARING)
+            || (state == HBALL_MISSION_STATE_READY)))
+    {
+        if (g_hball_ball_active)
+        {
+            g_hball_ball_phase = 4U;
+            g_hball_ball_settle_since_ms = 0U;
+            return;
+        }
+        if (g_hball_motion.state == HBALL_RS00_BENCH_PREPARED)
+        {
+            hball_motion_arm(now_ms);
+            return;
+        }
+        if (g_hball_motion.state == HBALL_RS00_BENCH_ARMED)
+        {
+            if (hball_mission_q3_level_tick(now_ms) > 0)
+            {
+                rt_memset(
+                    &g_hball_ball_output, 0, sizeof(g_hball_ball_output)
+                );
+                g_hball_ball_position_integral = 0.0F;
+                g_hball_ball_previous_error_m = 0.0F;
+                g_hball_ball_pid_static_boost_active = RT_FALSE;
+                g_hball_manual_level_complete = RT_TRUE;
+            }
+            return;
+        }
+        if (((g_hball_motion.state == HBALL_RS00_BENCH_SAFE)
+             || (g_hball_motion.state == HBALL_RS00_BENCH_STOPPED))
+            && ((rt_uint32_t)(now_ms - g_hball_mission_action_last_ms)
+                >= 200U))
+        {
+            g_hball_mission_action_last_ms = now_ms;
+            hball_motion_begin_prepare(now_ms);
+        }
+        return;
+    }
+    if ((state != HBALL_MISSION_STATE_START_PENDING)
+        || (mission != HBALL_MISSION_Q3_BALL_SEQUENCE))
+    {
+        hball_mission_level_reset();
     }
     if (state == HBALL_MISSION_STATE_START_PENDING)
     {
@@ -1073,6 +1243,26 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
 
             if (mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
             {
+                const int level_result =
+                    hball_mission_q3_level_tick(now_ms);
+
+                if (level_result == 0)
+                {
+                    return;
+                }
+                if (level_result < 0)
+                {
+                    (void)hball_mission_arbiter_mark_aborted(
+                        &g_hball_mission_arbiter,
+                        HBALL_MISSION_REASON_LOCAL_FAULT
+                    );
+                    hball_motion_stop_now(
+                        HBALL_RS00_BENCH_STOP_SENSOR_INVALID,
+                        now_ms,
+                        RT_TRUE
+                    );
+                    return;
+                }
                 result = hball_q3_start_common();
             }
             else if ((mission == HBALL_MISSION_Q4_A_TO_B)
@@ -1505,6 +1695,9 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         rt_kprintf("[hball-q3] fail 5 s deadline; returning level\n");
     }
     else if ((g_hball_ball_phase != 4U)
+        && !((g_hball_ball_mode == 1U)
+             && g_hball_ball_q3_passed
+             && (g_hball_ball_phase == 3U))
         && ((rt_uint32_t)(now_ms - g_hball_ball_start_ms)
         >= ((g_hball_ball_mode == 1U)
             ? HBALL_BALL_COMMISSION_TIMEOUT_MS
@@ -2047,6 +2240,8 @@ static int hball_q3_start_common(void)
     g_hball_ball_phase = 1U;
     g_hball_ball_mode = 1U;
     g_hball_ball_q3_passed = RT_FALSE;
+    /* Q3 is a frozen competition baseline; Q4-Q6 tuning must not leak in. */
+    g_hball_ball_use_lqi = RT_FALSE;
     g_hball_ball_pid_kp = HBALL_BALL_PID_KP;
     g_hball_ball_pid_ki = HBALL_BALL_PID_KI;
     g_hball_ball_pid_kd = HBALL_BALL_PID_KD;

@@ -56,6 +56,7 @@ typedef enum
     HBALL_MISSION_COMMAND_START = 2,
     HBALL_MISSION_COMMAND_ABORT = 3,
     HBALL_MISSION_COMMAND_RESET = 4,
+    HBALL_MISSION_COMMAND_LEVEL = 5,
 } hball_mission_command_t;
 
 typedef enum

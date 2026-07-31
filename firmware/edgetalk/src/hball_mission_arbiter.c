@@ -173,6 +173,27 @@ bool hball_mission_arbiter_accept_intent(
         arbiter->reason = HBALL_MISSION_REASON_LOCAL_FAULT;
         return true;
     }
+    if (intent->command == HBALL_MISSION_COMMAND_LEVEL)
+    {
+        if (arbiter->mission_id != HBALL_MISSION_Q3_BALL_SEQUENCE)
+        {
+            return false;
+        }
+        if (((arbiter->required_mask
+              & HBALL_MISSION_READY_START_GEOMETRY) != 0U)
+            && ((arbiter->global_state == HBALL_MISSION_STATE_PREPARING)
+                || (arbiter->global_state == HBALL_MISSION_STATE_READY)))
+        {
+            return true;
+        }
+        arbiter->global_state = HBALL_MISSION_STATE_PREPARING;
+        arbiter->required_mask =
+            hball_mission_required_ready_mask(arbiter->mission_id)
+            | HBALL_MISSION_READY_START_GEOMETRY;
+        arbiter->reason = HBALL_MISSION_REASON_NOT_READY;
+        arbiter->ready_candidate_valid = false;
+        return true;
+    }
     if (intent->command == HBALL_MISSION_COMMAND_RESET)
     {
         if ((arbiter->global_state == HBALL_MISSION_STATE_PREPARING)
