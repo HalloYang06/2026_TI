@@ -58,6 +58,10 @@ bool hball_can_mission_get_snapshot(hball_mission_client_t *snapshot);
 hball_mission_menu_result_t hball_can_mission_menu_handle(
     hball_mission_menu_event_t event, uint32_t now_ms
 );
+void hball_can_mission_chassis_start(uint32_t now_ms);
+void hball_can_mission_chassis_finish(
+    uint8_t event_flags, uint32_t now_ms
+);
 
 #ifdef __cplusplus
 }

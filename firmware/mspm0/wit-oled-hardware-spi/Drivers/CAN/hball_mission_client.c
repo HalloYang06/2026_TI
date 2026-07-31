@@ -30,6 +30,11 @@ bool hball_mission_client_select(
     {
         return false;
     }
+    client->candidate_epoch++;
+    if (client->candidate_epoch == 0U)
+    {
+        client->candidate_epoch = 1U;
+    }
     client->selected_mission = mission_id;
     client->command = HBALL_MISSION_COMMAND_PREPARE;
     client->command_time_ms = now_ms;
@@ -76,6 +81,15 @@ bool hball_mission_client_accept_status(
     client->last_status_ms = now_ms;
     client->status_valid = true;
     client->accepted_status_total++;
+    if (client->start_requested
+        && ((status->global_state == HBALL_MISSION_STATE_COMPLETED)
+            || (status->global_state
+                >= HBALL_MISSION_STATE_CONTROLLED_ABORT)))
+    {
+        client->command = HBALL_MISSION_COMMAND_RESET;
+        client->command_time_ms = now_ms;
+        client->start_requested = false;
+    }
     return true;
 }
 

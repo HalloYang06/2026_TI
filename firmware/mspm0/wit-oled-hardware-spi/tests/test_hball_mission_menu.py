@@ -35,12 +35,14 @@ def test_hball_mission_menu_host_behavior(tmp_path: Path) -> None:
     subprocess.run([str(executable)], check=True, cwd=PROJECT)
 
 
-def test_msp_runtime_uses_distributed_menu_without_local_motion() -> None:
+def test_msp_runtime_uses_distributed_menu_with_local_motion() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
 
     assert "hball_can_mission_menu_handle" in main
     assert "hball_can_mission_get_snapshot" in main
-    assert "HBALL_MISSION_LOCAL_MOTION_ENABLED 0U" in main
+    assert "HBALL_MISSION_LOCAL_MOTION_ENABLED 1U" in main
+    assert "hball_can_mission_chassis_start" in main
+    assert "hball_can_mission_chassis_finish" in main
     assert "Q2 FAST LAP" not in main
     assert "hball_mission_menu_view_equal" in main
 

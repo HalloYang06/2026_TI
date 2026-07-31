@@ -133,7 +133,7 @@ static void test_labels_are_short_and_use_official_question_numbers(void)
                   "PREPARING") == 0);
     assert(strcmp(hball_mission_menu_state_label(
                       HBALL_MISSION_STATE_RUNNING),
-                  "SHADOW RUN") == 0);
+                  "RUNNING") == 0);
 }
 
 static void test_view_changes_only_when_displayed_content_changes(void)

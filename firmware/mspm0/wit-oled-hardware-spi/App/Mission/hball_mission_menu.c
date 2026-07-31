@@ -46,11 +46,17 @@ hball_mission_menu_result_t hball_mission_menu_handle(
 
 uint16_t hball_mission_menu_required_mask(uint8_t mission_id)
 {
-    uint16_t required = UINT16_MAX;
+    uint16_t required =
+        HBALL_MISSION_READY_M33_ALIVE
+        | HBALL_MISSION_READY_MSP_LINK
+        | HBALL_MISSION_READY_CHASSIS
+        | HBALL_MISSION_READY_PI_USB
+        | HBALL_MISSION_READY_VISION
+        | HBALL_MISSION_READY_RS00_LINK;
 
-    if (mission_id == HBALL_MISSION_Q3_BALL_SEQUENCE)
+    if (mission_id != HBALL_MISSION_Q3_BALL_SEQUENCE)
     {
-        required = (uint16_t)(required & ~HBALL_MISSION_READY_TRACK);
+        required |= HBALL_MISSION_READY_IMU;
     }
     return required;
 }
@@ -91,7 +97,7 @@ const char *hball_mission_menu_state_label(uint8_t global_state)
     case HBALL_MISSION_STATE_START_PENDING:
         return "START WAIT";
     case HBALL_MISSION_STATE_RUNNING:
-        return "SHADOW RUN";
+        return "RUNNING";
     case HBALL_MISSION_STATE_FINISHING:
         return "FINISHING";
     case HBALL_MISSION_STATE_COMPLETED:

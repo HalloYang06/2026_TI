@@ -45,6 +45,15 @@ void hball_mission_arbiter_update_ready(
     uint16_t ready_mask,
     uint32_t now_ms
 );
+bool hball_mission_arbiter_mark_running(
+    hball_mission_arbiter_t *arbiter
+);
+bool hball_mission_arbiter_mark_completed(
+    hball_mission_arbiter_t *arbiter
+);
+bool hball_mission_arbiter_mark_aborted(
+    hball_mission_arbiter_t *arbiter, uint8_t reason
+);
 bool hball_mission_arbiter_make_status(
     hball_mission_arbiter_t *arbiter,
     hball_mission_status_t *status

@@ -40,6 +40,10 @@ static hball_can_recovery_t g_hball_can_recovery;
 static hball_mission_client_t g_hball_mission_client;
 static hball_mission_ui_t g_hball_mission_ui;
 static volatile uint32_t g_hball_port_now_ms;
+static uint32_t g_hball_chassis_start_ms;
+static uint8_t g_hball_chassis_phase;
+static uint8_t g_hball_chassis_events =
+    HBALL_MISSION_CHASSIS_EVENT_STOPPED;
 
 static uint32_t hball_can_lock(void)
 {
@@ -107,6 +111,31 @@ hball_mission_menu_result_t hball_can_mission_menu_handle(
     );
     hball_can_unlock(interrupt_state);
     return result;
+}
+
+void hball_can_mission_chassis_start(uint32_t now_ms)
+{
+    const uint32_t interrupt_state = hball_can_lock();
+
+    g_hball_chassis_start_ms = now_ms;
+    g_hball_chassis_phase = HBALL_MISSION_STATE_RUNNING;
+    g_hball_chassis_events =
+        HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE
+        | HBALL_MISSION_CHASSIS_EVENT_LEFT_A;
+    hball_can_unlock(interrupt_state);
+}
+
+void hball_can_mission_chassis_finish(
+    uint8_t event_flags, uint32_t now_ms
+)
+{
+    const uint32_t interrupt_state = hball_can_lock();
+
+    g_hball_chassis_phase = HBALL_MISSION_STATE_COMPLETED;
+    g_hball_chassis_events =
+        (uint8_t)(event_flags | HBALL_MISSION_CHASSIS_EVENT_STOPPED);
+    (void)now_ms;
+    hball_can_unlock(interrupt_state);
 }
 
 static void hball_can_update_wit_freshness(uint32_t now_ms)
@@ -196,8 +225,11 @@ static void hball_can_snapshot_inputs(
     memset(inputs, 0, sizeof(*inputs));
     inputs->uptime_ms = now_ms;
 
-    /* No hardware E-stop input is mapped yet, so telemetry remains inhibited. */
-    inputs->status_flags = HBALL_MSP_STATUS_ESTOP_ACTIVE;
+    inputs->status_flags = HBALL_MSP_STATUS_CHASSIS_READY;
+    if (g_hball_chassis_phase == HBALL_MISSION_STATE_RUNNING)
+    {
+        inputs->status_flags |= HBALL_MSP_STATUS_LOCAL_CONTROL_ACTIVE;
+    }
     hball_can_update_wit_freshness(now_ms);
     if (g_hball_wit_accel_seen
         && g_hball_wit_gyro_seen
@@ -297,6 +329,9 @@ void hball_can_port_init(void)
     g_hball_wit_gyro_seen = false;
     g_hball_wit_attitude_seen = false;
     g_hball_port_now_ms = 0U;
+    g_hball_chassis_start_ms = 0U;
+    g_hball_chassis_phase = HBALL_MISSION_STATE_READY;
+    g_hball_chassis_events = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
     memset(&g_hball_mission_ui, 0, sizeof(g_hball_mission_ui));
     hball_mission_client_init(&g_hball_mission_client, 0U);
     hball_can_recovery_init(&g_hball_can_recovery);
@@ -397,10 +432,11 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
     else
     {
         chassis_status.epoch = g_hball_mission_client.candidate_epoch;
-        chassis_status.chassis_phase = 0U;
-        chassis_status.event_flags =
-            HBALL_MISSION_CHASSIS_EVENT_INHIBITED;
-        chassis_status.elapsed_ms = 0U;
+        chassis_status.chassis_phase = g_hball_chassis_phase;
+        chassis_status.event_flags = g_hball_chassis_events;
+        chassis_status.elapsed_ms =
+            (g_hball_chassis_phase == HBALL_MISSION_STATE_RUNNING)
+                ? (now_ms - g_hball_chassis_start_ms) : 0U;
         if (!hball_mission_encode_chassis_status(
                 &chassis_status, &mission_frame))
         {

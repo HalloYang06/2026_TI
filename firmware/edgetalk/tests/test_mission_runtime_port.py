@@ -12,6 +12,9 @@ def test_m33_runtime_accepts_intent_and_publishes_standard_status() -> None:
     assert "hball_mission_decode_intent" in source
     assert "hball_mission_arbiter_accept_intent" in source
     assert "hball_mission_arbiter_update_ready" in source
+    assert "hball_mission_action_tick" in source
+    assert "hball_mission_arbiter_mark_running" in source
+    assert "hball_mission_arbiter_mark_completed" in source
     assert "hball_mission_encode_status" in source
     assert "hball_send_mission_frame" in source
     assert "ACTUATOR_TX=0" in source

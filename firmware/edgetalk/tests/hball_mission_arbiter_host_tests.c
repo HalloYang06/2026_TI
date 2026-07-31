@@ -24,7 +24,7 @@ static void test_prepare_requires_complete_mask_for_500_ms(void)
     assert(hball_mission_arbiter_accept_intent(&arbiter, &intent, 10U));
     assert(arbiter.global_state == HBALL_MISSION_STATE_PREPARING);
     required = hball_mission_required_ready_mask(intent.mission_id);
-    assert((required & HBALL_MISSION_READY_TRACK) != 0U);
+    assert((required & HBALL_MISSION_READY_IMU) != 0U);
 
     hball_mission_arbiter_update_ready(&arbiter, required, 100U);
     assert(arbiter.global_state == HBALL_MISSION_STATE_PREPARING);
@@ -35,7 +35,7 @@ static void test_prepare_requires_complete_mask_for_500_ms(void)
 
     hball_mission_arbiter_update_ready(
         &arbiter,
-        (uint16_t)(required & ~HBALL_MISSION_READY_RECORDER),
+        (uint16_t)(required & ~HBALL_MISSION_READY_VISION),
         601U
     );
     assert(arbiter.global_state == HBALL_MISSION_STATE_PREPARING);
@@ -90,7 +90,7 @@ static void test_epoch_and_mission_must_match_after_start(void)
     assert(arbiter.epoch_reject_total == 1U);
 }
 
-static void test_q3_does_not_require_track_but_keeps_safety_dependencies(void)
+static void test_q3_uses_available_stationary_dependencies(void)
 {
     const uint16_t required = hball_mission_required_ready_mask(
         HBALL_MISSION_Q3_BALL_SEQUENCE
@@ -98,8 +98,8 @@ static void test_q3_does_not_require_track_but_keeps_safety_dependencies(void)
 
     assert((required & HBALL_MISSION_READY_TRACK) == 0U);
     assert((required & HBALL_MISSION_READY_CHASSIS) != 0U);
-    assert((required & HBALL_MISSION_READY_SAFETY) != 0U);
-    assert((required & HBALL_MISSION_READY_RECORDER) != 0U);
+    assert((required & HBALL_MISSION_READY_IMU) == 0U);
+    assert((required & HBALL_MISSION_READY_VISION) != 0U);
 }
 
 static void test_status_mirrors_context_and_increments_sequence(void)
@@ -121,12 +121,36 @@ static void test_status_mirrors_context_and_increments_sequence(void)
     assert(second.status_sequence == (uint8_t)(first.status_sequence + 1U));
 }
 
+static void test_execution_transitions_are_explicit_and_bounded(void)
+{
+    hball_mission_arbiter_t arbiter;
+    hball_mission_intent_t prepare = make_intent(
+        6U, HBALL_MISSION_Q4_A_TO_B, HBALL_MISSION_COMMAND_PREPARE
+    );
+    hball_mission_intent_t start = prepare;
+    const uint16_t required = hball_mission_required_ready_mask(
+        prepare.mission_id
+    );
+
+    start.command = HBALL_MISSION_COMMAND_START;
+    hball_mission_arbiter_init(&arbiter);
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &prepare, 0U));
+    hball_mission_arbiter_update_ready(&arbiter, required, 1U);
+    hball_mission_arbiter_update_ready(&arbiter, required, 501U);
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 502U));
+    assert(hball_mission_arbiter_mark_running(&arbiter));
+    assert(!hball_mission_arbiter_mark_running(&arbiter));
+    assert(hball_mission_arbiter_mark_completed(&arbiter));
+    assert(!hball_mission_arbiter_mark_completed(&arbiter));
+}
+
 int main(void)
 {
     test_prepare_requires_complete_mask_for_500_ms();
     test_start_outside_ready_is_rejected_and_not_queued();
     test_epoch_and_mission_must_match_after_start();
-    test_q3_does_not_require_track_but_keeps_safety_dependencies();
+    test_q3_uses_available_stationary_dependencies();
     test_status_mirrors_context_and_increments_sequence();
+    test_execution_transitions_are_explicit_and_bounded();
     return 0;
 }

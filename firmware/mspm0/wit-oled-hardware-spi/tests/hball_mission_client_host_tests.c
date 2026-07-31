@@ -99,13 +99,23 @@ static void test_selection_is_blocked_after_start(void)
     assert(hball_mission_client_select(
         &client, HBALL_MISSION_Q5_CENTER_LAP, 5U));
     assert(client.selected_mission == HBALL_MISSION_Q5_CENTER_LAP);
+    assert(client.candidate_epoch == 2U);
 
-    status = make_status(1U, HBALL_MISSION_Q5_CENTER_LAP,
+    status = make_status(2U, HBALL_MISSION_Q5_CENTER_LAP,
                          HBALL_MISSION_STATE_READY, 1U);
     assert(hball_mission_client_accept_status(&client, &status, 10U));
     assert(hball_mission_client_request_start(&client, 20U));
     assert(!hball_mission_client_select(
         &client, HBALL_MISSION_Q6_HOLD_POSITION_LAP, 21U));
+
+    status = make_status(2U, HBALL_MISSION_Q5_CENTER_LAP,
+                         HBALL_MISSION_STATE_COMPLETED, 2U);
+    assert(hball_mission_client_accept_status(&client, &status, 30U));
+    assert(!client.start_requested);
+    assert(client.command == HBALL_MISSION_COMMAND_RESET);
+    assert(hball_mission_client_select(
+        &client, HBALL_MISSION_Q6_HOLD_POSITION_LAP, 31U));
+    assert(client.candidate_epoch == 3U);
 }
 
 int main(void)

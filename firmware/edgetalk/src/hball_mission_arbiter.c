@@ -16,15 +16,21 @@ void hball_mission_arbiter_init(hball_mission_arbiter_t *arbiter)
 
 uint16_t hball_mission_required_ready_mask(uint8_t mission_id)
 {
-    uint16_t required = UINT16_MAX;
+    uint16_t required =
+        HBALL_MISSION_READY_M33_ALIVE
+        | HBALL_MISSION_READY_MSP_LINK
+        | HBALL_MISSION_READY_CHASSIS
+        | HBALL_MISSION_READY_PI_USB
+        | HBALL_MISSION_READY_VISION
+        | HBALL_MISSION_READY_RS00_LINK;
 
     if (!hball_mission_id_valid(mission_id))
     {
         return 0U;
     }
-    if (mission_id == HBALL_MISSION_Q3_BALL_SEQUENCE)
+    if (mission_id != HBALL_MISSION_Q3_BALL_SEQUENCE)
     {
-        required = (uint16_t)(required & ~HBALL_MISSION_READY_TRACK);
+        required |= HBALL_MISSION_READY_IMU;
     }
     return required;
 }
@@ -196,6 +202,51 @@ void hball_mission_arbiter_update_ready(
         arbiter->global_state = HBALL_MISSION_STATE_READY;
         arbiter->reason = HBALL_MISSION_REASON_NONE;
     }
+}
+
+bool hball_mission_arbiter_mark_running(
+    hball_mission_arbiter_t *arbiter
+)
+{
+    if ((arbiter == NULL)
+        || (arbiter->global_state != HBALL_MISSION_STATE_START_PENDING))
+    {
+        return false;
+    }
+    arbiter->global_state = HBALL_MISSION_STATE_RUNNING;
+    arbiter->reason = HBALL_MISSION_REASON_NONE;
+    return true;
+}
+
+bool hball_mission_arbiter_mark_completed(
+    hball_mission_arbiter_t *arbiter
+)
+{
+    if ((arbiter == NULL)
+        || ((arbiter->global_state != HBALL_MISSION_STATE_RUNNING)
+            && (arbiter->global_state
+                != HBALL_MISSION_STATE_START_PENDING)))
+    {
+        return false;
+    }
+    arbiter->global_state = HBALL_MISSION_STATE_COMPLETED;
+    arbiter->reason = HBALL_MISSION_REASON_NONE;
+    return true;
+}
+
+bool hball_mission_arbiter_mark_aborted(
+    hball_mission_arbiter_t *arbiter, uint8_t reason
+)
+{
+    if ((arbiter == NULL)
+        || (arbiter->global_state < HBALL_MISSION_STATE_START_PENDING)
+        || (arbiter->global_state > HBALL_MISSION_STATE_FINISHING))
+    {
+        return false;
+    }
+    arbiter->global_state = HBALL_MISSION_STATE_CONTROLLED_ABORT;
+    arbiter->reason = reason;
+    return true;
 }
 
 bool hball_mission_arbiter_make_status(

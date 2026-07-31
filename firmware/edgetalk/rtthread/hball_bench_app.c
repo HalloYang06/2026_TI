@@ -131,6 +131,8 @@ static rt_uint32_t g_hball_motion_return_settle_since_ms = 0U;
 static rt_uint32_t g_hball_motion_readback_last_ms = 0U;
 static rt_uint32_t g_hball_motion_readback_tx_total = 0U;
 static rt_uint8_t g_hball_motion_readback_next = 0U;
+static void hball_motion_begin_prepare(rt_uint32_t now_ms);
+static void hball_motion_arm(rt_uint32_t now_ms);
 typedef struct
 {
     rt_uint32_t elapsed_ms;
@@ -168,6 +170,11 @@ static rt_uint8_t g_hball_ball_mode = 0U;
 static rt_bool_t g_hball_ball_use_lqi = RT_FALSE;
 static float g_hball_ball_max_abs_error_m = 0.0F;
 static rt_uint32_t g_hball_ball_error_violation_total = 0U;
+static rt_uint32_t g_hball_mission_action_last_ms = 0U;
+static int hball_q3_start_common(void);
+static int hball_hold_start_common(
+    rt_uint8_t mode, float target_m, const char *name
+);
 #endif
 #endif
 #if HBALL_RS00_READBACK_TX_ENABLED
@@ -1017,6 +1024,116 @@ static hball_motion_request_t hball_motion_take_request(float *step_rad)
     return request;
 }
 
+#if HBALL_RS00_MOTION_TX_ENABLED && HBALL_INTEGRATED_SHADOW
+static void hball_mission_action_tick(rt_uint32_t now_ms)
+{
+    const rt_uint8_t state = g_hball_mission_arbiter.global_state;
+    const rt_uint8_t mission = g_hball_mission_arbiter.mission_id;
+
+    if (!g_hball_mission_arbiter.context_valid)
+    {
+        return;
+    }
+    if (state == HBALL_MISSION_STATE_START_PENDING)
+    {
+        if (g_hball_ball_active)
+        {
+            (void)hball_mission_arbiter_mark_running(
+                &g_hball_mission_arbiter
+            );
+            return;
+        }
+        if (g_hball_motion.state == HBALL_RS00_BENCH_PREPARED)
+        {
+            hball_motion_arm(now_ms);
+            return;
+        }
+        if (g_hball_motion.state == HBALL_RS00_BENCH_ARMED)
+        {
+            int result = -RT_ERROR;
+
+            if (mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
+            {
+                result = hball_q3_start_common();
+            }
+            else if ((mission == HBALL_MISSION_Q4_A_TO_B)
+                     || (mission == HBALL_MISSION_Q5_CENTER_LAP))
+            {
+                result = hball_hold_start_common(
+                    2U, 0.0F, "center"
+                );
+            }
+            else if (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+            {
+                hball_sensor_snapshot_t snapshot;
+
+                if (hball_m33_inputs_get_snapshot(&snapshot)
+                    && ((snapshot.valid_flags
+                         & HBALL_SENSOR_VALID_VISION) != 0U))
+                {
+                    result = hball_hold_start_common(
+                        3U, snapshot.ball_position_m, "latched"
+                    );
+                }
+            }
+            if (result == RT_EOK)
+            {
+                (void)hball_mission_arbiter_mark_running(
+                    &g_hball_mission_arbiter
+                );
+            }
+            else
+            {
+                (void)hball_mission_arbiter_mark_aborted(
+                    &g_hball_mission_arbiter,
+                    HBALL_MISSION_REASON_LOCAL_FAULT
+                );
+            }
+            return;
+        }
+        if (((g_hball_motion.state == HBALL_RS00_BENCH_SAFE)
+             || (g_hball_motion.state == HBALL_RS00_BENCH_STOPPED))
+            && ((rt_uint32_t)(now_ms - g_hball_mission_action_last_ms)
+                >= 200U))
+        {
+            g_hball_mission_action_last_ms = now_ms;
+            hball_motion_begin_prepare(now_ms);
+        }
+        return;
+    }
+    if (state != HBALL_MISSION_STATE_RUNNING)
+    {
+        return;
+    }
+    if ((mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
+        && g_hball_ball_q3_passed)
+    {
+        (void)hball_mission_arbiter_mark_completed(
+            &g_hball_mission_arbiter
+        );
+        return;
+    }
+    if ((g_hball_mission_chassis.epoch
+         == g_hball_mission_arbiter.epoch)
+        && ((g_hball_mission_chassis.event_flags
+             & HBALL_MISSION_CHASSIS_EVENT_STOPPED) != 0U)
+        && (((mission == HBALL_MISSION_Q4_A_TO_B)
+             && ((g_hball_mission_chassis.event_flags
+                  & HBALL_MISSION_CHASSIS_EVENT_DETECTED_B) != 0U))
+            || (((mission == HBALL_MISSION_Q5_CENTER_LAP)
+                 || (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP))
+                && ((g_hball_mission_chassis.event_flags
+                     & HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A) != 0U))))
+    {
+        (void)hball_mission_arbiter_mark_completed(
+            &g_hball_mission_arbiter
+        );
+        g_hball_ball_phase = 4U;
+        g_hball_ball_settle_since_ms = 0U;
+    }
+}
+#endif
+
 #if HBALL_INTEGRATED_SHADOW
 static void hball_ball_commission_tick(rt_uint32_t now_ms)
 {
@@ -1420,6 +1537,9 @@ static void hball_worker_entry(void *parameter)
         hball_mission_tick(now_ms);
 #if HBALL_RS00_MOTION_TX_ENABLED
         hball_motion_tick(now_ms);
+#if HBALL_INTEGRATED_SHADOW
+        hball_mission_action_tick(now_ms);
+#endif
 #endif
 #if HBALL_RS00_READBACK_TX_ENABLED
 #if HBALL_RS00_MOTION_TX_ENABLED
@@ -1744,16 +1864,11 @@ MSH_CMD_EXPORT(
 );
 
 #if HBALL_INTEGRATED_SHADOW
-static int hball_q3_start5(int argc, char **argv)
+static int hball_q3_start_common(void)
 {
     hball_sensor_snapshot_t snapshot;
     const rt_uint32_t now_ms = hball_now_ms();
 
-    if (!hball_motion_confirmed(argc, argv))
-    {
-        rt_kprintf("usage: hball_q3_start5 %s\n", HBALL_RS00_CONFIRM_TOKEN);
-        return -RT_EINVAL;
-    }
     if ((g_hball_motion.state != HBALL_RS00_BENCH_ARMED)
         || !hball_m33_inputs_get_snapshot(&snapshot)
         || ((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) == 0U)
@@ -1801,6 +1916,16 @@ static int hball_q3_start5(int argc, char **argv)
         (long)(snapshot.ball_position_m * 1000.0F)
     );
     return RT_EOK;
+}
+
+static int hball_q3_start5(int argc, char **argv)
+{
+    if (!hball_motion_confirmed(argc, argv))
+    {
+        rt_kprintf("usage: hball_q3_start5 %s\n", HBALL_RS00_CONFIRM_TOKEN);
+        return -RT_EINVAL;
+    }
+    return hball_q3_start_common();
 }
 MSH_CMD_EXPORT(
     hball_q3_start5,

@@ -50,11 +50,11 @@
 #define APP_MODE_PWM_SWEEP_TEST  11U
 #define APP_MODE_MOTOR_MAP_TEST  12U
 #define APP_MODE                 APP_MODE_LAP_TEST
-#define HBALL_MISSION_LOCAL_MOTION_ENABLED 0U
+#define HBALL_MISSION_LOCAL_MOTION_ENABLED 1U
 
 _Static_assert(
-    HBALL_MISSION_LOCAL_MOTION_ENABLED == 0U,
-    "mission menu integration must remain shadow-only"
+    HBALL_MISSION_LOCAL_MOTION_ENABLED == 1U,
+    "competition mission menu must control local motion"
 );
 
 #define CAR_TASK_LAP_STOP        1U
@@ -83,6 +83,7 @@ static void format_track_error(int16_t error, char text[7]);
 static void track_motor_test(void);
 static void track_ground_test(void);
 static void lap_test(void);
+static void lap_test_once(void);
 static uint8_t select_car_task(void);
 static void render_mission_menu(
     const hball_mission_menu_view_t *view
@@ -932,9 +933,41 @@ static uint8_t select_car_task(void)
         }
         else if (result == HBALL_MISSION_MENU_START_ACCEPTED)
         {
+            uint8_t selected_mission;
+
             beep();
             delay_cycles(CPUCLK_FREQ / 20U);
             beep();
+            if (!hball_can_mission_get_snapshot(&snapshot))
+            {
+                continue;
+            }
+            selected_mission = snapshot.selected_mission;
+            while (1)
+            {
+                if (hball_can_mission_get_snapshot(&snapshot)
+                    && snapshot.status_valid
+                    && (snapshot.latest_status.global_state
+                        == HBALL_MISSION_STATE_RUNNING)
+                    && (selected_mission
+                        != HBALL_MISSION_Q3_BALL_SEQUENCE))
+                {
+                    return selected_mission;
+                }
+                if (hball_can_mission_get_snapshot(&snapshot)
+                    && snapshot.status_valid
+                    && ((snapshot.latest_status.global_state
+                         == HBALL_MISSION_STATE_COMPLETED)
+                        || (snapshot.latest_status.global_state
+                            >= HBALL_MISSION_STATE_CONTROLLED_ABORT)))
+                {
+                    hball_can_mission_chassis_finish(
+                        HBALL_MISSION_CHASSIS_EVENT_STOPPED, tick_ms
+                    );
+                    break;
+                }
+                delay_cycles(CPUCLK_FREQ / 200U);
+            }
         }
         else if ((result == HBALL_MISSION_MENU_START_BLOCKED)
                  || (result == HBALL_MISSION_MENU_LOCKED))
@@ -1476,6 +1509,14 @@ static void speed_pi_test(void)
 
 static void lap_test(void)
 {
+    while (1)
+    {
+        lap_test_once();
+    }
+}
+
+static void lap_test_once(void)
+{
     enum { LAP_LOG_SAMPLES = 350 };
     enum {
         TRACK_PHASE_STRAIGHT = 0,
@@ -1582,8 +1623,9 @@ static void lap_test(void)
 
     LCD_BLK_Set();
     selected_task = select_car_task();
-    if (selected_task == CAR_TASK_LAP_STOP)
+    if (selected_task == HBALL_MISSION_Q2_FAST_LAP)
     {
+        selected_task = CAR_TASK_LAP_STOP;
         base_speed = 63;
         max_speed = 80;
         recovery_inner_speed = 24;
@@ -1596,13 +1638,15 @@ static void lap_test(void)
         finish_line_min_run_ms = 18000U;
         run_timeout_ms = 0U;
     }
-    else if (selected_task == CAR_TASK_TIMED_RUN)
+    else if (selected_task == HBALL_MISSION_Q4_A_TO_B)
     {
+        selected_task = CAR_TASK_TIMED_RUN;
         finish_line_enabled = 0U;
         run_timeout_ms = 7800U;
     }
     else
     {
+        selected_task = CAR_TASK_STABLE_LAP;
         base_speed = 46;
         max_speed = 65;
         steering_slew_step = 3;
@@ -1669,6 +1713,7 @@ static void lap_test(void)
     motor_start_synchronized((float)commanded_duty_left,
                              (float)commanded_duty_right);
     run_start_ms = tick_ms;
+    hball_can_mission_chassis_start(run_start_ms);
     last_speed_control_ms = run_start_ms;
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     if (selected_task == CAR_TASK_LAP_STOP) {
@@ -2256,10 +2301,12 @@ static void lap_test(void)
         telemetry_send_string((char *)uart_send);
     }
     telemetry_send_string("LAP_LOG_END\r\n");
-    while (1)
-    {
-        __WFI();
-    }
+    hball_can_mission_chassis_finish(
+        (selected_task == CAR_TASK_TIMED_RUN)
+            ? HBALL_MISSION_CHASSIS_EVENT_DETECTED_B
+            : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A,
+        tick_ms
+    );
 }
     
 
