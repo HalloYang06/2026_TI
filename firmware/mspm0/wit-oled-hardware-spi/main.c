@@ -1634,6 +1634,7 @@ static void lap_test_once(void)
     uint8_t task3_filter_ready = 0U;
     int8_t last_line_side = 0;
     uint8_t track_phase = TRACK_PHASE_STRAIGHT;
+    uint8_t selected_mission;
     int16_t target_steering = 0;
     int16_t desired_speed_left = base_speed;
     int16_t desired_speed_right = base_speed;
@@ -1675,6 +1676,7 @@ static void lap_test_once(void)
 
     LCD_BLK_Set();
     selected_task = select_car_task();
+    selected_mission = selected_task;
     if (selected_task == HBALL_MISSION_Q2_FAST_LAP)
     {
         selected_task = CAR_TASK_LAP_STOP;
@@ -1762,10 +1764,12 @@ static void lap_test_once(void)
     RIGHT.ErrorInt = 0.0f;
 
     DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-    motor_pwm_set((float)commanded_duty_left,
-                  (float)commanded_duty_right);
+    motor_pwm_set((float)commanded_duty_left, (float)commanded_duty_right);
     run_start_ms = tick_ms;
-    hball_can_mission_chassis_start(run_start_ms);
+    if (selected_mission != HBALL_MISSION_Q2_FAST_LAP)
+    {
+        hball_can_mission_chassis_start(run_start_ms);
+    }
     last_speed_control_ms = run_start_ms;
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     if (selected_task == CAR_TASK_LAP_STOP) {
@@ -2353,12 +2357,15 @@ static void lap_test_once(void)
         telemetry_send_string((char *)uart_send);
     }
     telemetry_send_string("LAP_LOG_END\r\n");
-    hball_can_mission_chassis_finish(
-        (selected_task == CAR_TASK_TIMED_RUN)
-            ? HBALL_MISSION_CHASSIS_EVENT_DETECTED_B
-            : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A,
-        tick_ms
-    );
+    if (selected_mission != HBALL_MISSION_Q2_FAST_LAP)
+    {
+        hball_can_mission_chassis_finish(
+            (selected_task == CAR_TASK_TIMED_RUN)
+                ? HBALL_MISSION_CHASSIS_EVENT_DETECTED_B
+                : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A,
+            tick_ms
+        );
+    }
 }
     
 
