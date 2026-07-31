@@ -69,8 +69,6 @@ _Static_assert(
 #define CAR_TASK_LAP_STOP        1U
 #define CAR_TASK_TIMED_RUN       2U
 #define CAR_TASK_STABLE_LAP      3U
-#define SPEED_PID_DISABLED 0U
-#define SPEED_PID_ENABLED  1U
 #define GYRO_LCD_REFRESH_MS 100U
 #define MOTOR_TEST_DUTY 20.0f
 
@@ -168,15 +166,10 @@ int round_number=1;
 volatile int start=0;
 int quetion_num=0;
 float now_yaw=0;
-volatile uint8_t speed_pid_enabled=SPEED_PID_DISABLED;
-
-int pwm1_out=0;
-int pwm2_out=0;
 char huidu_char;
 
 extern PID_t LEFT;
 extern PID_t RIGHT;
-extern PID_t ANGLE;
 volatile int32_t Get_Encoder_countA=0;
 volatile int32_t Get_Encoder_countB=0;
 int32_t encoderA_cnt=0;
@@ -2368,25 +2361,6 @@ void TIMER_0_INST_IRQHandler(void)
     Get_Encoder_countA_LAST = encoder_a_snapshot;
     encoderB_cnt = encoder_b_snapshot - Get_Encoder_countB_LAST;
     Get_Encoder_countB_LAST = encoder_b_snapshot;
-
-    LEFT.Actual = (float)encoderA_cnt;
-    RIGHT.Actual = (float)encoderB_cnt;
-
-    /*
-     * 巡线阶段由 track.c 直接控制电机。只有完成速度 PID 调参并显式
-     * 打开 speed_pid_enabled 后，才允许定时器接管电机输出，避免两套
-     * 控制器互相覆盖。
-     */
-    if (speed_pid_enabled == SPEED_PID_ENABLED)
-    {
-        ANGLE.Actual = wit_data.yaw;
-        PID_Update(&LEFT);
-        PID_Update(&RIGHT);
-        PID_Update(&ANGLE);
-        pwm1_out = RIGHT.Out + ANGLE.Out;
-        pwm2_out = LEFT.Out - ANGLE.Out;
-        motor_pwm_set(pwm1_out, pwm2_out);
-    }
 }
 
 void TIMER_1_INST_IRQHandler(void)
@@ -2411,8 +2385,6 @@ void TIMER_1_INST_IRQHandler(void)
       // LCD_ShowString(100,32,oled_buffer,BLUE,WHITE,32,0);
       // sprintf((char *)oled_buffer, "%d", encoderB_cnt);
       // LCD_ShowString(100,64,oled_buffer,BLUE,WHITE,32,0);
-      // sprintf((char *)oled_buffer, "%d", pwm1_out);
-      // LCD_ShowString(100,96,oled_buffer,BLUE,WHITE,32,0);
       // sprintf((char *)oled_buffer, "%.2f", RIGHT.Actual);
       // LCD_ShowString(100,128,oled_buffer,BLUE,WHITE,32,0);
       // float temp=wit_data.yaw;
