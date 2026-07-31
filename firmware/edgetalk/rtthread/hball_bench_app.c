@@ -1358,10 +1358,6 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     }
     vision_stale = (invalid_mask & UINT8_C(0x06)) != 0U;
     stop_invalid_mask = invalid_mask & UINT8_C(0x19);
-    if ((g_hball_ball_mode == 1U) && vision_stale)
-    {
-        stop_invalid_mask |= invalid_mask & UINT8_C(0x06);
-    }
     if ((stop_invalid_mask == 0U) && !vision_stale
         && (fabsf(snapshot.ball_position_m - g_hball_ball_origin_m)
             >= HBALL_BALL_COMMISSION_POSITION_LIMIT_M))
@@ -1406,6 +1402,41 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         return;
     }
     g_hball_ball_sensor_invalid_since_ms = 0U;
+    if ((g_hball_ball_mode == 1U) && vision_stale)
+    {
+        if (!g_hball_ball_vision_lost)
+        {
+            g_hball_ball_vision_lost = RT_TRUE;
+            rt_kprintf(
+                "[hball-q3] vision lost age_ms=%lu; holding last CSP target\n",
+                (unsigned long)snapshot.vision_receive_age_ms
+            );
+        }
+        if ((rt_uint32_t)(now_ms - g_hball_ball_last_tx_ms)
+            >= HBALL_BALL_COMMISSION_TX_PERIOD_MS)
+        {
+            g_hball_ball_last_tx_ms = now_ms;
+            if (!hball_rs00_control_make_position_reference(
+                    HBALL_RS00_MOTOR_ID,
+                    g_hball_ball_output.motor_target_rad,
+                    &frame)
+                || (hball_motion_send_frame(&frame, RT_NULL) != RT_EOK))
+            {
+                hball_motion_stop_now(
+                    HBALL_RS00_BENCH_STOP_TX_FAILURE, now_ms, RT_TRUE
+                );
+                return;
+            }
+            g_hball_ball_tx_total++;
+        }
+        g_hball_motion.last_manual_command_ms = now_ms;
+        return;
+    }
+    if ((g_hball_ball_mode == 1U) && g_hball_ball_vision_lost)
+    {
+        g_hball_ball_vision_lost = RT_FALSE;
+        rt_kprintf("[hball-q3] vision reacquired; feedback resumed\n");
+    }
     if ((g_hball_ball_mode != 1U) && vision_stale
         && !g_hball_ball_vision_lost)
     {
@@ -2226,6 +2257,7 @@ static int hball_q3_start_common(void)
         return -RT_ERROR;
     }
     rt_memset(&g_hball_ball_output, 0, sizeof(g_hball_ball_output));
+    g_hball_ball_output.motor_target_rad = g_hball_ball_level_rad;
     g_hball_ball_target_m = g_hball_ball_origin_m;
     g_hball_ball_start_ms = 0U;
     g_hball_ball_last_step_ms = now_ms;
