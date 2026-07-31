@@ -58,6 +58,7 @@ $sources = @(
     'App\Runtime\hball_coop_scheduler.c',
     'App\Runtime\hball_runtime_dispatcher.c',
     'App\Runtime\hball_runtime_services.c',
+    'App\Runtime\hball_runtime_target.c',
     (Join-Path $missionProtocolDir 'hball_mission_can.c'),
     'Drivers\ENCODER\encoder.c',
     'Drivers\GRAY\beeper.c', 'Drivers\GRAY\gray.c', 'Drivers\GRAY\key.c',

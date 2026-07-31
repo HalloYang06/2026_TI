@@ -452,6 +452,11 @@
               <FilePath>..\App\Runtime\hball_runtime_services.c</FilePath>
             </File>
             <File>
+              <FileName>hball_runtime_target.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\Runtime\hball_runtime_target.c</FilePath>
+            </File>
+            <File>
               <FileName>hball_mission_can.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\shared\protocol\hball_mission_can.c</FilePath>
