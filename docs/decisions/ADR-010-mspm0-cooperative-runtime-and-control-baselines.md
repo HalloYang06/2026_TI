@@ -177,6 +177,24 @@ PA13/STBY 输出值与引脚读回均为低。
 FinSH 串口，因此未向 COM11 写入文本诊断命令，避免污染树莓派视觉数据通道。Q2/Q3 的
 真实任务动作仍必须由操作者按键验收，本次自动化只证明菜单态和数据路径未回归。
 
+提交 `754b4da` 新增 `Drivers/GRAY/LineSensorPort`，使它成为八路 `track_PIN_*` GPIO 的
+唯一读取者。`main.c`继续取得物理高电平 raw byte 后交给 `LineSnapshot`；临时保留的
+`track.c`取得等价的低有效 active mask，因此没有改变两条既有路径的位序和极性。主机测试
+枚举全部 256 种 GPIO 组合，并禁止其他 C 文件再次直接读取这八个引脚；全量 62 项测试和
+Keil 构建通过，连续 `0x800` B 栈检查不变。本次未烧录或启动任务。
+
+提交 `79a1434` 新增硬件无关的 `App/Control/WheelControl`。活跃 `lap_test_once()`不再
+直接持有左右轮 PID、编码器差分、100 ms 归一化、积分限幅、实测前馈和 PWM 斜坡；它只在
+到期时取得原子编码器计数，把目标轮速交给 `WheelControl`，再把返回的 PWM 请求交给
+`ChassisActuator`。测试用 64 步不同采样间隔、轮速目标、编码器增量、重捕获积分复位和斜坡
+逐项对拍旧公式；定向 18 项、全量 66 项测试以及 Keil 构建均通过。未烧录 HEX SHA-256 为
+`021632B9FC966F57A6EA6C6BEB2391722EB083CD3B407E386A7C36EED35BAD73`。
+
+当前仍未完成：活跃 Q2/Q4～Q6 的灰度到轮速意图状态仍位于 `lap_test_once()`，完成/丢线
+阶段也尚未归 `Mission Runtime`；旧 `APP_MODE_CAR/track.c`仍包含自己的执行器请求和
+`start`全局量。下一切片应先定义带时间戳的 `MotionIntent`和纯 `LineFollower`输出，再由
+调用层唯一地提交给 `WheelControl/ChassisActuator`，不得在同一提交中改动实机参数。
+
 ## 后果
 
 - 先消除共享状态和硬件写入冲突，再决定是否需要 RTOS，故障定位更直接。

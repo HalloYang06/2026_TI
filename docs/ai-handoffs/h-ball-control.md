@@ -6,6 +6,22 @@ Role: H-ball EdgeTalk USB/CAN/LQG integration + RS00两连杆仿真
 
 Updated: 2026-07-31
 
+## 2026-07-31 MSPM0控制所有权继续收拢
+
+Owner: Codex
+
+- `754b4da`建立`LineSensorPort`作为八路灰度GPIO唯一读取入口；全部256种位组合与旧
+  raw/低有效语义对拍通过。
+- `79a1434`把活跃比赛路径的双轮PID、100 ms编码器归一化、积分限幅、前馈和PWM斜坡
+  迁入硬件无关`WheelControl`。64步旧公式对拍、定向18项、全量66项主机测试及Keil构建
+  均通过，构建仍验证连续`0x800` B栈。
+- 生成但未烧录的HEX SHA-256为
+  `021632B9FC966F57A6EA6C6BEB2391722EB083CD3B407E386A7C36EED35BAD73`。烧录器已断开，
+  本轮没有按键、任务启动或执行器动作，板上仍是此前验收过的Q2固件。
+- 下一步是从`lap_test_once()`提取带时间戳的纯`LineFollower -> MotionIntent`，之后再把
+  完成/丢线阶段交给`Mission Runtime`。不得顺带修改Q2/Q4参数；旧`track.c/start`耦合
+  暂时明确保留为后续独立迁移项。
+
 ## 2026-07-31 MSPM0任务选择状态机热修复
 
 Owner: Codex
