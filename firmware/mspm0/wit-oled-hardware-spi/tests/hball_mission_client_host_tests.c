@@ -90,21 +90,17 @@ static void test_stale_duplicate_and_out_of_order_status_do_not_unlock(void)
     assert(client.out_of_order_status_total == 1U);
 }
 
-static void test_selection_is_blocked_after_start(void)
+static void test_selection_is_allowed_without_status_but_blocked_after_start(void)
 {
     hball_mission_client_t client;
     hball_mission_status_t status;
 
     hball_mission_client_init(&client, 0U);
-    assert(!hball_mission_client_select(
-        &client, HBALL_MISSION_Q5_CENTER_LAP, 1U));
-    status = make_status(1U, HBALL_MISSION_Q2_FAST_LAP,
-                         HBALL_MISSION_STATE_READY, 1U);
-    assert(hball_mission_client_accept_status(&client, &status, 2U));
     assert(hball_mission_client_select(
-        &client, HBALL_MISSION_Q5_CENTER_LAP, 5U));
+        &client, HBALL_MISSION_Q5_CENTER_LAP, 1U));
     assert(client.selected_mission == HBALL_MISSION_Q5_CENTER_LAP);
     assert(client.candidate_epoch == 2U);
+    assert(!client.status_valid);
 
     status = make_status(2U, HBALL_MISSION_Q5_CENTER_LAP,
                          HBALL_MISSION_STATE_READY, 1U);
@@ -128,6 +124,6 @@ int main(void)
     test_client_starts_in_reset_and_requires_matching_ready();
     test_start_is_one_shot_and_keeps_button_time();
     test_stale_duplicate_and_out_of_order_status_do_not_unlock();
-    test_selection_is_blocked_after_start();
+    test_selection_is_allowed_without_status_but_blocked_after_start();
     return 0;
 }

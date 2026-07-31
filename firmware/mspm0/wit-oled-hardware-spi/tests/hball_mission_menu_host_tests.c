@@ -55,6 +55,48 @@ static void test_q2_executes_locally_without_m33_status(void)
     assert(strcmp(view.missing_label, "MSP LOCAL") == 0);
 }
 
+static void test_selection_cycles_without_m33_status_but_execute_stays_blocked(void)
+{
+    hball_mission_client_t client;
+
+    hball_mission_client_init(&client, 0U);
+    assert(!client.status_valid);
+    assert(client.candidate_epoch == 1U);
+    assert(client.selected_mission == HBALL_MISSION_Q2_FAST_LAP);
+
+    assert(hball_mission_menu_handle(
+               &client, HBALL_MISSION_MENU_SELECT, 10U)
+           == HBALL_MISSION_MENU_SELECTED);
+    assert(client.selected_mission == HBALL_MISSION_Q3_BALL_SEQUENCE);
+    assert(client.candidate_epoch == 2U);
+    assert(client.command == HBALL_MISSION_COMMAND_PREPARE);
+    assert(!client.status_valid);
+
+    assert(hball_mission_menu_handle(
+               &client, HBALL_MISSION_MENU_EXECUTE, 11U)
+           == HBALL_MISSION_MENU_START_BLOCKED);
+    assert(!client.start_requested);
+
+    assert(hball_mission_menu_handle(
+               &client, HBALL_MISSION_MENU_SELECT, 12U)
+           == HBALL_MISSION_MENU_SELECTED);
+    assert(client.selected_mission == HBALL_MISSION_Q4_A_TO_B);
+    assert(hball_mission_menu_handle(
+               &client, HBALL_MISSION_MENU_SELECT, 13U)
+           == HBALL_MISSION_MENU_SELECTED);
+    assert(client.selected_mission == HBALL_MISSION_Q5_CENTER_LAP);
+    assert(hball_mission_menu_handle(
+               &client, HBALL_MISSION_MENU_SELECT, 14U)
+           == HBALL_MISSION_MENU_SELECTED);
+    assert(client.selected_mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP);
+    assert(hball_mission_menu_handle(
+               &client, HBALL_MISSION_MENU_SELECT, 15U)
+           == HBALL_MISSION_MENU_SELECTED);
+    assert(client.selected_mission == HBALL_MISSION_Q2_FAST_LAP);
+    assert(client.candidate_epoch == 6U);
+    assert(!client.status_valid);
+}
+
 static void test_distributed_execute_waits_for_matching_m33_ready(void)
 {
     hball_mission_client_t client;
@@ -229,6 +271,7 @@ int main(void)
 {
     test_selection_cycles_only_official_scoring_missions();
     test_q2_executes_locally_without_m33_status();
+    test_selection_cycles_without_m33_status_but_execute_stays_blocked();
     test_distributed_execute_waits_for_matching_m33_ready();
     test_selection_is_locked_after_start();
     test_display_reports_stale_status_and_first_missing_ready_bit();

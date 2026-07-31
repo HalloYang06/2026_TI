@@ -31,7 +31,6 @@ bool hball_mission_client_select(
 {
     if ((client == NULL)
         || client->start_requested
-        || !client->status_valid
         || !hball_mission_id_valid(mission_id))
     {
         return false;
