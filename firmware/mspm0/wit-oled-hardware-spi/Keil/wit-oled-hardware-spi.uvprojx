@@ -537,6 +537,11 @@
               <FilePath>..\Drivers\WIT\wit_parser.c</FilePath>
             </File>
             <File>
+              <FileName>wit_byte_queue.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\WIT\wit_byte_queue.c</FilePath>
+            </File>
+            <File>
               <FileName>wit.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\WIT\wit.c</FilePath>

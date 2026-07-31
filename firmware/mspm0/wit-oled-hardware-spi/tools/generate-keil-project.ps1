@@ -104,6 +104,7 @@ $applicationFiles = @(
     ,@('uart_vofa.c', '1', '..\Drivers\UART_VOFA+\uart_vofa.c')
     ,@('wit_jy901s_config.c', '1', '..\Drivers\WIT\wit_jy901s_config.c')
     ,@('wit_parser.c', '1', '..\Drivers\WIT\wit_parser.c')
+    ,@('wit_byte_queue.c', '1', '..\Drivers\WIT\wit_byte_queue.c')
     ,@('wit.c', '1', '..\Drivers\WIT\wit.c')
     ,@('wit-oled-hardware-spi.syscfg', '5', '..\wit-oled-hardware-spi.syscfg')
 )

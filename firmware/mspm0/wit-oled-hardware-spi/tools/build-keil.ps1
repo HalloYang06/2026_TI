@@ -67,7 +67,8 @@ $sources = @(
     'Drivers\OLED_Hardware_SPI\oled_hardware_spi.c', 'Drivers\PID\pid.c',
     'Drivers\UART_VOFA+\uart_vofa.c',
     'Drivers\WIT\wit_jy901s_config.c',
-    'Drivers\WIT\wit_parser.c', 'Drivers\WIT\wit.c',
+    'Drivers\WIT\wit_parser.c', 'Drivers\WIT\wit_byte_queue.c',
+    'Drivers\WIT\wit.c',
     'Drivers\MSPM0\hball_stack_reserve.s',
     "$SdkRoot\source\ti\devices\msp\m0p\startup_system_files\keil\startup_mspm0g350x_uvision.s"
 )
