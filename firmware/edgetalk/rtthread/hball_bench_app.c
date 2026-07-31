@@ -1455,7 +1455,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     pipe_limit_rad = fabsf(snapshot.ball_position_m) >= 0.080F
         ? HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD
         : HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD;
-    if ((g_hball_ball_phase == 0U) || (g_hball_ball_phase == 4U))
+    if (g_hball_ball_phase == 4U)
     {
         pipe_command_rad = 0.0F;
     }
@@ -1563,12 +1563,10 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     hball_ball_submit_actual_log(&snapshot, now_ms);
     if (g_hball_ball_phase == 0U)
     {
-        if ((fabsf(g_hball_motor.parameters.mech_position_rad
-                    - g_hball_ball_level_rad) <= 0.002F)
-            && (fabsf(g_hball_motor.parameters.mech_velocity_rad_s)
-                <= 0.05F)
-            && (fabsf(snapshot.ball_position_m)
-                <= HBALL_BALL_Q3_START_WINDOW_M))
+        if ((fabsf(snapshot.ball_position_m)
+                <= HBALL_BALL_Q3_START_WINDOW_M)
+            && (fabsf(g_hball_ball_output.estimated_velocity_mps)
+                <= 0.020F))
         {
             if (g_hball_ball_settle_since_ms == 0U)
             {
@@ -2212,8 +2210,6 @@ static int hball_q3_start_common(void)
             HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY,
             now_ms)
         || (fabsf(snapshot.ball_position_m)
-            > HBALL_BALL_Q3_START_WINDOW_M)
-        || (fabsf(snapshot.ball_position_m)
             >= HBALL_BALL_COMMISSION_POSITION_LIMIT_M))
     {
         rt_kprintf("[hball-q3] start rejected state/input/position\n");
@@ -2253,7 +2249,7 @@ static int hball_q3_start_common(void)
     g_hball_ball_active = RT_TRUE;
     g_hball_motion.last_manual_command_ms = now_ms;
     rt_kprintf(
-        "[hball-q3] leveling first algo=%s x_mm=%ld start_window=+-10 mm\n",
+        "[hball-q3] recover O first algo=%s x_mm=%ld settle=+-10 mm\n",
         g_hball_ball_use_lqi ? "LQI" : "PID",
         (long)(snapshot.ball_position_m * 1000.0F)
     );
