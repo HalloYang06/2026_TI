@@ -163,6 +163,7 @@ static hball_control_pipeline_t g_hball_ball_pipeline;
 static hball_control_output_t g_hball_ball_output;
 static rt_bool_t g_hball_ball_active = RT_FALSE;
 static float g_hball_ball_target_m = 0.0F;
+static float g_hball_ball_level_rad = HBALL_BALL_COMMISSION_LEVEL_RAD;
 static rt_uint32_t g_hball_ball_start_ms = 0U;
 static rt_uint32_t g_hball_ball_last_step_ms = 0U;
 static rt_uint32_t g_hball_ball_sensor_invalid_since_ms = 0U;
@@ -1539,7 +1540,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         );
         return;
     }
-    motor_target_rad = HBALL_BALL_COMMISSION_LEVEL_RAD
+    motor_target_rad = g_hball_ball_level_rad
         + HBALL_LINKAGE_MOTOR_DIRECTION_SIGN * motor_offset_rad;
     g_hball_ball_output.shadow_command_rad = pipe_command_rad;
     g_hball_ball_output.motor_target_rad = motor_target_rad;
@@ -1563,7 +1564,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     if (g_hball_ball_phase == 0U)
     {
         if ((fabsf(g_hball_motor.parameters.mech_position_rad
-                    - HBALL_BALL_COMMISSION_LEVEL_RAD) <= 0.002F)
+                    - g_hball_ball_level_rad) <= 0.002F)
             && (fabsf(g_hball_motor.parameters.mech_velocity_rad_s)
                 <= 0.05F)
             && (fabsf(snapshot.ball_position_m)
@@ -1598,7 +1599,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     if (g_hball_ball_phase == 4U)
     {
         if ((fabsf(g_hball_motor.parameters.mech_position_rad
-                    - HBALL_BALL_COMMISSION_LEVEL_RAD) <= 0.002F)
+                    - g_hball_ball_level_rad) <= 0.002F)
             && (fabsf(g_hball_motor.parameters.mech_velocity_rad_s)
                 <= 0.05F))
         {
@@ -2221,8 +2222,10 @@ static int hball_q3_start_common(void)
     hball_control_pipeline_init(
         &g_hball_ball_pipeline, snapshot.ball_position_m
     );
+    g_hball_ball_level_rad =
+        g_hball_motor.parameters.mech_position_rad;
     if (!hball_control_pipeline_set_motor_level(
-            &g_hball_ball_pipeline, HBALL_BALL_COMMISSION_LEVEL_RAD))
+            &g_hball_ball_pipeline, g_hball_ball_level_rad))
     {
         return -RT_ERROR;
     }
@@ -2408,8 +2411,9 @@ static int hball_hold_start_common(
     hball_control_pipeline_init(
         &g_hball_ball_pipeline, snapshot.ball_position_m
     );
+    g_hball_ball_level_rad = HBALL_BALL_COMMISSION_LEVEL_RAD;
     if (!hball_control_pipeline_set_motor_level(
-            &g_hball_ball_pipeline, HBALL_BALL_COMMISSION_LEVEL_RAD))
+            &g_hball_ball_pipeline, g_hball_ball_level_rad))
     {
         return -RT_ERROR;
     }
