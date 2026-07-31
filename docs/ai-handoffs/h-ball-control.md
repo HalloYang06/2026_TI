@@ -6,6 +6,25 @@ Role: H-ball EdgeTalk USB/CAN/LQG integration + RS00两连杆仿真
 
 Updated: 2026-07-31
 
+## 2026-07-31 MSPM0任务选择状态机热修复
+
+Owner: Codex
+
+- 分支`codex/mspm0-runtime-decoupling`上的`c869689`恢复了无M33状态时的本地选题：
+  SW3可连续循环Q2→Q3→Q4→Q5→Q6→Q2，并为每次选择递增epoch、发布PREPARE、
+  清除旧status。
+- Q3～Q6的SW1执行门没有放宽：没有匹配当前mission/epoch且新鲜的M33 READY时，
+  仍返回`START_BLOCKED`；任务启动后SW3仍锁定。Q2继续走MSPM0本地启动路径。
+- 根因是`hball_mission_client_select()`错误依赖`status_valid`，把“允许换题”和
+  “允许执行分布式任务”耦合到同一条件。
+- 验证：定向状态机测试`5 passed`，MSPM0全量主机回归`62 passed`，SDK
+  `2.05.01.00`+Keil ArmClang隔离构建成功。隔离HEX SHA-256为
+  `8F8B07BBC34C564D17DDC9AA67E3A2594C1E0664655E25DF3BFB8881FA1D3BA3`。
+- 本次未烧录：烧录前发现本机pyOCD CMSIS-Pack索引被截断，重建过程中烧录器断开，
+  随即停止；目标板仍运行此前已验收Q2的固件。重新连接后只需烧入`c869689`构建，
+  人工验证SW3循环和Q3～Q6无READY不启动，不要模拟按键或自动启动电机。
+- 工作区中未提交的灰度GPIO唯一读取者收口仍是独立后续工作，不属于本热修复。
+
 ## 当前结论
 
 后续实现与审计的第一入口是
