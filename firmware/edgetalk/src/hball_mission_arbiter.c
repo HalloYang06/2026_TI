@@ -151,7 +151,8 @@ bool hball_mission_arbiter_accept_intent(
 
     if (intent->command == HBALL_MISSION_COMMAND_START)
     {
-        if (arbiter->global_state == HBALL_MISSION_STATE_START_PENDING)
+        if ((arbiter->global_state >= HBALL_MISSION_STATE_START_PENDING)
+            && (arbiter->global_state <= HBALL_MISSION_STATE_FINISHING))
         {
             return true;
         }
@@ -164,6 +165,7 @@ bool hball_mission_arbiter_accept_intent(
         arbiter->global_state = HBALL_MISSION_STATE_START_PENDING;
         arbiter->reason = HBALL_MISSION_REASON_NONE;
         arbiter->start_event_time_ms = intent->event_time_ms;
+        arbiter->start_accept_time_ms = now_ms;
         arbiter->start_accept_total++;
         return true;
     }

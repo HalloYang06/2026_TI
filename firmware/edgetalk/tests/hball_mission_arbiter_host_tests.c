@@ -66,8 +66,14 @@ static void test_start_outside_ready_is_rejected_and_not_queued(void)
     assert(arbiter.global_state == HBALL_MISSION_STATE_READY);
     assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 511U));
     assert(arbiter.global_state == HBALL_MISSION_STATE_START_PENDING);
+    assert(arbiter.start_accept_time_ms == 511U);
     assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 512U));
     assert(arbiter.start_accept_total == 1U);
+    assert(hball_mission_arbiter_mark_running(&arbiter));
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 513U));
+    assert(arbiter.global_state == HBALL_MISSION_STATE_RUNNING);
+    assert(arbiter.start_accept_total == 1U);
+    assert(arbiter.start_reject_total == 1U);
 }
 
 static void test_epoch_and_mission_must_match_after_start(void)

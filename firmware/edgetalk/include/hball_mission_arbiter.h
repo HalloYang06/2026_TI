@@ -24,6 +24,7 @@ typedef struct
     uint32_t prepare_time_ms;
     uint32_t ready_candidate_time_ms;
     uint32_t start_event_time_ms;
+    uint32_t start_accept_time_ms;
     uint32_t last_intent_time_ms;
     uint32_t prepare_accept_total;
     uint32_t start_accept_total;
