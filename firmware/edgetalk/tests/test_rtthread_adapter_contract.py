@@ -20,6 +20,15 @@ def test_rtthread_adapter_exposes_bounded_manual_motion_shell_commands():
         "hball_motor_step5",
         "hball_motor_return5",
         "hball_motor_stop5",
+        "hball_q3_start5",
+        "hball_control_pid5",
+        "hball_control_pid_gain5",
+        "hball_control_pid_friction5",
+        "hball_control_lqi5",
+        "hball_hold_center5",
+        "hball_hold_latch5",
+        "hball_control_level5",
+        "hball_q3_status5",
         "hball_motor_status5",
         "hball_motor_trace5",
     ]
@@ -52,7 +61,7 @@ def test_bench_auto_probe_is_explicit_build_opt_in():
     assert "#define HBALL_BENCH_AUTO_PROBE5 0" in source
     assert "HBALL_BENCH_AUTO_PROBE5" in sconscript
     assert "os.environ.get('HBALL_BENCH_AUTO_PROBE5', '0')" in sconscript
-    assert "hball_lqg.c" not in sconscript
+    assert "hball_lqg.c" in sconscript
     assert "hball_runtime.c" not in sconscript
     assert "hball_rate_meter.c" in sconscript
     assert "HBALL_RS00_READBACK_TX_ENABLED=1" in sconscript

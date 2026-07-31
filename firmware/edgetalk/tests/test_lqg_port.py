@@ -53,8 +53,8 @@ def test_edgetalk_lqg_port_matches_python_reference(tmp_path: Path):
     controller = LQGController(
         params=params,
         controller_dt=0.005,
-        actuator_time_constant=0.025,
-        camera_noise_std=0.0012,
+        actuator_time_constant=0.032,
+        camera_noise_std=0.0007,
         initial_position=0.004,
         beam_limit=math.radians(4.0),
         command_rate_limit=math.radians(80.0),

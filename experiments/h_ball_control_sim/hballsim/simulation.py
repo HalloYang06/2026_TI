@@ -15,11 +15,11 @@ class SimulationConfig:
     random_seed: int = 20260729
     plant_dt: float = 0.001
     controller_dt: float = 0.005
-    camera_period: float = 1.0 / 60.0
+    camera_period: float = 1.0 / 100.0
     camera_period_jitter_std: float = 0.0
-    camera_delay: float = 0.033
-    camera_noise_std: float = 0.0007
-    controller_camera_noise_std: float = 0.0012
+    camera_delay: float = 0.020
+    camera_noise_std: float = 0.00035
+    controller_camera_noise_std: float = 0.0007
     camera_outlier_probability: float = 0.0
     camera_outlier_std: float = 0.0
     camera_scale_error: float = 0.0
@@ -36,8 +36,8 @@ class SimulationConfig:
     state_packet_dropout_probability: float = 0.0
     beam_angle_noise_std: float = math.radians(0.015)
     beam_angle_quantization: float = 0.0
-    actuator_time_constant: float = 0.025
-    controller_actuator_time_constant: float = 0.025
+    actuator_time_constant: float = 0.032
+    controller_actuator_time_constant: float = 0.032
     actuator_rate_limit: float = math.radians(160.0)
     actuator_deadband: float = 0.0
     actuator_command_delay: float = 0.0
