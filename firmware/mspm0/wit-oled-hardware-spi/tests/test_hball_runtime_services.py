@@ -78,7 +78,7 @@ def test_lap_runtime_applies_service_policy_before_motion() -> None:
     menu_services = lap.index("hball_runtime_services_enter_menu();")
     task_selection = lap.index("selected_task = select_car_task();")
     mission_policy = lap.index(
-        "hball_mission_policy_get(selected_task, &mission_policy)"
+        "hball_mission_policy_get(mission_id, &mission_policy)"
     )
     apply_policy = lap.index(
         "hball_runtime_services_apply_policy(&mission_policy);"

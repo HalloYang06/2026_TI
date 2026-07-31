@@ -35,6 +35,7 @@
 #include "stdio.h"
 #include "string.h"
 #include "hball_can_port.h"
+#include "hball_mission_run_guard.h"
 #include "hball_mission_policy.h"
 #include "hball_runtime_services.h"
 #include "hball_runtime_target.h"
@@ -1544,7 +1545,9 @@ static void lap_test_once(void)
     static int16_t log_actual_right[LAP_LOG_SAMPLES];
     static uint8_t log_duty_left[LAP_LOG_SAMPLES];
     static uint8_t log_duty_right[LAP_LOG_SAMPLES];
+    hball_mission_client_t mission_snapshot;
     hball_mission_policy_t mission_policy;
+    hball_mission_run_decision_t run_decision;
     static line_follower_t line_follower;
     static route_marker_detector_t route_marker_detector;
     static wheel_control_t wheel_control;
@@ -1554,8 +1557,11 @@ static void lap_test_once(void)
     route_marker_detector_config_t marker_config;
     route_marker_detector_output_t marker_output;
     wheel_control_output_t wheel_output;
+    uint8_t mission_id;
     uint8_t selected_task;
+    uint8_t finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
     bool local_marker_stop_enabled;
+    uint16_t mission_epoch;
     uint32_t run_timeout_ms;
     line_snapshot_t line_sample;
     uint8_t line_mask;
@@ -1584,11 +1590,15 @@ static void lap_test_once(void)
     hball_runtime_services_enter_menu();
     LCD_BLK_Set();
     selected_task = select_car_task();
-    if (!hball_mission_policy_get(selected_task, &mission_policy))
+    mission_id = selected_task;
+    if (!hball_mission_policy_get(mission_id, &mission_policy)
+        || !hball_can_mission_get_snapshot(&mission_snapshot)
+        || (mission_snapshot.selected_mission != mission_id))
     {
         hball_runtime_services_apply_policy(NULL);
         return;
     }
+    mission_epoch = mission_snapshot.candidate_epoch;
     hball_runtime_services_apply_policy(&mission_policy);
     marker_config.marker_active_threshold = 3U;
     marker_config.marker_adjacent_width = 0U;
@@ -1651,6 +1661,31 @@ static void lap_test_once(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
+    (void)hball_can_mission_get_snapshot(&mission_snapshot);
+    run_decision = hball_mission_run_guard_evaluate(
+        &mission_policy,
+        mission_id,
+        mission_epoch,
+        &mission_snapshot,
+        tick_ms
+    );
+    if (run_decision != HBALL_MISSION_RUN_CONTINUE)
+    {
+        LCD_Fill(0, 48, 280, 100, BLACK);
+        if (run_decision == HBALL_MISSION_RUN_STOP_REMOTE_COMPLETE) {
+            LCD_ShowString(4, 58, (const unsigned char *)"M33 DONE", GREEN, BLACK, 32, 0);
+        } else if (run_decision == HBALL_MISSION_RUN_STOP_REMOTE_ABORT) {
+            LCD_ShowString(4, 58, (const unsigned char *)"M33 ABORT", RED, BLACK, 32, 0);
+        } else if (run_decision
+                   == HBALL_MISSION_RUN_STOP_REMOTE_UNAVAILABLE) {
+            LCD_ShowString(4, 58, (const unsigned char *)"M33 LOST", RED, BLACK, 32, 0);
+        }
+        hball_can_mission_chassis_finish(
+            HBALL_MISSION_CHASSIS_EVENT_STOPPED, tick_ms
+        );
+        return;
+    }
+
     chassis_actuator_start_synchronized((float)commanded_duty_left, (float)commanded_duty_right);
     run_start_ms = tick_ms;
     line_follower_init(&line_follower, follower_profile, run_start_ms);
@@ -1676,6 +1711,35 @@ static void lap_test_once(void)
     while (1)
     {
         elapsed_ms = (uint32_t)(tick_ms - run_start_ms);
+        (void)hball_can_mission_get_snapshot(&mission_snapshot);
+        run_decision = hball_mission_run_guard_evaluate(
+            &mission_policy,
+            mission_id,
+            mission_epoch,
+            &mission_snapshot,
+            tick_ms
+        );
+        if (run_decision != HBALL_MISSION_RUN_CONTINUE)
+        {
+            finish_elapsed_ms = elapsed_ms;
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
+            LCD_Fill(0, 48, 280, 100, BLACK);
+            if (run_decision == HBALL_MISSION_RUN_STOP_REMOTE_COMPLETE) {
+                LCD_ShowString(4, 58, (const unsigned char *)"M33 DONE", GREEN, BLACK, 32, 0);
+            } else if (run_decision == HBALL_MISSION_RUN_STOP_REMOTE_ABORT) {
+                LCD_ShowString(4, 58, (const unsigned char *)"M33 ABORT", RED, BLACK, 32, 0);
+            } else if (run_decision
+                       == HBALL_MISSION_RUN_STOP_REMOTE_UNAVAILABLE) {
+                LCD_ShowString(4, 58, (const unsigned char *)"M33 LOST", RED, BLACK, 32, 0);
+            }
+            break;
+        }
         timeout_trigger_ms = run_timeout_ms;
         if ((selected_task == CAR_TASK_STABLE_LAP) &&
             (run_timeout_ms >= 500U)) {
@@ -1684,6 +1748,10 @@ static void lap_test_once(void)
         if ((run_timeout_ms != 0U) && (elapsed_ms >= timeout_trigger_ms))
         {
             finish_elapsed_ms = run_timeout_ms;
+            finish_event_flags =
+                (selected_task == CAR_TASK_TIMED_RUN)
+                    ? HBALL_MISSION_CHASSIS_EVENT_DETECTED_B
+                    : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;
             if (selected_task == CAR_TASK_STABLE_LAP)
             {
                 stop_start_duty_left = commanded_duty_left;
@@ -1722,6 +1790,7 @@ static void lap_test_once(void)
         if (local_marker_stop_enabled && marker_output.marker_confirmed)
         {
             finish_elapsed_ms = elapsed_ms;
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;
             if (selected_task == CAR_TASK_STABLE_LAP)
             {
                 /*
@@ -1764,6 +1833,7 @@ static void lap_test_once(void)
         }
         if (follower_output.lost_timeout)
         {
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
             chassis_actuator_stop();
             chassis_actuator_set_wheel_speed(
                 0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
@@ -1849,12 +1919,7 @@ static void lap_test_once(void)
         telemetry_send_string((char *)uart_send);
     }
     telemetry_send_string("LAP_LOG_END\r\n");
-    hball_can_mission_chassis_finish(
-        (selected_task == CAR_TASK_TIMED_RUN)
-            ? HBALL_MISSION_CHASSIS_EVENT_DETECTED_B
-            : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A,
-        tick_ms
-    );
+    hball_can_mission_chassis_finish(finish_event_flags, tick_ms);
 }
     
 

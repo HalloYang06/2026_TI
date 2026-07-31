@@ -462,3 +462,19 @@ MATLAB/Simulink R2025b按新机构和115200 bit/s、200 Hz唯一IMU基线重跑�
   `0x800 bytes`；`git diff --check`通过。两次子审查均未发现Critical或Important问题。
 - 本轮未烧录、未模拟按键、未使能电机，也未启动任何任务。下一步仅需在满足硬件测试
   前提后人工验证Q2/Q4地标时序；不要继续把M33拥有的任务deadline或完成状态下沉到MSP。
+
+## 2026-08-01 MSP远程任务运行许可监督
+
+- `e7cd38e`新增纯`hball_mission_run_guard`：Q2本地运行不依赖M33；Q4～Q6只在任务号、
+  epoch均匹配且150 ms内收到`RUNNING`状态时继续。M33进入FINISHING/COMPLETED、
+  ABORT/FAULT或状态失联时分别返回完成、中止或不可用停车原因。
+- 后续接入切片在`lap_test_once()`启动电机前及每次10 ms循环中检查运行许可；远程停止、
+  丢线停止只上报`STOPPED`，不再伪装成A/B地标成功。Q2/Q4/Stable参数、10 ms循迹和
+  100 ms轮速控制节拍、本地完成时限均未修改。
+- 软件验证为MSP全量主机回归`80 passed`；Keil ArmClang构建成功，连续目标栈仍为
+  `0x800 bytes`。当前HEX SHA-256为
+  `00CBA4172F78FA07B6F7A70074E861378D4B2360E83C42A9E455588AD659587D`。
+- 尚未形成实机结论。Horco CMSIS-DAP UID`2d2670f3`能够枚举，但pyOCD 0.44.1打开USB
+  会话超时；三次写入尝试均在擦写前失败，Windows软件重启设备又因权限不足被拒绝。
+  必须手动拔插Horco后重新烧录并显式reset/go，再在不自动触发按键的前提下确认菜单态、
+  STBY低和关键变量。Q2/Q4～Q6运动效果仍未验收。
