@@ -442,6 +442,11 @@
               <FilePath>..\App\Runtime\hball_coop_scheduler.c</FilePath>
             </File>
             <File>
+              <FileName>hball_runtime_dispatcher.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\Runtime\hball_runtime_dispatcher.c</FilePath>
+            </File>
+            <File>
               <FileName>hball_runtime_services.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\App\Runtime\hball_runtime_services.c</FilePath>

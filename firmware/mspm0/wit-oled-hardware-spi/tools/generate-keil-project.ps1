@@ -84,6 +84,7 @@ $applicationFiles = @(
     ,@('hball_mission_menu.c', '1', '..\App\Mission\hball_mission_menu.c')
     ,@('hball_mission_policy.c', '1', '..\App\Mission\hball_mission_policy.c')
     ,@('hball_coop_scheduler.c', '1', '..\App\Runtime\hball_coop_scheduler.c')
+    ,@('hball_runtime_dispatcher.c', '1', '..\App\Runtime\hball_runtime_dispatcher.c')
     ,@('hball_runtime_services.c', '1', '..\App\Runtime\hball_runtime_services.c')
     ,@('hball_mission_can.c', '1', '..\..\..\..\shared\protocol\hball_mission_can.c')
     ,@('encoder.c', '1', '..\Drivers\ENCODER\encoder.c')
