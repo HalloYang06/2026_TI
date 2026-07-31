@@ -33,6 +33,10 @@ static uint32_t g_hball_last_wit_attitude_count;
 static uint32_t g_hball_last_wit_accel_ms;
 static uint32_t g_hball_last_wit_gyro_ms;
 static uint32_t g_hball_last_wit_attitude_ms;
+static uint32_t g_hball_committed_wit_accel_count;
+static uint32_t g_hball_committed_wit_gyro_count;
+static uint32_t g_hball_committed_wit_attitude_count;
+static hball_can_inputs_t g_hball_committed_imu;
 static bool g_hball_wit_accel_seen;
 static bool g_hball_wit_gyro_seen;
 static bool g_hball_wit_attitude_seen;
@@ -216,6 +220,49 @@ static void hball_can_snapshot_wit(hball_can_inputs_t *inputs)
     inputs->attitude_milli_rad[2] = hball_can_deg_to_milli_rad(angle_z);
 }
 
+static void hball_can_commit_complete_imu(uint32_t now_ms)
+{
+    hball_can_inputs_t sample;
+
+    if (!g_hball_wit_accel_seen
+        || !g_hball_wit_gyro_seen
+        || !g_hball_wit_attitude_seen
+        || (wit_accel_frame_count == g_hball_committed_wit_accel_count)
+        || (wit_gyro_frame_count == g_hball_committed_wit_gyro_count)
+        || (wit_angle_frame_count == g_hball_committed_wit_attitude_count))
+    {
+        return;
+    }
+
+    memset(&sample, 0, sizeof(sample));
+    hball_can_snapshot_wit(&sample);
+    memcpy(
+        g_hball_committed_imu.accel_milli_mps2,
+        sample.accel_milli_mps2,
+        sizeof(sample.accel_milli_mps2)
+    );
+    memcpy(
+        g_hball_committed_imu.gyro_milli_rad_s,
+        sample.gyro_milli_rad_s,
+        sizeof(sample.gyro_milli_rad_s)
+    );
+    memcpy(
+        g_hball_committed_imu.attitude_milli_rad,
+        sample.attitude_milli_rad,
+        sizeof(sample.attitude_milli_rad)
+    );
+    g_hball_committed_imu.imu_epoch++;
+    g_hball_committed_imu.imu_sample_mask =
+        HBALL_MSP_IMU_SAMPLE_ACCEL
+        | HBALL_MSP_IMU_SAMPLE_GYRO
+        | HBALL_MSP_IMU_SAMPLE_ATTITUDE
+        | HBALL_MSP_IMU_SAMPLE_COMPLETE;
+    g_hball_committed_imu.imu_source_time_ms = now_ms;
+    g_hball_committed_wit_accel_count = wit_accel_frame_count;
+    g_hball_committed_wit_gyro_count = wit_gyro_frame_count;
+    g_hball_committed_wit_attitude_count = wit_angle_frame_count;
+}
+
 static void hball_can_snapshot_inputs(
     uint32_t now_ms, hball_can_inputs_t *inputs
 )
@@ -232,6 +279,7 @@ static void hball_can_snapshot_inputs(
         inputs->status_flags |= HBALL_MSP_STATUS_LOCAL_CONTROL_ACTIVE;
     }
     hball_can_update_wit_freshness(now_ms);
+    hball_can_commit_complete_imu(now_ms);
     if (g_hball_wit_accel_seen
         && g_hball_wit_gyro_seen
         && g_hball_wit_attitude_seen
@@ -245,7 +293,27 @@ static void hball_can_snapshot_inputs(
         inputs->status_flags |= HBALL_MSP_STATUS_IMU_VALID;
     }
 
-    hball_can_snapshot_wit(inputs);
+    inputs->imu_epoch = g_hball_committed_imu.imu_epoch;
+    inputs->imu_sample_mask = g_hball_committed_imu.imu_sample_mask;
+    inputs->imu_source_time_ms = g_hball_committed_imu.imu_source_time_ms;
+    inputs->accel_source_sequence = inputs->imu_epoch;
+    inputs->gyro_source_sequence = inputs->imu_epoch;
+    inputs->attitude_source_sequence = inputs->imu_epoch;
+    memcpy(
+        inputs->accel_milli_mps2,
+        g_hball_committed_imu.accel_milli_mps2,
+        sizeof(inputs->accel_milli_mps2)
+    );
+    memcpy(
+        inputs->gyro_milli_rad_s,
+        g_hball_committed_imu.gyro_milli_rad_s,
+        sizeof(inputs->gyro_milli_rad_s)
+    );
+    memcpy(
+        inputs->attitude_milli_rad,
+        g_hball_committed_imu.attitude_milli_rad,
+        sizeof(inputs->attitude_milli_rad)
+    );
 
     left_milli_mps = hball_can_counts_per_20ms_to_milli_mps(
         encoderA_cnt,
@@ -333,6 +401,10 @@ void hball_can_port_init(void)
     g_hball_last_wit_accel_count = wit_accel_frame_count;
     g_hball_last_wit_gyro_count = wit_gyro_frame_count;
     g_hball_last_wit_attitude_count = wit_angle_frame_count;
+    g_hball_committed_wit_accel_count = wit_accel_frame_count;
+    g_hball_committed_wit_gyro_count = wit_gyro_frame_count;
+    g_hball_committed_wit_attitude_count = wit_angle_frame_count;
+    memset(&g_hball_committed_imu, 0, sizeof(g_hball_committed_imu));
     g_hball_last_wit_accel_ms = 0U;
     g_hball_last_wit_gyro_ms = 0U;
     g_hball_last_wit_attitude_ms = 0U;
@@ -435,17 +507,11 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
     {
         hball_can_snapshot_inputs(now_ms, &inputs);
         sequence = g_hball_sequences[stream];
-        if (stream == HBALL_CAN_STREAM_ACCEL)
+        if ((stream == HBALL_CAN_STREAM_ACCEL)
+            || (stream == HBALL_CAN_STREAM_GYRO)
+            || (stream == HBALL_CAN_STREAM_ATTITUDE))
         {
-            sequence = inputs.accel_source_sequence;
-        }
-        else if (stream == HBALL_CAN_STREAM_GYRO)
-        {
-            sequence = inputs.gyro_source_sequence;
-        }
-        else if (stream == HBALL_CAN_STREAM_ATTITUDE)
-        {
-            sequence = inputs.attitude_source_sequence;
+            sequence = inputs.imu_epoch;
         }
         if (!hball_can_encode_frame(
                 stream, sequence, &inputs, &frame))

@@ -66,6 +66,22 @@ systemctl --user enable --now hball-edgetalk-camera-user.service
 球速不由树莓派用相邻两帧直接差分后作为控制量。EdgeTalk根据100 Hz带时间戳位置，
 在OOSM Kalman中估计球速和扰动。
 
+## 全量控制日志
+
+相机桥在发送视觉测量的同时读取M33返回的V1/V2日志。V2包含视觉采集/M33接收时间、
+完整三轴IMU及MSPM0源时间、轮速、RS00反馈和控制器分量：
+
+```bash
+mkdir -p ~/hball-logs
+python3 edgetalk_camera_bridge.py \
+  --telemetry-log ~/hball-logs/q4_001.hblg
+python3 control_log_to_csv.py \
+  ~/hball-logs/q4_001.hblg ~/hball-logs/q4_001.csv
+```
+
+协议见[EDGETALK_CONTROL_LOG_V2](../../docs/protocol/EDGETALK_CONTROL_LOG_V2.md)。
+日志约14.4 kB/s，不含图像；录像仍由树莓派本地视频服务独立保存。
+
 ## 性能目标
 
 - 采集与识别：稳定100 Hz，帧周期10 ms，不能用重复帧冒充帧率。

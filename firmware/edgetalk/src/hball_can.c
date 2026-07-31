@@ -516,6 +516,20 @@ static hball_msp_event_t hball_msp_decode_attitude(
     return HBALL_MSP_EVENT_ATTITUDE;
 }
 
+static hball_msp_event_t hball_msp_decode_imu_time(
+    hball_msp_monitor_t *monitor,
+    const hball_can_frame_t *frame,
+    uint32_t now_ms
+)
+{
+    monitor->imu_epoch = hball_u16_from_le(frame->data);
+    monitor->imu_sample_mask = hball_u16_from_le(frame->data + 2U);
+    monitor->imu_source_time_ms = hball_u32_from_le(frame->data + 4U);
+    monitor->last_imu_time_ms = now_ms;
+    monitor->imu_time_valid = true;
+    return HBALL_MSP_EVENT_IMU_TIME;
+}
+
 typedef enum
 {
     HBALL_MSP_SEQUENCE_ACCEPT = 0,
@@ -587,6 +601,13 @@ static hball_msp_sequence_result_t hball_msp_check_frame_sequence(
             monitor->wheel_valid,
             sequence
         );
+    case HBALL_MSP_CAN_ID_IMU_TIME:
+        return hball_msp_check_sequence(
+            monitor,
+            monitor->imu_epoch,
+            monitor->imu_time_valid,
+            sequence
+        );
     default:
         return hball_msp_check_sequence(
             monitor,
@@ -623,6 +644,7 @@ static void hball_msp_accept_reboot_if_present(
     monitor->gyro_valid = false;
     monitor->wheel_valid = false;
     monitor->attitude_valid = false;
+    monitor->imu_time_valid = false;
     monitor->reboot_total++;
 }
 
@@ -639,7 +661,8 @@ hball_msp_event_t hball_msp_monitor_accept(
             || (frame->id == HBALL_MSP_CAN_ID_ACCEL)
             || (frame->id == HBALL_MSP_CAN_ID_GYRO)
             || (frame->id == HBALL_MSP_CAN_ID_WHEEL)
-            || (frame->id == HBALL_MSP_CAN_ID_ATTITUDE));
+            || (frame->id == HBALL_MSP_CAN_ID_ATTITUDE)
+            || (frame->id == HBALL_MSP_CAN_ID_IMU_TIME));
 
     if ((monitor == NULL) || (frame == NULL))
     {
@@ -686,6 +709,9 @@ hball_msp_event_t hball_msp_monitor_accept(
         break;
     case HBALL_MSP_CAN_ID_WHEEL:
         event = hball_msp_decode_wheel(monitor, frame, now_ms);
+        break;
+    case HBALL_MSP_CAN_ID_IMU_TIME:
+        event = hball_msp_decode_imu_time(monitor, frame, now_ms);
         break;
     default:
         event = hball_msp_decode_attitude(monitor, frame, now_ms);

@@ -459,7 +459,7 @@ static void hball_poll_can(void)
 
 #if HBALL_INTEGRATED_SHADOW
                 if ((event >= HBALL_MSP_EVENT_HEARTBEAT)
-                    && (event <= HBALL_MSP_EVENT_ATTITUDE))
+                    && (event <= HBALL_MSP_EVENT_IMU_TIME))
                 {
                     (void)hball_m33_inputs_publish_msp(&g_hball_msp);
                 }
@@ -1196,23 +1196,113 @@ static void hball_ball_submit_actual_log(
     record.control_mode = (rt_uint16_t)(UINT16_C(0x0100)
         | g_hball_ball_mode);
     record.guard_reason = g_hball_ball_phase;
-    record.status_flags = HBALL_LOG_STATUS_Q3_ACTUAL
-        | (g_hball_ball_active ? HBALL_LOG_STATUS_CONTROL_ACTIVE : 0U)
-        | (g_hball_ball_q3_passed ? HBALL_LOG_STATUS_Q3_PASSED : 0U);
+    record.status_flags = HBALL_LOG_STATUS_ACTUAL_CONTROL
+        | (g_hball_ball_active ? HBALL_LOG_STATUS_CONTROL_ACTIVE : 0U);
+    if (g_hball_ball_mode == 1U)
+    {
+        record.status_flags |= HBALL_LOG_STATUS_Q3_ACTUAL
+            | (g_hball_ball_q3_passed ? HBALL_LOG_STATUS_Q3_PASSED : 0U);
+    }
+    record.vision_capture_time_us = snapshot->vision_capture_time_us;
+    record.vision_receive_time_ms = snapshot->vision_receive_time_ms;
+    record.vision_processing_time_us = snapshot->vision_processing_time_us;
+    record.imu_epoch = snapshot->imu_epoch;
+    record.imu_sample_mask = snapshot->imu_sample_mask;
+    record.imu_source_time_ms = snapshot->imu_source_time_ms;
+    record.accel_receive_time_ms = snapshot->accel_receive_time_ms;
+    record.gyro_receive_time_ms = snapshot->gyro_receive_time_ms;
+    record.attitude_receive_time_ms = snapshot->attitude_receive_time_ms;
+    record.imu_sync_receive_time_ms = snapshot->imu_sync_receive_time_ms;
+    record.wheel_sequence = snapshot->wheel_sequence;
+    record.accel_sequence = snapshot->accel_sequence;
+    record.gyro_sequence = snapshot->gyro_sequence;
+    record.attitude_sequence = snapshot->attitude_sequence;
+    record.wheel_receive_time_ms = snapshot->wheel_receive_time_ms;
+    record.motor_receive_time_ms = snapshot->motor_receive_time_ms;
+    record.msp_status_flags = snapshot->msp_status_flags;
+    record.vision_flags = snapshot->vision_flags;
+    record.motor_fault_summary = snapshot->motor_fault_summary;
+    record.motor_mode_state = snapshot->motor_mode_state;
+    record.motor_run_mode = snapshot->motor_run_mode;
+    record.vision_age_ms = snapshot->vision_receive_age_ms;
+    record.imu_age_ms = snapshot->imu_age_ms;
+    record.wheel_age_ms = snapshot->wheel_age_ms;
+    record.motor_age_ms = snapshot->motor_age_ms;
+    record.heartbeat_age_ms = snapshot->heartbeat_age_ms;
     record.ball_position_m = snapshot->ball_position_m;
+    record.vision_confidence = snapshot->vision_confidence;
     record.estimated_position_m =
         g_hball_ball_output.estimated_position_m;
     record.estimated_velocity_mps =
         g_hball_ball_output.estimated_velocity_mps;
-    /* Q3 actual frames repurpose this V1 slot as target_position_m. */
-    record.estimated_disturbance_mps2 = g_hball_ball_target_m;
+    record.target_position_m = g_hball_ball_target_m;
+    record.estimated_disturbance_mps2 =
+        g_hball_ball_output.estimated_disturbance_mps2;
     record.pipe_target_rad = g_hball_ball_output.shadow_command_rad;
+    record.actual_pipe_angle_rad = g_hball_ball_output.actual_pipe_angle_rad;
+    record.motor_target_rad = g_hball_ball_output.motor_target_rad;
     record.motor_angle_rad = g_hball_motor.parameters.mech_position_rad;
     record.motor_velocity_rad_s =
         g_hball_motor.parameters.mech_velocity_rad_s;
-    record.longitudinal_accel_mps2 =
-        snapshot->longitudinal_accel_mps2;
-    record.body_pitch_rad = snapshot->body_pitch_rad;
+    record.motor_torque_nm = snapshot->motor_torque_nm;
+    record.motor_temperature_c = snapshot->motor_temperature_c;
+    record.motor_filtered_iq_a = snapshot->motor_filtered_iq_a;
+    record.motor_vbus_v = snapshot->motor_vbus_v;
+    rt_memcpy(record.accel_mps2, snapshot->accel_mps2,
+        sizeof(record.accel_mps2));
+    rt_memcpy(record.gyro_rad_s, snapshot->gyro_rad_s,
+        sizeof(record.gyro_rad_s));
+    rt_memcpy(record.attitude_rad, snapshot->attitude_rad,
+        sizeof(record.attitude_rad));
+    record.wheel_left_mps = snapshot->wheel_left_mps;
+    record.wheel_right_mps = snapshot->wheel_right_mps;
+    record.body_speed_mps = snapshot->body_speed_mps;
+    record.controller_position_error_m = g_hball_ball_target_m
+        - g_hball_ball_output.estimated_position_m;
+    record.controller_command_rad = g_hball_ball_output.shadow_command_rad;
+    if (g_hball_ball_mode == 1U)
+    {
+        const float kp = g_hball_ball_use_lqi
+            ? HBALL_BALL_LQI_KP : g_hball_ball_pid_kp;
+        const float ki = g_hball_ball_use_lqi
+            ? HBALL_BALL_LQI_KI : g_hball_ball_pid_ki;
+        const float kd = g_hball_ball_use_lqi
+            ? HBALL_BALL_LQI_KD : g_hball_ball_pid_kd;
+
+        record.controller_integral_error_m_s =
+            g_hball_ball_position_integral;
+        record.controller_p_rad = kp * record.controller_position_error_m;
+        record.controller_i_rad = ki * g_hball_ball_position_integral;
+        record.controller_d_rad = -kd
+            * g_hball_ball_output.estimated_velocity_mps;
+        record.controller_feedback_rad = record.controller_p_rad
+            + record.controller_i_rad + record.controller_d_rad;
+        record.controller_requested_rad = record.controller_feedback_rad;
+        record.controller_command_limit_rad =
+            HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD;
+    }
+    else
+    {
+        record.control_output_flags = g_hball_hold_output.flags;
+        record.controller_integral_error_m_s =
+            g_hball_hold_controller.integral_error_m_s;
+        record.controller_filtered_accel_mps2 =
+            g_hball_hold_output.filtered_accel_mps2;
+        record.controller_feedback_rad = g_hball_hold_output.feedback_rad;
+        record.controller_feedforward_rad =
+            g_hball_hold_output.feedforward_rad;
+        record.controller_requested_rad = g_hball_hold_output.requested_rad;
+        record.controller_p_rad = g_hball_hold_config.kp_rad_per_m
+            * record.controller_position_error_m;
+        record.controller_i_rad = g_hball_hold_config.ki_rad_per_m_s
+            * g_hball_hold_controller.integral_error_m_s;
+        record.controller_d_rad = -g_hball_hold_config.kd_rad_per_mps
+            * g_hball_ball_output.estimated_velocity_mps;
+        record.controller_command_limit_rad =
+            g_hball_hold_config.command_limit_rad;
+        record.controller_rate_limit_rad_s =
+            g_hball_hold_config.command_rate_limit_rad_s;
+    }
     (void)hball_usb_telemetry_submit(&record);
 }
 
@@ -1310,6 +1400,15 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         g_hball_motor.parameters.mech_position_rad;
     snapshot.motor_velocity_rad_s =
         g_hball_motor.parameters.mech_velocity_rad_s;
+    snapshot.motor_receive_time_ms =
+        g_hball_motor.parameters.last_update_ms[
+            HBALL_RS00_PARAMETER_SLOT_MECH_POSITION]
+        > g_hball_motor.parameters.last_update_ms[
+            HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY]
+        ? g_hball_motor.parameters.last_update_ms[
+            HBALL_RS00_PARAMETER_SLOT_MECH_POSITION]
+        : g_hball_motor.parameters.last_update_ms[
+            HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY];
     hball_control_pipeline_step(
         &g_hball_ball_pipeline,
         &snapshot,

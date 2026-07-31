@@ -333,6 +333,24 @@ static void test_mspm0_heartbeat_and_wheel_frames_decode_without_motion_output(v
     assert(!hball_msp_monitor_heartbeat_fresh(&monitor, 151U, 100U));
 }
 
+static void test_mspm0_imu_source_timestamp_frame_is_retained(void)
+{
+    hball_msp_monitor_t monitor;
+    hball_can_frame_t frame = {
+        HBALL_MSP_CAN_ID_IMU_TIME, 0U, 0U, 8U,
+        {0x34U, 0x12U, 0x0fU, 0x00U, 0x78U, 0x56U, 0x34U, 0x12U}
+    };
+
+    hball_msp_monitor_init(&monitor);
+    assert(hball_msp_monitor_accept(&monitor, &frame, 321U)
+        == HBALL_MSP_EVENT_IMU_TIME);
+    assert(monitor.imu_time_valid);
+    assert(monitor.imu_epoch == UINT16_C(0x1234));
+    assert(monitor.imu_sample_mask == UINT16_C(0x000f));
+    assert(monitor.imu_source_time_ms == UINT32_C(0x12345678));
+    assert(monitor.last_imu_time_ms == 321U);
+}
+
 static void test_mspm0_rejects_extended_remote_or_wrong_length_frames(void)
 {
     hball_msp_monitor_t monitor;
@@ -460,6 +478,7 @@ int main(void)
     test_unknown_error_contract_is_preserved_as_raw_bytes();
     test_mspm0_imu_frames_decode_fixed_point_si_units();
     test_mspm0_heartbeat_and_wheel_frames_decode_without_motion_output();
+    test_mspm0_imu_source_timestamp_frame_is_retained();
     test_mspm0_rejects_extended_remote_or_wrong_length_frames();
     test_mspm0_sequence_gate_rejects_duplicate_and_out_of_order_data();
     test_mspm0_sequence_gate_counts_gaps_and_accepts_wraparound();

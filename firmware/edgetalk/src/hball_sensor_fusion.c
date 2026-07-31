@@ -105,6 +105,15 @@ void hball_sensor_fusion_snapshot(
     snapshot->created_time_ms = now_ms;
     snapshot->vision_sequence = fusion->vision.sequence;
     snapshot->vision_capture_time_us = fusion->vision.capture_time_us;
+    snapshot->vision_processing_time_us = fusion->vision.processing_time_us;
+    snapshot->vision_receive_time_ms = fusion->vision_receive_ms;
+    snapshot->imu_source_time_ms = fusion->msp.imu_source_time_ms;
+    snapshot->accel_receive_time_ms = fusion->msp.last_accel_ms;
+    snapshot->gyro_receive_time_ms = fusion->msp.last_gyro_ms;
+    snapshot->attitude_receive_time_ms = fusion->msp.last_attitude_ms;
+    snapshot->imu_sync_receive_time_ms = fusion->msp.last_imu_time_ms;
+    snapshot->wheel_receive_time_ms = fusion->msp.last_wheel_ms;
+    snapshot->motor_receive_time_ms = fusion->motor_receive_ms;
     snapshot->vision_receive_age_ms = hball_age_ms(
         fusion->vision_received, now_ms, fusion->vision_receive_ms
     );
@@ -159,16 +168,27 @@ void hball_sensor_fusion_snapshot(
     snapshot->attitude_sequence = fusion->msp.attitude_sequence;
     snapshot->wheel_sequence = fusion->msp.wheel_sequence;
     snapshot->msp_status_flags = fusion->msp.status_flags;
+    snapshot->vision_flags = fusion->vision.flags;
+    snapshot->imu_epoch = fusion->msp.imu_epoch;
+    snapshot->imu_sample_mask = fusion->msp.imu_sample_mask;
     snapshot->motor_fault_summary = fusion->motor.fault_summary;
     snapshot->motor_mode_state = fusion->motor.mode_state;
     snapshot->motor_run_mode = fusion->motor_parameters.run_mode;
     snapshot->ball_position_m = fusion->vision.ball_position_m;
     snapshot->vision_confidence = fusion->vision.confidence;
+    memcpy(snapshot->accel_mps2, fusion->msp.accel_mps2,
+        sizeof(snapshot->accel_mps2));
+    memcpy(snapshot->gyro_rad_s, fusion->msp.gyro_rad_s,
+        sizeof(snapshot->gyro_rad_s));
+    memcpy(snapshot->attitude_rad, fusion->msp.attitude_rad,
+        sizeof(snapshot->attitude_rad));
     snapshot->longitudinal_accel_mps2 = fusion->msp.accel_mps2[0];
     snapshot->lateral_accel_mps2 = fusion->msp.accel_mps2[1];
     snapshot->body_pitch_rad = fusion->msp.attitude_rad[1];
     snapshot->yaw_rate_rad_s = fusion->msp.gyro_rad_s[2];
     snapshot->body_speed_mps = fusion->msp.body_speed_mps;
+    snapshot->wheel_left_mps = fusion->msp.wheel_left_mps;
+    snapshot->wheel_right_mps = fusion->msp.wheel_right_mps;
     if ((snapshot->valid_flags & HBALL_SENSOR_VALID_MOTOR) != 0U)
     {
         snapshot->motor_angle_rad = fusion->motor.position_rad;

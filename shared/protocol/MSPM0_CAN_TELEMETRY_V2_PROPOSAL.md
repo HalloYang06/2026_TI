@@ -1,6 +1,6 @@
 # MSPM0_CAN_TELEMETRY_V2：源时间语义提案
 
-Status: Proposed; not implemented
+Status: Implemented on `codex/log-v2-timestamps`
 
 ## 目的
 
@@ -30,6 +30,10 @@ V1已经冻结11位Classic CAN的ID、DLC和毫单位，能够稳定传输，但
 三类向量帧的字节0..1都写相同`imu_epoch`。只有MSPM0收齐新`0x51/0x52/0x53`
 并原子提交缓冲区后才增加epoch；重复镜像保持原epoch。`source_time_ms`是MSPM0
 完成这一epoch的单调时刻，不是CAN发送时刻。
+
+当前Classic CAN调度保留原向量、轮速和心跳频率；`0x104`使用每10 ms的第4槽，
+每50 ms由心跳占用一次，因此实际目标为80 Hz。控制日志为50 Hz，能够为每条日志
+提供最近完整IMU epoch的源时间；该时间属于MSPM0单调时钟域。
 
 ## 接收规则
 

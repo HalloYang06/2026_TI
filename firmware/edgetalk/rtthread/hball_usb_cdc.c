@@ -89,8 +89,9 @@ bool hball_usb_telemetry_submit(const hball_log_record_t *record)
     level = rt_hw_interrupt_disable();
     if (g_hball_telemetry_pending
         && ((g_hball_telemetry_latest.status_flags
-             & HBALL_LOG_STATUS_Q3_ACTUAL) != 0U)
-        && ((record->status_flags & HBALL_LOG_STATUS_Q3_ACTUAL) == 0U))
+             & HBALL_LOG_STATUS_ACTUAL_CONTROL) != 0U)
+        && ((record->status_flags
+             & HBALL_LOG_STATUS_ACTUAL_CONTROL) == 0U))
     {
         g_hball_usb_stats.telemetry_drop_total++;
         rt_hw_interrupt_enable(level);

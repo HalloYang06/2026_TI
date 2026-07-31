@@ -69,6 +69,13 @@ bool hball_can_stream_due(uint32_t now_ms, hball_can_stream_t *stream)
     case 8U:
         *stream = HBALL_CAN_STREAM_ATTITUDE;
         return true;
+    case 4U:
+        if ((now_ms % 50U) != 4U)
+        {
+            *stream = HBALL_CAN_STREAM_IMU_TIME;
+            return true;
+        }
+        break;
     default:
         break;
     }
@@ -121,6 +128,12 @@ bool hball_can_encode_frame(
     case HBALL_CAN_STREAM_ATTITUDE:
         frame->id = HBALL_MSP_CAN_ID_ATTITUDE;
         hball_store_vector(frame->data + 2U, inputs->attitude_milli_rad);
+        break;
+    case HBALL_CAN_STREAM_IMU_TIME:
+        frame->id = HBALL_MSP_CAN_ID_IMU_TIME;
+        hball_store_u16_le(frame->data, inputs->imu_epoch);
+        hball_store_u16_le(frame->data + 2U, inputs->imu_sample_mask);
+        hball_store_u32_le(frame->data + 4U, inputs->imu_source_time_ms);
         break;
     case HBALL_CAN_STREAM_HEARTBEAT:
         frame->id = HBALL_MSP_CAN_ID_HEARTBEAT;

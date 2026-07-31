@@ -115,7 +115,7 @@ def main() -> int:
     parser.add_argument("--lock-file", default="/tmp/hball-edgetalk-camera.lock")
     parser.add_argument(
         "--telemetry-log",
-        help="append validated 80-byte control records; disabled by default",
+        help="append validated V1/V2 control records; disabled by default",
     )
     arguments = parser.parse_args()
     if arguments.retry <= 0.0:

@@ -40,6 +40,12 @@ extern "C" {
 #define HBALL_MSP_CAN_ID_GYRO 0x101U
 #define HBALL_MSP_CAN_ID_WHEEL 0x102U
 #define HBALL_MSP_CAN_ID_ATTITUDE 0x103U
+#define HBALL_MSP_CAN_ID_IMU_TIME 0x104U
+
+#define HBALL_MSP_IMU_SAMPLE_ACCEL (UINT16_C(1) << 0)
+#define HBALL_MSP_IMU_SAMPLE_GYRO (UINT16_C(1) << 1)
+#define HBALL_MSP_IMU_SAMPLE_ATTITUDE (UINT16_C(1) << 2)
+#define HBALL_MSP_IMU_SAMPLE_COMPLETE (UINT16_C(1) << 3)
 
 #define HBALL_MSP_STATUS_ESTOP_ACTIVE (UINT16_C(1) << 0)
 #define HBALL_MSP_STATUS_IMU_VALID (UINT16_C(1) << 1)
@@ -129,6 +135,7 @@ typedef enum
     HBALL_MSP_EVENT_GYRO,
     HBALL_MSP_EVENT_WHEEL,
     HBALL_MSP_EVENT_ATTITUDE,
+    HBALL_MSP_EVENT_IMU_TIME,
     HBALL_MSP_EVENT_DUPLICATE,
     HBALL_MSP_EVENT_OUT_OF_ORDER,
 } hball_msp_event_t;
@@ -140,13 +147,17 @@ typedef struct
     bool gyro_valid;
     bool wheel_valid;
     bool attitude_valid;
+    bool imu_time_valid;
     uint16_t heartbeat_sequence;
     uint16_t accel_sequence;
     uint16_t gyro_sequence;
     uint16_t wheel_sequence;
     uint16_t attitude_sequence;
+    uint16_t imu_epoch;
+    uint16_t imu_sample_mask;
     uint16_t status_flags;
     uint32_t uptime_ms;
+    uint32_t imu_source_time_ms;
     float accel_mps2[3];
     float gyro_rad_s[3];
     float attitude_rad[3];
@@ -158,6 +169,7 @@ typedef struct
     uint32_t last_gyro_ms;
     uint32_t last_wheel_ms;
     uint32_t last_attitude_ms;
+    uint32_t last_imu_time_ms;
     uint32_t rx_total;
     uint32_t rx_invalid;
     uint32_t rx_ignored;

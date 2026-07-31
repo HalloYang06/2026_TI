@@ -1,5 +1,8 @@
 # EdgeTalk control log V1
 
+V1只保留用于读取旧`.hblg`文件。当前固件发送的全量传感器和独立时间戳格式见
+[`EDGETALK_CONTROL_LOG_V2`](EDGETALK_CONTROL_LOG_V2.md)，树莓派解码器同时兼容V1/V2。
+
 This is a read-only USB CDC telemetry frame. It never carries actuator
 commands. The M33 guard publishes a latest-value snapshot at at most 50 Hz;
 the USB worker performs the actual transfer.

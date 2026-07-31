@@ -15,7 +15,7 @@ static uint32_t load_u32_le(const uint8_t *data)
         | ((uint32_t)data[2] << 16U) | ((uint32_t)data[3] << 24U);
 }
 
-static void test_scheduler_meets_the_five_stream_rates_without_collisions(void)
+static void test_scheduler_meets_the_six_stream_rates_without_collisions(void)
 {
     uint32_t counts[HBALL_CAN_STREAM_COUNT] = {0U};
 
@@ -33,7 +33,28 @@ static void test_scheduler_meets_the_five_stream_rates_without_collisions(void)
     assert(counts[HBALL_CAN_STREAM_GYRO] == 200U);
     assert(counts[HBALL_CAN_STREAM_WHEEL] == 100U);
     assert(counts[HBALL_CAN_STREAM_ATTITUDE] == 200U);
+    assert(counts[HBALL_CAN_STREAM_IMU_TIME] == 80U);
     assert(counts[HBALL_CAN_STREAM_HEARTBEAT] == 20U);
+}
+
+static void test_imu_time_frame_preserves_source_epoch_and_time(void)
+{
+    hball_can_inputs_t inputs;
+    hball_can_frame_t frame;
+
+    memset(&inputs, 0, sizeof(inputs));
+    inputs.imu_epoch = UINT16_C(0x1234);
+    inputs.imu_sample_mask = HBALL_MSP_IMU_SAMPLE_ACCEL
+        | HBALL_MSP_IMU_SAMPLE_GYRO
+        | HBALL_MSP_IMU_SAMPLE_ATTITUDE
+        | HBALL_MSP_IMU_SAMPLE_COMPLETE;
+    inputs.imu_source_time_ms = UINT32_C(0x89abcdef);
+    assert(hball_can_encode_frame(
+        HBALL_CAN_STREAM_IMU_TIME, 0U, &inputs, &frame));
+    assert(frame.id == HBALL_MSP_CAN_ID_IMU_TIME);
+    assert(load_u16_le(frame.data) == inputs.imu_epoch);
+    assert(load_u16_le(frame.data + 2U) == inputs.imu_sample_mask);
+    assert(load_u32_le(frame.data + 4U) == inputs.imu_source_time_ms);
 }
 
 static void test_heartbeat_is_little_endian_classic_standard_can(void)
@@ -131,6 +152,7 @@ static void test_encoder_can_only_emit_the_frozen_read_only_mspm0_ids(void)
         HBALL_MSP_CAN_ID_GYRO,
         HBALL_MSP_CAN_ID_WHEEL,
         HBALL_MSP_CAN_ID_ATTITUDE,
+        HBALL_MSP_CAN_ID_IMU_TIME,
         HBALL_MSP_CAN_ID_HEARTBEAT,
     };
     hball_can_inputs_t inputs;
@@ -152,7 +174,8 @@ static void test_encoder_can_only_emit_the_frozen_read_only_mspm0_ids(void)
 
 int main(void)
 {
-    test_scheduler_meets_the_five_stream_rates_without_collisions();
+    test_scheduler_meets_the_six_stream_rates_without_collisions();
+    test_imu_time_frame_preserves_source_epoch_and_time();
     test_heartbeat_is_little_endian_classic_standard_can();
     test_sensor_frames_preserve_signed_milli_si_values();
     test_wit_unit_conversion_rounds_and_saturates();

@@ -7,6 +7,8 @@
 #include <finsh.h>
 #include <rtthread.h>
 
+#include <string.h>
+
 #define HBALL_M33_GUARD_PERIOD_MS 1U
 #define HBALL_M33_GUARD_LOG_PERIOD_MS 1000U
 #define HBALL_M33_TELEMETRY_PERIOD_MS 20U
@@ -53,7 +55,34 @@ static void hball_m33_submit_telemetry(
     record.guard_reason = (rt_uint16_t)g_hball_m33_decision.reason;
     record.status_flags =
         g_hball_m33_decision.safety_qualified ? UINT32_C(1) : 0U;
+    record.vision_capture_time_us = sensor->vision_capture_time_us;
+    record.vision_receive_time_ms = sensor->vision_receive_time_ms;
+    record.vision_processing_time_us = sensor->vision_processing_time_us;
+    record.imu_epoch = sensor->imu_epoch;
+    record.imu_sample_mask = sensor->imu_sample_mask;
+    record.imu_source_time_ms = sensor->imu_source_time_ms;
+    record.accel_receive_time_ms = sensor->accel_receive_time_ms;
+    record.gyro_receive_time_ms = sensor->gyro_receive_time_ms;
+    record.attitude_receive_time_ms = sensor->attitude_receive_time_ms;
+    record.imu_sync_receive_time_ms = sensor->imu_sync_receive_time_ms;
+    record.wheel_sequence = sensor->wheel_sequence;
+    record.accel_sequence = sensor->accel_sequence;
+    record.gyro_sequence = sensor->gyro_sequence;
+    record.attitude_sequence = sensor->attitude_sequence;
+    record.wheel_receive_time_ms = sensor->wheel_receive_time_ms;
+    record.motor_receive_time_ms = sensor->motor_receive_time_ms;
+    record.msp_status_flags = sensor->msp_status_flags;
+    record.vision_flags = sensor->vision_flags;
+    record.motor_fault_summary = sensor->motor_fault_summary;
+    record.motor_mode_state = sensor->motor_mode_state;
+    record.motor_run_mode = sensor->motor_run_mode;
+    record.vision_age_ms = sensor->vision_receive_age_ms;
+    record.imu_age_ms = sensor->imu_age_ms;
+    record.wheel_age_ms = sensor->wheel_age_ms;
+    record.motor_age_ms = sensor->motor_age_ms;
+    record.heartbeat_age_ms = sensor->heartbeat_age_ms;
     record.ball_position_m = sensor->ball_position_m;
+    record.vision_confidence = sensor->vision_confidence;
     record.estimated_position_m = g_hball_m33_shadow.estimated_position_m;
     record.estimated_velocity_mps = g_hball_m33_shadow.estimated_velocity_mps;
     record.estimated_disturbance_mps2 =
@@ -61,8 +90,20 @@ static void hball_m33_submit_telemetry(
     record.pipe_target_rad = g_hball_m33_decision.shadow_target_rad;
     record.motor_angle_rad = sensor->motor_angle_rad;
     record.motor_velocity_rad_s = sensor->motor_velocity_rad_s;
-    record.longitudinal_accel_mps2 = sensor->longitudinal_accel_mps2;
-    record.body_pitch_rad = sensor->body_pitch_rad;
+    record.motor_torque_nm = sensor->motor_torque_nm;
+    record.motor_temperature_c = sensor->motor_temperature_c;
+    record.motor_filtered_iq_a = sensor->motor_filtered_iq_a;
+    record.motor_vbus_v = sensor->motor_vbus_v;
+    memcpy(record.accel_mps2, sensor->accel_mps2,
+        sizeof(record.accel_mps2));
+    memcpy(record.gyro_rad_s, sensor->gyro_rad_s,
+        sizeof(record.gyro_rad_s));
+    memcpy(record.attitude_rad, sensor->attitude_rad,
+        sizeof(record.attitude_rad));
+    record.wheel_left_mps = sensor->wheel_left_mps;
+    record.wheel_right_mps = sensor->wheel_right_mps;
+    record.body_speed_mps = sensor->body_speed_mps;
+    record.controller_command_rad = g_hball_m33_decision.shadow_target_rad;
     (void)hball_usb_telemetry_submit(&record);
 }
 
