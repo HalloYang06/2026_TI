@@ -80,7 +80,7 @@ _Static_assert(
 #define GYRO_LCD_REFRESH_MS 100U
 #define HBALL_MISSION_MENU_RENDER_MIN_MS 1000U
 #define HBALL_Q4_SOFT_START_MS 600U
-#define HBALL_Q4_SOFT_STOP_MS 500U
+#define HBALL_Q4_SOFT_STOP_MS 800U
 #define HBALL_Q4_DUTY_SLEW_STEP 5
 #define MOTOR_TEST_DUTY 20.0f
 
@@ -1424,7 +1424,7 @@ static void speed_pi_test(void)
     static int16_t log_right_speed[PI_LOG_SAMPLES];
     static int16_t log_left_duty[PI_LOG_SAMPLES];
     static int16_t log_right_duty[PI_LOG_SAMPLES];
-    const uint32_t test_time_ms = 3000U;
+    const uint32_t test_time_ms = 3300U;
     const uint32_t brake_start_ms = 2500U;
     const int16_t cruise_target = 50;
     chassis_motion_profile_t speed_profile;
@@ -1466,6 +1466,8 @@ static void speed_pi_test(void)
         __WFI();
     }
 
+    LCD_Fill(0, 50, 240, 110, BLACK);
+    LCD_ShowString(4, 58, (const unsigned char *)"RUN 3.3 SEC", GREEN, BLACK, 24, 0);
     Get_Encoder_countA = 0;
     Get_Encoder_countB = 0;
     chassis_actuator_start_synchronized(0.0F, 0.0F);
@@ -1477,9 +1479,6 @@ static void speed_pi_test(void)
     memset(&intent, 0, sizeof(intent));
     intent.valid = true;
     intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
-    LCD_Fill(0, 50, 240, 110, BLACK);
-    LCD_ShowString(4, 58, (const unsigned char *)"RUN 3 SEC", GREEN, BLACK, 32, 0);
-
     while ((uint32_t)(tick_ms - test_start_ms) < test_time_ms)
     {
         elapsed_ms = (uint32_t)(tick_ms - test_start_ms);
