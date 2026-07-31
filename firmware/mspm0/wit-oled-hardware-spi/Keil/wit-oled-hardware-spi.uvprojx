@@ -467,6 +467,11 @@
               <FilePath>..\App\Mission\hball_mission_policy.c</FilePath>
             </File>
             <File>
+              <FileName>hball_mission_run_guard.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\Mission\hball_mission_run_guard.c</FilePath>
+            </File>
+            <File>
               <FileName>hball_coop_scheduler.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\App\Runtime\hball_coop_scheduler.c</FilePath>
