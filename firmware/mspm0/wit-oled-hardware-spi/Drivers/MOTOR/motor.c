@@ -1,5 +1,14 @@
 #include "motor.h"
 
+#define AIN1_SET     DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_AIN1_PIN)
+#define AIN1_RESET   DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_AIN1_PIN)
+#define AIN2_SET     DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_AIN2_PIN)
+#define AIN2_RESET   DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_AIN2_PIN)
+#define BIN1_SET     DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_BIN1_PIN)
+#define BIN1_RESET   DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_BIN1_PIN)
+#define BIN2_SET     DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_BIN2_PIN)
+#define BIN2_RESET   DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_BIN2_PIN)
+
 float compareval=0;
 int led_state=0;
 void motor_init(void)
@@ -17,14 +26,24 @@ void motor_stop(void)
     
 }
 
+void motor_driver_enable(void)
+{
+    __DSB();
+    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+}
+
+void motor_driver_disable(void)
+{
+    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+}
+
 void motor_start_synchronized(float pwm1,float pwm2)
 {
     /* Keep both H-bridges disabled until both directions and PWM are ready. */
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    motor_driver_disable();
     motor_stop();
     motor_pwm_set(pwm1, pwm2);
-    __DSB();
-    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    motor_driver_enable();
 }
 	
 void set_motor_speed(float duty,uint8_t motor)
