@@ -127,16 +127,32 @@ bool wheel_control_step(
     clamp_integrator(&control->left_pid);
     clamp_integrator(&control->right_pid);
 
-    target_duty_left = clamp_duty(
-        ((int32_t)intent->requested_speed_left * 12) / 25
-        + 2
-        + (int16_t)control->left_pid.Out
-    );
-    target_duty_right = clamp_duty(
-        ((int32_t)intent->requested_speed_right * 9) / 20
-        + 2
-        + (int16_t)control->right_pid.Out
-    );
+    if (intent->requested_speed_left == 0)
+    {
+        target_duty_left = 0;
+        control->left_pid.ErrorInt = 0.0F;
+    }
+    else
+    {
+        target_duty_left = clamp_duty(
+            ((int32_t)intent->requested_speed_left * 12) / 25
+            + 2
+            + (int16_t)control->left_pid.Out
+        );
+    }
+    if (intent->requested_speed_right == 0)
+    {
+        target_duty_right = 0;
+        control->right_pid.ErrorInt = 0.0F;
+    }
+    else
+    {
+        target_duty_right = clamp_duty(
+            ((int32_t)intent->requested_speed_right * 9) / 20
+            + 2
+            + (int16_t)control->right_pid.Out
+        );
+    }
     control->commanded_duty_left = approach_duty(
         control->commanded_duty_left,
         target_duty_left,

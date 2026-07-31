@@ -210,6 +210,29 @@ static void test_invalid_motion_intent_does_not_advance_control_state(void)
     assert(control.previous_right_count == 0);
 }
 
+static void test_zero_speed_intent_slews_pwm_to_zero(void)
+{
+    wheel_control_t control;
+    wheel_control_output_t output;
+    motion_intent_t intent = make_drive_intent(100U, 0, 0, 5);
+    uint32_t now_ms = 0U;
+    uint8_t step;
+
+    wheel_control_init(&control, now_ms, 26, 24);
+    for (step = 0U; step < 6U; ++step)
+    {
+        now_ms += WHEEL_CONTROL_PERIOD_MS;
+        intent.timestamp_ms = now_ms;
+        assert(wheel_control_step(
+            &control, now_ms, 0, 0, &intent, &output));
+    }
+
+    assert(output.duty_left == 0);
+    assert(output.duty_right == 0);
+    assert(control.left_pid.ErrorInt == 0.0f);
+    assert(control.right_pid.ErrorInt == 0.0f);
+}
+
 static void test_sequence_matches_the_previous_lap_controller_math(void)
 {
     wheel_control_t control;
@@ -268,6 +291,7 @@ int main(void)
     test_integrators_are_bounded_and_can_be_reset_on_reacquire();
     test_period_check_handles_millisecond_counter_wrap();
     test_invalid_motion_intent_does_not_advance_control_state();
+    test_zero_speed_intent_slews_pwm_to_zero();
     test_sequence_matches_the_previous_lap_controller_math();
     return 0;
 }
