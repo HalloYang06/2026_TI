@@ -1611,9 +1611,6 @@ static void lap_test_once(void)
     int16_t error = 0;
     int16_t commanded_duty_left = 15;
     int16_t commanded_duty_right = 15;
-    int16_t stop_start_duty_left;
-    int16_t stop_start_duty_right;
-    int16_t stop_step;
     int32_t current_left_count;
     int32_t current_right_count;
     int32_t left_speed;
@@ -1621,7 +1618,6 @@ static void lap_test_once(void)
     float q4_speed_scale = 1.0F;
     uint32_t run_start_ms;
     uint32_t elapsed_ms;
-    uint32_t timeout_trigger_ms;
     uint32_t finish_elapsed_ms = 0U;
     char time_text[8];
 
@@ -1671,12 +1667,12 @@ static void lap_test_once(void)
     {
         selected_task = CAR_TASK_STABLE_LAP;
         follower_profile = LINE_FOLLOWER_PROFILE_STABLE_LAP;
-        local_marker_stop_enabled = false;
+        local_marker_stop_enabled = true;
         marker_config.marker_active_threshold = 4U;
         marker_config.marker_adjacent_width = 4U;
         marker_config.marker_min_elapsed_ms = 23000U;
         marker_config.marker_confirm_ms = 20U;
-        run_timeout_ms = 28000U;
+        run_timeout_ms = 0U;
     }
     line_sample = line_snapshot_decode(line_sensor_port_read_raw(), tick_ms);
     line_mask = line_sample.line_mask;
@@ -1801,11 +1797,6 @@ static void lap_test_once(void)
             }
             break;
         }
-        timeout_trigger_ms = run_timeout_ms;
-        if ((selected_task == CAR_TASK_STABLE_LAP) &&
-            (run_timeout_ms >= 500U)) {
-            timeout_trigger_ms = run_timeout_ms - 500U;
-        }
         if ((selected_task == CAR_TASK_TIMED_RUN)
             && !q4_braking
             && (elapsed_ms >= (run_timeout_ms - HBALL_Q4_SOFT_STOP_MS)))
@@ -1819,30 +1810,10 @@ static void lap_test_once(void)
                 HBALL_Q4_SOFT_STOP_MS
             );
         }
-        if ((run_timeout_ms != 0U) && (elapsed_ms >= timeout_trigger_ms))
+        if ((run_timeout_ms != 0U) && (elapsed_ms >= run_timeout_ms))
         {
             finish_elapsed_ms = run_timeout_ms;
-            finish_event_flags =
-                (selected_task == CAR_TASK_TIMED_RUN)
-                    ? HBALL_MISSION_CHASSIS_EVENT_DETECTED_B
-                    : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;
-            if (selected_task == CAR_TASK_STABLE_LAP)
-            {
-                stop_start_duty_left = commanded_duty_left;
-                stop_start_duty_right = commanded_duty_right;
-                for (stop_step = 24; stop_step >= 0; stop_step--)
-                {
-                    commanded_duty_left =
-                        (int16_t)(((int32_t)stop_start_duty_left *
-                                   stop_step) / 25);
-                    commanded_duty_right =
-                        (int16_t)(((int32_t)stop_start_duty_right *
-                                   stop_step) / 25);
-                    chassis_actuator_set_pwm((float)commanded_duty_left,
-                                             (float)commanded_duty_right);
-                    competition_runtime_wait_ms(20U);
-                }
-            }
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_DETECTED_B;
             chassis_actuator_stop();
             chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
             chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
@@ -1861,7 +1832,18 @@ static void lap_test_once(void)
         (void)route_marker_detector_step(
             &route_marker_detector, &line_sample, &marker_output);
 
-        if (local_marker_stop_enabled && marker_output.marker_confirmed)
+        if (marker_output.start_cleared_event)
+        {
+            hball_can_mission_chassis_latch_events(
+                HBALL_MISSION_CHASSIS_EVENT_LEFT_A);
+        }
+        if (marker_output.marker_confirmed_event)
+        {
+            hball_can_mission_chassis_latch_events(
+                HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A);
+        }
+
+        if (local_marker_stop_enabled && marker_output.marker_confirmed_event)
         {
             finish_elapsed_ms = elapsed_ms;
             finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;

@@ -60,6 +60,7 @@ hball_mission_menu_result_t hball_can_mission_menu_handle(
     hball_mission_menu_event_t event, uint32_t now_ms
 );
 void hball_can_mission_chassis_start(uint32_t now_ms);
+void hball_can_mission_chassis_latch_events(uint8_t event_flags);
 void hball_can_mission_chassis_finish(
     uint8_t event_flags, uint32_t now_ms
 );

@@ -122,9 +122,16 @@ void hball_can_mission_chassis_start(uint32_t now_ms)
 
     g_hball_chassis_start_ms = now_ms;
     g_hball_chassis_phase = HBALL_MISSION_STATE_RUNNING;
+    g_hball_chassis_events = HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE;
+    hball_can_unlock(interrupt_state);
+}
+
+void hball_can_mission_chassis_latch_events(uint8_t event_flags)
+{
+    const uint32_t interrupt_state = hball_can_lock();
+
     g_hball_chassis_events =
-        HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE
-        | HBALL_MISSION_CHASSIS_EVENT_LEFT_A;
+        (uint8_t)(g_hball_chassis_events | event_flags);
     hball_can_unlock(interrupt_state);
 }
 
@@ -135,8 +142,11 @@ void hball_can_mission_chassis_finish(
     const uint32_t interrupt_state = hball_can_lock();
 
     g_hball_chassis_phase = HBALL_MISSION_STATE_COMPLETED;
-    g_hball_chassis_events =
-        (uint8_t)(event_flags | HBALL_MISSION_CHASSIS_EVENT_STOPPED);
+    g_hball_chassis_events = (uint8_t)(
+        (g_hball_chassis_events | event_flags
+         | HBALL_MISSION_CHASSIS_EVENT_STOPPED)
+        & (uint8_t)~HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE
+    );
     (void)now_ms;
     hball_can_unlock(interrupt_state);
 }

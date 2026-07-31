@@ -107,3 +107,39 @@ def test_active_lap_uses_route_marker_detector_facts() -> None:
         "line_snapshot_has_adjacent(&line_sample",
     ):
         assert obsolete not in lap
+
+
+def test_q5_q6_route_completion_comes_from_real_marker_events() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    lap = main[
+        main.index("static void lap_test_once(void)\n{") :
+        main.index("void TIMER_0_INST_IRQHandler(void)")
+    ]
+    compact = "".join(lap.split())
+    q4_start = compact.index(
+        "elseif(selected_task==HBALL_MISSION_Q4_A_TO_B)"
+    )
+    q56_start = compact.index("else{", q4_start)
+    q56_config = compact[q56_start : compact.index("line_sample=", q56_start)]
+
+    assert "local_marker_stop_enabled=true;" in q56_config
+    assert "run_timeout_ms=0U;" in q56_config
+    assert "run_timeout_ms=28000U;" not in compact
+    assert (
+        "if(marker_output.start_cleared_event)"
+        "{hball_can_mission_chassis_latch_events("
+        "HBALL_MISSION_CHASSIS_EVENT_LEFT_A);}" in compact
+    )
+    assert (
+        "if(marker_output.marker_confirmed_event)"
+        "{hball_can_mission_chassis_latch_events("
+        "HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A);}" in compact
+    )
+    assert (
+        "if(local_marker_stop_enabled&&marker_output.marker_confirmed_event)"
+        in compact
+    )
+    assert (
+        "?HBALL_MISSION_CHASSIS_EVENT_DETECTED_B"
+        ":HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A" not in compact
+    )
