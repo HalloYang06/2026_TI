@@ -154,6 +154,29 @@ Keil 构建通过，栈仍为 `0x800` B。烧入 HEX SHA-256 为
 帧约为 440 帧且队列深度为 1 B。CAN 仍复现相同的 TX 无确认和 bus-off，不是本调用层迁移
 引入。Q2 实际循迹仍保留为操作者手动验收项。
 
+提交 `dabd6f3` 新增纯 `App/Control/LineSnapshot`：输入仅为八路低有效灰度原始字节和
+毫秒时间戳，输出 `valid/raw/line_mask/active_count/weighted_sum/weighted_error`，并提供
+三/四相邻通道查询。它不读取 GPIO、任务全局量、LCD、CAN、IMU 或执行器。提交 `6c528c2`
+随后只把活跃的 `lap_test_once()` 灰度解码替换为该快照；Q2/Q3 参数、分支、起停、10 ms
+循迹等待、100 ms 轮速 PI 和电机调用均未改动。主机测试对全部 256 种 raw 输入与旧权重
+`{-35,-25,-15,-5,5,15,25,35}` 逐一对拍，并继续锁定 Q2 参数和 Q3 四相邻终点语义；
+全量 58 项测试通过。
+
+Keil `-O0` 构建继续验证连续 `0x800` B 栈；`lap_test_once()` 新局部栈帧为 `0x31C`
+（796 B），比旧版增加 16 B，按此前同一入口实测余量折算仍约有 1152 B。HEX SHA-256 为
+`FA57560FE805C1FE6FC88658F8CCF9C4A70812872014B5F0D1EE6D0B03AA7A90`。台架使用 Horco
+CMSIS-DAP 的 SWD、EdgeTalk CAN 接入和 JY901S 115200 bit/s UART；车轮架空，调试板由
+USB/SWD 供电，未改变现场底盘外部电源和限流设置，未按 SW1/SW3、未发送任何执行器命令，
+操作者可通过复位或断电接管。pyOCD 擦除并编程 49152 B 后显式 reset/go；约 3.2 s 菜单态
+样本为 tick 3247、加速度/角速度/姿态帧 445/444/443、编码器原始计数和增量全为 0、
+PA13/STBY 输出值与引脚读回均为低。
+
+同一只读窗口内 MSP 收到 64 帧（标准 10、扩展 54），但 TX confirmation 仍为 0、TEC 248，
+发生 3 次 bus-off；这再次把故障限定在现有 MSP TX/ACK 物理或接口路径，而不是
+`LineSnapshot`。Windows 当前只枚举 EdgeTalk USB CDC 数据口 COM11，没有出现 KitProg
+FinSH 串口，因此未向 COM11 写入文本诊断命令，避免污染树莓派视觉数据通道。Q2/Q3 的
+真实任务动作仍必须由操作者按键验收，本次自动化只证明菜单态和数据路径未回归。
+
 ## 后果
 
 - 先消除共享状态和硬件写入冲突，再决定是否需要 RTOS，故障定位更直接。
