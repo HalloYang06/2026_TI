@@ -949,6 +949,15 @@ static uint8_t select_car_task(void)
         {
             continue;
         }
+        if ((mission_event == HBALL_MISSION_MENU_EXECUTE)
+            && hball_can_mission_get_snapshot(&snapshot)
+            && (snapshot.selected_mission == HBALL_MISSION_Q2_FAST_LAP))
+        {
+            beep();
+            delay_cycles(CPUCLK_FREQ / 20U);
+            beep();
+            return HBALL_MISSION_Q2_FAST_LAP;
+        }
         result = hball_can_mission_menu_handle(mission_event, tick_ms);
         if (result == HBALL_MISSION_MENU_SELECTED)
         {
@@ -1579,7 +1588,6 @@ static void lap_test_once(void)
     const int16_t task3_curve_min_speed = 40;
     const uint32_t task3_start_ramp_ms = 1000U;
     const int16_t task2_start_speed = 28;
-    const int16_t task2_start_duty = 8;
     const uint32_t task2_start_ramp_ms = 800U;
     uint8_t selected_task;
     uint8_t finish_line_enabled;
@@ -1696,11 +1704,6 @@ static void lap_test_once(void)
         requested_speed_left = start_speed;
         requested_speed_right = start_speed;
     }
-    if (selected_task == CAR_TASK_TIMED_RUN) {
-        commanded_duty_left = task2_start_duty;
-        commanded_duty_right = task2_start_duty;
-    }
-
     raw = read_track_raw();
     line_mask = (uint8_t)(~raw);
     if (line_mask == 0U)

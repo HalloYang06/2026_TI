@@ -39,3 +39,18 @@ def test_task_menu_uses_separate_select_and_execute_events() -> None:
     assert "TASK_KEY_EVENT_EXECUTE" in body
     assert "START_KEY_BUTTON_PIN" not in body
     assert "TASK_DOUBLE_CLICK_MS" not in main
+
+
+def test_q2_execute_bypasses_distributed_mission_start() -> None:
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
+    body = _function_body(
+        main,
+        "static uint8_t select_car_task(void)\n{",
+        "static int16_t approach_pwm",
+    )
+
+    local_q2 = body.index("return HBALL_MISSION_Q2_FAST_LAP;")
+    distributed_start = body.index(
+        "hball_can_mission_menu_handle(mission_event, tick_ms)"
+    )
+    assert local_q2 < distributed_start

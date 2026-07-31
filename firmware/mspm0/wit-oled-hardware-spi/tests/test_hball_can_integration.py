@@ -98,3 +98,12 @@ def test_can_fifo_drain_rejects_systick_irq_reentry() -> None:
     assert drain.rindex("g_hball_rx_drain_active = false;") > drain.rindex(
         "DL_MCAN_getRxFIFOStatus"
     )
+
+
+def test_q2_does_not_send_distributed_mission_intents() -> None:
+    port = (CAN_DIR / "hball_can_port.c").read_text(encoding="utf-8")
+
+    assert (
+        "g_hball_mission_client.selected_mission\n"
+        "         != HBALL_MISSION_Q2_FAST_LAP"
+    ) in port
