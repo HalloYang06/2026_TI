@@ -66,7 +66,7 @@ __asm(".global __ARM_use_no_argv\n");
 #define APP_MODE_SPEED_PI_TEST   10U
 #define APP_MODE_PWM_SWEEP_TEST  11U
 #define APP_MODE_MOTOR_MAP_TEST  12U
-#define APP_MODE                 APP_MODE_PWM_SWEEP_TEST
+#define APP_MODE                 APP_MODE_SPEED_PI_TEST
 #define HBALL_MISSION_LOCAL_MOTION_ENABLED 1U
 
 _Static_assert(
@@ -1415,30 +1415,28 @@ static void pwm_sweep_test(void)
 
 static void speed_pi_test(void)
 {
-    enum { PI_LOG_SAMPLES = 50 };
+    enum { PI_LOG_SAMPLES = 40 };
+    static uint16_t log_time_ms[PI_LOG_SAMPLES];
+    static uint16_t log_scale_permille[PI_LOG_SAMPLES];
     static int16_t log_target[PI_LOG_SAMPLES];
     static int16_t log_left_speed[PI_LOG_SAMPLES];
     static int16_t log_right_speed[PI_LOG_SAMPLES];
     static int16_t log_left_duty[PI_LOG_SAMPLES];
     static int16_t log_right_duty[PI_LOG_SAMPLES];
-    const uint32_t control_period_ms = 100U;
-    const uint32_t test_time_ms = 5000U;
-    const float speed_target = 60.0f;
-    const float base_duty_left = 31.0f;
-    const float base_duty_right = 29.0f;
+    const uint32_t test_time_ms = 3000U;
+    const uint32_t brake_start_ms = 2500U;
+    const int16_t cruise_target = 50;
+    chassis_motion_profile_t speed_profile;
+    wheel_control_t wheel_control;
+    motion_intent_t intent;
+    wheel_control_output_t output;
     uint32_t test_start_ms;
-    uint32_t last_control_ms;
+    uint32_t elapsed_ms;
     uint16_t log_index = 0U;
-    int32_t previous_left = 0;
-    int32_t previous_right = 0;
-    int32_t current_left;
-    int32_t current_right;
-    int32_t delta_left = 0;
-    int32_t delta_right = 0;
-    int16_t commanded_left = 15;
-    int16_t commanded_right = 15;
-    int16_t target_duty_left;
-    int16_t target_duty_right;
+    int32_t current_left_count;
+    int32_t current_right_count;
+    float speed_scale = 0.0F;
+    bool braking = false;
 
     Get_Encoder_countA = 0;
     Get_Encoder_countB = 0;
@@ -1451,24 +1449,6 @@ static void speed_pi_test(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    LEFT.Kp = 0.18f;
-    LEFT.Ki = 0.02f;
-    LEFT.Kd = 0.0f;
-    LEFT.OutMin = -12.0f;
-    LEFT.OutMax = 12.0f;
-    LEFT.Error0 = 0.0f;
-    LEFT.Error1 = 0.0f;
-    LEFT.ErrorInt = 0.0f;
-
-    RIGHT.Kp = 0.18f;
-    RIGHT.Ki = 0.02f;
-    RIGHT.Kd = 0.0f;
-    RIGHT.OutMin = -12.0f;
-    RIGHT.OutMax = 12.0f;
-    RIGHT.Error0 = 0.0f;
-    RIGHT.Error1 = 0.0f;
-    RIGHT.ErrorInt = 0.0f;
-
     chassis_actuator_init();
     chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
     chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
@@ -1476,72 +1456,84 @@ static void speed_pi_test(void)
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
-    LCD_ShowString(4, 4, (const unsigned char *)"SPEED PI", WHITE, BLACK, 32, 0);
-    LCD_ShowString(4, 58, (const unsigned char *)"AUTO 2 SEC", CYAN, BLACK, 24, 0);
-    telemetry_send_string("PI_READY,AUTO_START_2S\r\n");
+    LCD_ShowString(4, 4, (const unsigned char *)"S CURVE", WHITE, BLACK, 32, 0);
+    LCD_ShowString(4, 58, (const unsigned char *)"SW1 OR G", CYAN, BLACK, 24, 0);
+    telemetry_send_string("SCURVE_READY,SEND_G_OR_PRESS_SW1\r\n");
+    while (!speed_calibration_start_requested())
+    {
+        hball_runtime_target_poll(tick_ms);
+        __WFI();
+    }
 
-    mspm0_delay_ms(2000U);
     Get_Encoder_countA = 0;
     Get_Encoder_countB = 0;
-    chassis_actuator_enable();
+    chassis_actuator_start_synchronized(0.0F, 0.0F);
     test_start_ms = tick_ms;
-    last_control_ms = test_start_ms;
+    wheel_control_init(&wheel_control, test_start_ms, 0, 0);
+    chassis_motion_profile_start(
+        &speed_profile, 0.0F, 1.0F, test_start_ms, HBALL_Q4_SOFT_START_MS
+    );
+    memset(&intent, 0, sizeof(intent));
+    intent.valid = true;
+    intent.duty_slew_step = 2;
     LCD_Fill(0, 50, 240, 110, BLACK);
-    LCD_ShowString(4, 58, (const unsigned char *)"RUN 5 SEC", GREEN, BLACK, 32, 0);
+    LCD_ShowString(4, 58, (const unsigned char *)"RUN 3 SEC", GREEN, BLACK, 32, 0);
 
     while ((uint32_t)(tick_ms - test_start_ms) < test_time_ms)
     {
-        if ((uint32_t)(tick_ms - last_control_ms) >= control_period_ms)
+        elapsed_ms = (uint32_t)(tick_ms - test_start_ms);
+        if (!braking && (elapsed_ms >= brake_start_ms))
+        {
+            braking = true;
+            chassis_motion_profile_start(
+                &speed_profile,
+                speed_scale,
+                0.0F,
+                tick_ms,
+                HBALL_Q4_SOFT_STOP_MS
+            );
+        }
+        speed_scale = chassis_motion_profile_sample(&speed_profile, tick_ms);
+        intent.timestamp_ms = tick_ms;
+        intent.requested_speed_left = chassis_motion_profile_scale_i16(
+            cruise_target, speed_scale
+        );
+        intent.requested_speed_right = intent.requested_speed_left;
+
+        if (wheel_control_due(&wheel_control, tick_ms))
         {
             __disable_irq();
-            /*
-             * Motor output 1 is physically paired with encoder E1A/countB;
-             * motor output 2 is paired with encoder E2A/countA.
-             */
-            current_left = Get_Encoder_countB;
-            current_right = Get_Encoder_countA;
+            current_left_count = Get_Encoder_countB;
+            current_right_count = Get_Encoder_countA;
             __enable_irq();
-            delta_left = current_left - previous_left;
-            delta_right = current_right - previous_right;
-            previous_left = current_left;
-            previous_right = current_right;
-
-            LEFT.Target = speed_target;
-            LEFT.Actual = (float)delta_left;
-            RIGHT.Target = speed_target;
-            RIGHT.Actual = (float)delta_right;
-            PID_Update(&LEFT);
-            PID_Update(&RIGHT);
-
-            if (LEFT.ErrorInt > 100.0f) LEFT.ErrorInt = 100.0f;
-            if (LEFT.ErrorInt < -100.0f) LEFT.ErrorInt = -100.0f;
-            if (RIGHT.ErrorInt > 100.0f) RIGHT.ErrorInt = 100.0f;
-            if (RIGHT.ErrorInt < -100.0f) RIGHT.ErrorInt = -100.0f;
-
-            target_duty_left = (int16_t)(base_duty_left + LEFT.Out);
-            target_duty_right = (int16_t)(base_duty_right + RIGHT.Out);
-            if (target_duty_left < 15) target_duty_left = 15;
-            if (target_duty_left > 45) target_duty_left = 45;
-            if (target_duty_right < 15) target_duty_right = 15;
-            if (target_duty_right > 45) target_duty_right = 45;
-
-            commanded_left = approach_pwm(commanded_left, target_duty_left, 2);
-            commanded_right = approach_pwm(commanded_right, target_duty_right, 2);
-            chassis_actuator_set_pwm((float)commanded_left, (float)commanded_right);
-            last_control_ms += control_period_ms;
-
-            if (log_index < PI_LOG_SAMPLES)
+            if (wheel_control_step(
+                    &wheel_control,
+                    tick_ms,
+                    current_left_count,
+                    current_right_count,
+                    &intent,
+                    &output))
             {
-                log_target[log_index] = (int16_t)speed_target;
-                log_left_speed[log_index] = (int16_t)delta_left;
-                log_right_speed[log_index] = (int16_t)delta_right;
-                log_left_duty[log_index] = commanded_left;
-                log_right_duty[log_index] = commanded_right;
-                log_index++;
+                chassis_actuator_set_pwm(
+                    (float)output.duty_left, (float)output.duty_right
+                );
+                if (log_index < PI_LOG_SAMPLES)
+                {
+                    log_time_ms[log_index] = (uint16_t)elapsed_ms;
+                    log_scale_permille[log_index] =
+                        (uint16_t)(speed_scale * 1000.0F);
+                    log_target[log_index] = intent.requested_speed_left;
+                    log_left_speed[log_index] =
+                        (int16_t)output.measured_left_speed;
+                    log_right_speed[log_index] =
+                        (int16_t)output.measured_right_speed;
+                    log_left_duty[log_index] = output.duty_left;
+                    log_right_duty[log_index] = output.duty_right;
+                    log_index++;
+                }
             }
         }
-
-        delay_cycles(CPUCLK_FREQ / 2000U);
+        competition_runtime_wait_ms(10U);
     }
 
     chassis_actuator_stop();
@@ -1551,12 +1543,13 @@ static void speed_pi_test(void)
     LCD_Fill(0, 50, 250, 120, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"PI DONE", GREEN, BLACK, 32, 0);
 
-    telemetry_send_string("PI_LOG_BEGIN\r\n");
+    telemetry_send_string("SCURVE_LOG_BEGIN,t,scale,target,left,dl,right,dr\r\n");
     for (uint16_t i = 0U; i < log_index; i++)
     {
         snprintf((char *)uart_send, sizeof(uart_send),
-                 "P,%u,T=%d,L=%d,DL=%d,R=%d,DR=%d\r\n",
-                 (unsigned)i,
+                 "C,%u,%u,%d,%d,%d,%d,%d\r\n",
+                 (unsigned)log_time_ms[i],
+                 (unsigned)log_scale_permille[i],
                  (int)log_target[i],
                  (int)log_left_speed[i],
                  (int)log_left_duty[i],
@@ -1564,7 +1557,7 @@ static void speed_pi_test(void)
                  (int)log_right_duty[i]);
         telemetry_send_string((char *)uart_send);
     }
-    telemetry_send_string("PI_LOG_END\r\n");
+    telemetry_send_string("SCURVE_LOG_END\r\n");
 
     while (1)
     {
