@@ -100,10 +100,11 @@ def test_can_fifo_drain_rejects_systick_irq_reentry() -> None:
     )
 
 
-def test_q2_does_not_send_distributed_mission_intents() -> None:
+def test_q2_keeps_can_communication_disabled() -> None:
     port = (CAN_DIR / "hball_can_port.c").read_text(encoding="utf-8")
+    main = (PROJECT / "main.c").read_text(encoding="utf-8")
 
-    assert (
-        "g_hball_mission_client.selected_mission\n"
-        "         != HBALL_MISSION_Q2_FAST_LAP"
-    ) in port
+    assert "g_hball_communication_enabled = false;" in port
+    assert "|| !g_hball_communication_enabled" in port
+    assert "hball_can_port_set_communication_enabled(" in main
+    assert "hball_mission_uses_can(snapshot.selected_mission)" in main

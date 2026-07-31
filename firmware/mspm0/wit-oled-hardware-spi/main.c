@@ -35,6 +35,7 @@
 #include "stdio.h"
 #include "string.h"
 #include "hball_can_port.h"
+#include "hball_mission_policy.h"
 
 /*
  * There is no process command line on the target. Avoid Arm C library
@@ -981,6 +982,12 @@ static uint8_t select_car_task(void)
         result = hball_can_mission_menu_handle(mission_event, tick_ms);
         if (result == HBALL_MISSION_MENU_SELECTED)
         {
+            if (hball_can_mission_get_snapshot(&snapshot))
+            {
+                hball_can_port_set_communication_enabled(
+                    hball_mission_uses_can(snapshot.selected_mission)
+                );
+            }
             beep();
         }
         else if (result == HBALL_MISSION_MENU_START_ACCEPTED)
