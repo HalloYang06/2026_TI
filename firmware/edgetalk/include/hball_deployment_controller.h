@@ -47,6 +47,10 @@ void hball_deployment_controller_init(
     hball_deployment_controller_t *controller,
     float initial_position_m
 );
+void hball_deployment_controller_relock_position(
+    hball_deployment_controller_t *controller,
+    float measured_position_m
+);
 void hball_deployment_controller_predict(
     hball_deployment_controller_t *controller,
     float dt_s,

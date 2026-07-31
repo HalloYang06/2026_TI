@@ -96,6 +96,8 @@ static void test_snapshot_combines_fresh_usb_can_and_motor_sources(void)
     assert(snapshot.imu_age_ms == 20U);
     assert(snapshot.motor_age_ms == 11U);
     assert(fabsf(snapshot.ball_position_m - 0.025F) < 1.0e-7F);
+    assert(fabsf(snapshot.longitudinal_accel_mps2 - (-0.2F)) < 1.0e-7F);
+    assert(fabsf(snapshot.lateral_accel_mps2 - 0.4F) < 1.0e-7F);
     assert(fabsf(snapshot.body_pitch_rad - (-0.03F)) < 1.0e-7F);
     assert(fabsf(snapshot.yaw_rate_rad_s - 0.6F) < 1.0e-7F);
     assert(fabsf(snapshot.motor_angle_rad - 0.1F) < 1.0e-7F);

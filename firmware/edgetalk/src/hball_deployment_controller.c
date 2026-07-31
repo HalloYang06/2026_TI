@@ -14,15 +14,18 @@
 #define HBALL_LQI_POSITION_GAIN 2.64956F
 #define HBALL_LQI_VELOCITY_GAIN 0.910066F
 #define HBALL_LQI_INTEGRAL_GAIN 0.787185F
+#define HBALL_EDGE_POSITION_GAIN 0.80F
+#define HBALL_EDGE_VELOCITY_GAIN 0.60F
 #define HBALL_INTEGRAL_LIMIT_M_S 0.25F
 #define HBALL_CENTER_LIMIT_M \
     (HBALL_DEPLOYMENT_PHYSICAL_HALF_LENGTH_M \
         - HBALL_DEPLOYMENT_BALL_RADIUS_M)
 #define HBALL_EDGE_MARGIN_M 0.045F
 #define HBALL_NORMAL_ANGLE_RAD 0.069813170F
-#define HBALL_RECOVERY_ANGLE_RAD 0.095993109F
+#define HBALL_RECOVERY_ANGLE_RAD 0.052359878F
 #define HBALL_HARD_ANGLE_RAD 0.104719755F
-#define HBALL_PIPE_RATE_LIMIT_RAD_S 0.35F
+#define HBALL_PIPE_RATE_LIMIT_RAD_S 0.50F
+#define HBALL_EDGE_PIPE_RATE_LIMIT_RAD_S 0.75F
 #define HBALL_MAX_VALID_DT_S 0.020F
 #define HBALL_MAX_CAMERA_DELAY_S 0.150F
 
@@ -202,6 +205,34 @@ void hball_deployment_controller_init(
     controller->covariance[0][0] = 9.0e-4F;
     controller->covariance[1][1] = 9.0e-2F;
     controller->covariance[2][2] = 4.0e-2F;
+}
+
+void hball_deployment_controller_relock_position(
+    hball_deployment_controller_t *controller,
+    float measured_position_m
+)
+{
+    float previous_pipe_command_rad;
+    uint32_t accepted_camera_updates;
+    uint32_t rejected_camera_updates;
+    uint32_t too_old_camera_updates;
+    uint32_t edge_recovery_total;
+
+    if ((controller == NULL) || !isfinite(measured_position_m))
+    {
+        return;
+    }
+    previous_pipe_command_rad = controller->previous_pipe_command_rad;
+    accepted_camera_updates = controller->accepted_camera_updates;
+    rejected_camera_updates = controller->rejected_camera_updates;
+    too_old_camera_updates = controller->too_old_camera_updates;
+    edge_recovery_total = controller->edge_recovery_total;
+    hball_deployment_controller_init(controller, measured_position_m);
+    controller->previous_pipe_command_rad = previous_pipe_command_rad;
+    controller->accepted_camera_updates = accepted_camera_updates;
+    controller->rejected_camera_updates = rejected_camera_updates;
+    controller->too_old_camera_updates = too_old_camera_updates;
+    controller->edge_recovery_total = edge_recovery_total;
 }
 
 void hball_deployment_controller_predict(
@@ -405,16 +436,21 @@ float hball_deployment_controller_command(
     {
         edge_recovery = true;
         angle_limit = HBALL_RECOVERY_ANGLE_RAD;
-        requested = predicted_position > 0.0F
-            ? -HBALL_RECOVERY_ANGLE_RAD
-            : HBALL_RECOVERY_ANGLE_RAD;
+        requested = -HBALL_EDGE_POSITION_GAIN * position_error
+            - HBALL_EDGE_VELOCITY_GAIN * controller->state[1];
+        if (tracking_enabled)
+        {
+            controller->integral_error_m_s -= position_error * dt_s;
+        }
         controller->edge_recovery_total++;
     }
     requested = hball_clampf(requested, -angle_limit, angle_limit);
     requested = hball_clampf(
         requested, -HBALL_HARD_ANGLE_RAD, HBALL_HARD_ANGLE_RAD
     );
-    maximum_change = HBALL_PIPE_RATE_LIMIT_RAD_S * dt_s;
+    maximum_change = (edge_recovery
+        ? HBALL_EDGE_PIPE_RATE_LIMIT_RAD_S
+        : HBALL_PIPE_RATE_LIMIT_RAD_S) * dt_s;
     requested = hball_clampf(
         requested,
         controller->previous_pipe_command_rad - maximum_change,

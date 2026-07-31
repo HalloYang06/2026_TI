@@ -13,6 +13,8 @@ def test_m33_runtime_accepts_intent_and_publishes_standard_status() -> None:
     assert "hball_mission_arbiter_accept_intent" in source
     assert "hball_mission_arbiter_update_ready" in source
     assert "hball_mission_action_tick" in source
+    assert "hball_m33_q456_start_target" in source
+    assert "hball_m33_q456_step" in source
     assert "hball_mission_arbiter_mark_running" in source
     assert "hball_mission_arbiter_mark_completed" in source
     assert "hball_mission_encode_status" in source
@@ -26,6 +28,7 @@ def test_edgetalk_build_includes_shared_mission_protocol() -> None:
     assert "HBALL_MISSION_PROTOCOL_ROOT" in sconscript
     assert "hball_mission_can.c" in sconscript
     assert "hball_mission_arbiter.c" in sconscript
+    assert "hball_m33_q456.c" in sconscript
 
 
 def test_manual_rs00_step_trace_is_bounded_and_read_only() -> None:

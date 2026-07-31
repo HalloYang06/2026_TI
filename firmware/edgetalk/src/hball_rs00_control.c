@@ -113,7 +113,7 @@ bool hball_rs00_control_make_speed_limit(
         HBALL_RS00_INDEX_SPEED_LIMIT,
         speed_rad_s,
         0.05F,
-        3.0F,
+        HBALL_RS00_SPEED_LIMIT_MAX_RAD_S,
         frame
     );
 }
@@ -128,6 +128,20 @@ bool hball_rs00_control_make_current_limit(
         current_a,
         0.05F,
         2.0F,
+        frame
+    );
+}
+
+bool hball_rs00_control_make_position_kp(
+    uint8_t motor_id, float position_kp, hball_can_frame_t *frame
+)
+{
+    return hball_rs00_control_make_float_parameter(
+        motor_id,
+        HBALL_RS00_INDEX_POSITION_KP,
+        position_kp,
+        0.0F,
+        200.0F,
         frame
     );
 }
@@ -275,7 +289,6 @@ bool hball_rs00_bench_make_step(
         return false;
     }
     bench->target_position_rad = target;
-    bench->state = HBALL_RS00_BENCH_SMALL_STEP;
     bench->state_since_ms = now_ms;
     bench->last_manual_command_ms = now_ms;
     *target_position_rad = target;
@@ -320,8 +333,9 @@ bool hball_rs00_bench_watchdog_expired(
         );
         return true;
     }
-    if ((uint32_t)(now_ms - bench->last_manual_command_ms)
-        >= HBALL_RS00_BENCH_COMMAND_TIMEOUT_MS)
+    if ((bench->state != HBALL_RS00_BENCH_ARMED)
+        && ((uint32_t)(now_ms - bench->last_manual_command_ms)
+            >= HBALL_RS00_BENCH_COMMAND_TIMEOUT_MS))
     {
         hball_rs00_bench_trip(
             bench, HBALL_RS00_BENCH_STOP_COMMAND_TIMEOUT, now_ms

@@ -1,6 +1,7 @@
 #include "hball_can.h"
 #include "hball_rate_meter.h"
 #include "hball_diagnostics_config.h"
+#include "hball_m33_q456.h"
 #include "hball_mission_arbiter.h"
 #include "hball_mission_can.h"
 #include "hball_rs00_control.h"
@@ -31,7 +32,7 @@
 #endif
 
 #if HBALL_INTEGRATED_SHADOW
-#define HBALL_BENCH_VERSION "0.5.0-m33-manual-small-step"
+#define HBALL_BENCH_VERSION "0.7.0-q456-oosm-runtime"
 #else
 #define HBALL_BENCH_VERSION "0.3.0-m33-can-readback"
 #endif
@@ -64,17 +65,20 @@
 #define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.052359878F
 #define HBALL_BALL_PID_KP 0.70F
 #define HBALL_BALL_PID_KI 0.15F
-#define HBALL_BALL_PID_KD 0.40F
+#define HBALL_BALL_PID_KD 0.35F
 #define HBALL_BALL_PID_BOOST_ENTER_MPS 0.003F
 #define HBALL_BALL_PID_BOOST_EXIT_MPS 0.015F
 #define HBALL_BALL_LQI_KP 1.576194F
 #define HBALL_BALL_LQI_KI 1.000000F
 #define HBALL_BALL_LQI_KD 0.713641F
 #define HBALL_BALL_PID_INTEGRAL_LIMIT 0.050F
-#define HBALL_BALL_COMMISSION_POSITION_LIMIT_M 0.111F
-#define HBALL_BALL_COMMISSION_TX_PERIOD_MS 10U
+#define HBALL_BALL_COMMISSION_POSITION_LIMIT_M 0.120F
+#define HBALL_BALL_CONTROL_PERIOD_MS 2U
+#define HBALL_BALL_CONTROL_DT_S 0.002F
+#define HBALL_BALL_COMMISSION_TX_PERIOD_MS 2U
 #define HBALL_BALL_COMMISSION_TIMEOUT_MS 15000U
-#define HBALL_BALL_HOLD_TIMEOUT_MS 32000U
+/* Formal Q4-Q6 hold ends only on a new mission command or a hard fault. */
+#define HBALL_BALL_HOLD_TIMEOUT_MS 0U
 
 #ifndef BSP_CANFD0_RX_FIFO0_ELEMENTS
 #error "H-ball CAN build must define the RX FIFO depth"
@@ -98,6 +102,7 @@ static rt_uint32_t g_hball_tx_failure = 0U;
 static hball_rate_meter_t g_hball_can_rx_rate;
 static hball_mission_arbiter_t g_hball_mission_arbiter;
 static hball_mission_chassis_status_t g_hball_mission_chassis;
+static hball_m33_q456_t g_hball_q456_runtime;
 static rt_uint32_t g_hball_mission_intent_rx = 0U;
 static rt_uint32_t g_hball_mission_intent_invalid = 0U;
 static rt_uint8_t g_hball_mission_last_invalid_intent[8];
@@ -158,6 +163,7 @@ static float g_hball_ball_target_m = 0.0F;
 static rt_uint32_t g_hball_ball_start_ms = 0U;
 static rt_uint32_t g_hball_ball_last_step_ms = 0U;
 static rt_uint32_t g_hball_ball_sensor_invalid_since_ms = 0U;
+static rt_bool_t g_hball_ball_vision_lost = RT_FALSE;
 static rt_uint32_t g_hball_ball_last_tx_ms = 0U;
 static rt_uint32_t g_hball_ball_tx_total = 0U;
 static rt_uint8_t g_hball_ball_phase = 0U;
@@ -177,6 +183,8 @@ static rt_uint32_t g_hball_ball_error_violation_total = 0U;
 static rt_uint32_t g_hball_mission_action_last_ms = 0U;
 static rt_uint32_t g_hball_ball_log_sequence = 0U;
 static rt_uint32_t g_hball_ball_last_log_ms = 0U;
+static rt_uint16_t g_hball_ball_control_epoch = 0U;
+static rt_uint8_t g_hball_ball_control_mission = 0U;
 static int hball_q3_start_common(void);
 static int hball_hold_start_common(
     rt_uint8_t mode, float target_m, const char *name
@@ -726,10 +734,11 @@ static void hball_motion_begin_prepare(rt_uint32_t now_ms)
     g_hball_motion_prepare_stage = 0U;
     g_hball_motion_next_tx_ms = now_ms;
     rt_kprintf(
-        "[hball-motion] PREPARING hold_mrad=%ld speed_mrad_s=%ld current_ma=%ld vbus_mv=%ld\n",
+        "[hball-motion] PREPARING hold_mrad=%ld speed_mrad_s=%ld current_ma=%ld loc_kp=%ld vbus_mv=%ld\n",
         (long)(g_hball_motion.initial_position_rad * 1000.0F),
         (long)(HBALL_RS00_BENCH_SPEED_LIMIT_RAD_S * 1000.0F),
         (long)(HBALL_RS00_BENCH_CURRENT_LIMIT_A * 1000.0F),
+        (long)HBALL_RS00_BENCH_POSITION_KP,
         (long)(parameters->vbus_v * 1000.0F)
     );
 }
@@ -744,7 +753,7 @@ static void hball_motion_prepare_tick(rt_uint32_t now_ms)
     {
         return;
     }
-    if (g_hball_motion_prepare_stage >= 6U)
+    if (g_hball_motion_prepare_stage >= 7U)
     {
         if (g_hball_motor.parameter_rx_total
             > g_hball_motion_mode_read_rx_baseline)
@@ -808,6 +817,14 @@ static void hball_motion_prepare_tick(rt_uint32_t now_ms)
         label = "current-limit";
         break;
     case 4U:
+        encoded = hball_rs00_control_make_position_kp(
+            HBALL_RS00_MOTOR_ID,
+            HBALL_RS00_BENCH_POSITION_KP,
+            &frame
+        );
+        label = "position-kp";
+        break;
+    case 5U:
         encoded = hball_rs00_control_make_position_reference(
             HBALL_RS00_MOTOR_ID,
             g_hball_motion.initial_position_rad,
@@ -935,13 +952,21 @@ static void hball_motion_step(float step_rad, rt_uint32_t now_ms)
     hball_can_frame_t frame;
     float target_rad;
 
-    if (!hball_motor_monitor_feedback_fresh(
-            &g_hball_motor,
-            now_ms,
-            HBALL_RS00_BENCH_FEEDBACK_TIMEOUT_MS)
-        || (g_hball_motor.feedback.fault_summary != 0U))
+    if (!hball_motion_parameter_fresh(
+            HBALL_RS00_PARAMETER_VALID_MECH_POSITION,
+            HBALL_RS00_PARAMETER_SLOT_MECH_POSITION,
+            now_ms)
+        || !hball_motion_parameter_fresh(
+            HBALL_RS00_PARAMETER_VALID_MECH_VELOCITY,
+            HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY,
+            now_ms)
+        || (hball_motor_monitor_feedback_fresh(
+                &g_hball_motor,
+                now_ms,
+                HBALL_RS00_BENCH_FEEDBACK_TIMEOUT_MS)
+            && (g_hball_motor.feedback.fault_summary != 0U)))
     {
-        hball_motion_reject("step", "feedback stale or faulted");
+        hball_motion_reject("step", "position/velocity stale or faulted");
         hball_rs00_bench_trip(
             &g_hball_motion,
             HBALL_RS00_BENCH_STOP_SENSOR_INVALID,
@@ -1048,18 +1073,57 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
 {
     const rt_uint8_t state = g_hball_mission_arbiter.global_state;
     const rt_uint8_t mission = g_hball_mission_arbiter.mission_id;
+    const rt_bool_t q456 = hball_m33_q456_is_mission(mission)
+        ? RT_TRUE : RT_FALSE;
+    float q456_target_m = 0.0F;
+    rt_bool_t q456_target_ready = RT_FALSE;
 
     if (!g_hball_mission_arbiter.context_valid)
     {
         return;
     }
+    if (q456)
+    {
+        hball_sensor_snapshot_t snapshot;
+
+        (void)hball_m33_q456_sync_context(
+            &g_hball_q456_runtime,
+            g_hball_mission_arbiter.epoch,
+            mission
+        );
+        if (hball_m33_inputs_get_snapshot(&snapshot))
+        {
+            hball_m33_q456_observe_vision(
+                &g_hball_q456_runtime,
+                snapshot.vision_sequence,
+                snapshot.ball_position_m,
+                (snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) != 0U
+            );
+        }
+        if (state == HBALL_MISSION_STATE_START_PENDING)
+        {
+            q456_target_ready = hball_m33_q456_start_target(
+                &g_hball_q456_runtime, &q456_target_m
+            ) ? RT_TRUE : RT_FALSE;
+        }
+    }
     if (state == HBALL_MISSION_STATE_START_PENDING)
     {
-        if (g_hball_ball_active)
+        if (g_hball_ball_active
+            && (g_hball_ball_control_epoch
+                == g_hball_mission_arbiter.epoch)
+            && (g_hball_ball_control_mission == mission))
         {
             (void)hball_mission_arbiter_mark_running(
                 &g_hball_mission_arbiter
             );
+            if (q456)
+            {
+                (void)hball_m33_q456_mark_running(
+                    &g_hball_q456_runtime,
+                    g_hball_mission_arbiter.start_accept_time_ms
+                );
+            }
             return;
         }
         if (g_hball_motion.state == HBALL_RS00_BENCH_PREPARED)
@@ -1075,33 +1139,34 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
             {
                 result = hball_q3_start_common();
             }
-            else if ((mission == HBALL_MISSION_Q4_A_TO_B)
-                     || (mission == HBALL_MISSION_Q5_CENTER_LAP))
+            else if (q456 && q456_target_ready)
             {
                 result = hball_hold_start_common(
-                    2U, 0.0F, "center"
+                    mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP
+                        ? 3U : 2U,
+                    q456_target_m,
+                    mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP
+                        ? "q6-latched" : "q45-center"
                 );
-            }
-            else if (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
-            {
-                hball_sensor_snapshot_t snapshot;
-
-                if (hball_m33_inputs_get_snapshot(&snapshot)
-                    && ((snapshot.valid_flags
-                         & HBALL_SENSOR_VALID_VISION) != 0U))
-                {
-                    result = hball_hold_start_common(
-                        3U, snapshot.ball_position_m, "latched"
-                    );
-                }
             }
             if (result == RT_EOK)
             {
+                g_hball_ball_control_epoch =
+                    g_hball_mission_arbiter.epoch;
+                g_hball_ball_control_mission = mission;
                 (void)hball_mission_arbiter_mark_running(
                     &g_hball_mission_arbiter
                 );
+                if (q456)
+                {
+                    (void)hball_m33_q456_mark_running(
+                        &g_hball_q456_runtime,
+                        g_hball_mission_arbiter.start_accept_time_ms
+                    );
+                }
             }
-            else if (mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
+            else if ((mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
+                || (q456 && !q456_target_ready))
             {
                 return;
             }
@@ -1146,23 +1211,51 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
         );
         return;
     }
-    if ((g_hball_mission_chassis.epoch
-         == g_hball_mission_arbiter.epoch)
-        && ((g_hball_mission_chassis.event_flags
-             & HBALL_MISSION_CHASSIS_EVENT_STOPPED) != 0U)
-        && (((mission == HBALL_MISSION_Q4_A_TO_B)
-             && ((g_hball_mission_chassis.event_flags
-                  & HBALL_MISSION_CHASSIS_EVENT_DETECTED_B) != 0U))
-            || (((mission == HBALL_MISSION_Q5_CENTER_LAP)
-                 || (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP))
-                && ((g_hball_mission_chassis.event_flags
-                     & HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A) != 0U))))
+    if ((mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
+        && !g_hball_ball_active
+        && (g_hball_motion.state == HBALL_RS00_BENCH_STOPPED))
     {
-        (void)hball_mission_arbiter_mark_completed(
-            &g_hball_mission_arbiter
+        const rt_uint8_t reason =
+            (g_hball_motion.stop_reason
+                == HBALL_RS00_BENCH_STOP_SENSOR_INVALID)
+                ? HBALL_MISSION_REASON_LINK_FAULT
+                : HBALL_MISSION_REASON_LOCAL_FAULT;
+
+        (void)hball_mission_arbiter_mark_aborted(
+            &g_hball_mission_arbiter, reason
         );
-        g_hball_ball_phase = 4U;
-        g_hball_ball_settle_since_ms = 0U;
+        return;
+    }
+    if (q456)
+    {
+        const hball_q456_outcome_t outcome = hball_m33_q456_step(
+            &g_hball_q456_runtime,
+            now_ms,
+            g_hball_mission_chassis.epoch,
+            g_hball_mission_chassis.event_flags,
+            !g_hball_ball_active
+        );
+
+        if (outcome == HBALL_Q456_OUTCOME_COMPLETED)
+        {
+            (void)hball_mission_arbiter_mark_completed(
+                &g_hball_mission_arbiter
+            );
+        }
+        else if (outcome == HBALL_Q456_OUTCOME_DEADLINE)
+        {
+            (void)hball_mission_arbiter_mark_aborted(
+                &g_hball_mission_arbiter,
+                HBALL_MISSION_REASON_DEADLINE
+            );
+        }
+        else if (outcome == HBALL_Q456_OUTCOME_CONTROL_FAULT)
+        {
+            (void)hball_mission_arbiter_mark_aborted(
+                &g_hball_mission_arbiter,
+                HBALL_MISSION_REASON_LOCAL_FAULT
+            );
+        }
     }
 }
 #endif
@@ -1220,9 +1313,12 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     float position_error_m;
     float pipe_limit_rad;
     rt_uint8_t invalid_mask = 0U;
+    rt_uint8_t stop_invalid_mask;
+    rt_bool_t vision_stale;
 
     if (!g_hball_ball_active
-        || ((rt_uint32_t)(now_ms - g_hball_ball_last_step_ms) < 5U))
+        || ((rt_uint32_t)(now_ms - g_hball_ball_last_step_ms)
+            < HBALL_BALL_CONTROL_PERIOD_MS))
     {
         return;
     }
@@ -1254,7 +1350,13 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     {
         invalid_mask |= UINT8_C(1) << 4;
     }
-    if ((invalid_mask == 0U)
+    vision_stale = (invalid_mask & UINT8_C(0x06)) != 0U;
+    stop_invalid_mask = invalid_mask & UINT8_C(0x19);
+    if ((g_hball_ball_mode == 1U) && vision_stale)
+    {
+        stop_invalid_mask |= invalid_mask & UINT8_C(0x06);
+    }
+    if ((stop_invalid_mask == 0U) && !vision_stale
         && (fabsf(snapshot.ball_position_m)
             >= HBALL_BALL_COMMISSION_POSITION_LIMIT_M))
     {
@@ -1267,7 +1369,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         );
         return;
     }
-    if (invalid_mask != 0U)
+    if (stop_invalid_mask != 0U)
     {
         if (g_hball_ball_sensor_invalid_since_ms == 0U)
         {
@@ -1283,7 +1385,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         rt_kprintf(
             "[hball-q3] abort stale mask=0x%02x vision_age=%lu "
             "motor_pos_age=%lu motor_vel_age=%lu\n",
-            (unsigned int)invalid_mask,
+            (unsigned int)stop_invalid_mask,
             (unsigned long)snapshot.vision_receive_age_ms,
             (unsigned long)(now_ms
                 - g_hball_motor.parameters.last_update_ms[
@@ -1298,6 +1400,20 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         return;
     }
     g_hball_ball_sensor_invalid_since_ms = 0U;
+    if ((g_hball_ball_mode != 1U) && vision_stale
+        && !g_hball_ball_vision_lost)
+    {
+        g_hball_ball_vision_lost = RT_TRUE;
+        rt_kprintf(
+            "[hball-hold] vision lost age_ms=%lu; motor stays enabled, returning level\n",
+            (unsigned long)snapshot.vision_receive_age_ms
+        );
+    }
+    else if (!vision_stale && g_hball_ball_vision_lost)
+    {
+        g_hball_ball_vision_lost = RT_FALSE;
+        rt_kprintf("[hball-hold] vision reacquired; feedback resumed\n");
+    }
     snapshot.valid_flags |= HBALL_SENSOR_VALID_MOTOR;
     snapshot.motor_age_ms = 0U;
     snapshot.motor_angle_rad =
@@ -1307,15 +1423,16 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     hball_control_pipeline_step(
         &g_hball_ball_pipeline,
         &snapshot,
-        0.005F,
+        HBALL_BALL_CONTROL_DT_S,
         g_hball_ball_target_m,
         &g_hball_ball_output
     );
     position_error_m =
         g_hball_ball_target_m - g_hball_ball_output.estimated_position_m;
-    if (g_hball_ball_phase != 4U)
+    if ((g_hball_ball_mode == 1U) && (g_hball_ball_phase != 4U))
     {
-        g_hball_ball_position_integral += position_error_m * 0.005F;
+        g_hball_ball_position_integral +=
+            position_error_m * HBALL_BALL_CONTROL_DT_S;
         if (g_hball_ball_position_integral
             > HBALL_BALL_PID_INTEGRAL_LIMIT)
         {
@@ -1336,6 +1453,11 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     if (g_hball_ball_phase == 4U)
     {
         pipe_command_rad = 0.0F;
+    }
+    else if (g_hball_ball_mode != 1U)
+    {
+        /* Q4-Q6 use the portable OOSM Kalman + LQI deployment pipeline. */
+        pipe_command_rad = g_hball_ball_output.shadow_command_rad;
     }
     else if (g_hball_ball_use_lqi)
     {
@@ -1376,13 +1498,6 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
             );
         }
     }
-    if ((g_hball_ball_mode != 1U)
-        && ((snapshot.valid_flags & HBALL_SENSOR_VALID_IMU) != 0U))
-    {
-        pipe_command_rad += atan2f(
-            snapshot.longitudinal_accel_mps2, 9.80665F
-        ) - snapshot.body_pitch_rad;
-    }
     if (pipe_command_rad > pipe_limit_rad)
     {
         pipe_command_rad = pipe_limit_rad;
@@ -1422,14 +1537,6 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     }
     g_hball_motion.last_manual_command_ms = now_ms;
     hball_ball_submit_actual_log(&snapshot, now_ms);
-    if (fabsf(position_error_m) > g_hball_ball_max_abs_error_m)
-    {
-        g_hball_ball_max_abs_error_m = fabsf(position_error_m);
-    }
-    if (fabsf(position_error_m) > 0.010F)
-    {
-        g_hball_ball_error_violation_total++;
-    }
     if (g_hball_ball_phase == 4U)
     {
         if ((fabsf(g_hball_motor.parameters.mech_position_rad
@@ -1454,6 +1561,19 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
             g_hball_ball_settle_since_ms = 0U;
         }
         return;
+    }
+    if (vision_stale)
+    {
+        g_hball_ball_settle_since_ms = 0U;
+        return;
+    }
+    if (fabsf(position_error_m) > g_hball_ball_max_abs_error_m)
+    {
+        g_hball_ball_max_abs_error_m = fabsf(position_error_m);
+    }
+    if (fabsf(position_error_m) > 0.010F)
+    {
+        g_hball_ball_error_violation_total++;
     }
     position_error_m = snapshot.ball_position_m - g_hball_ball_target_m;
     if ((fabsf(position_error_m) <= 0.010F)
@@ -1505,6 +1625,8 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         rt_kprintf("[hball-q3] fail 5 s deadline; returning level\n");
     }
     else if ((g_hball_ball_phase != 4U)
+        && ((g_hball_ball_mode == 1U)
+            || (HBALL_BALL_HOLD_TIMEOUT_MS != 0U))
         && ((rt_uint32_t)(now_ms - g_hball_ball_start_ms)
         >= ((g_hball_ball_mode == 1U)
             ? HBALL_BALL_COMMISSION_TIMEOUT_MS
@@ -1576,14 +1698,21 @@ static void hball_motion_tick(rt_uint32_t now_ms)
         || (g_hball_motion.state == HBALL_RS00_BENCH_SMALL_STEP)
         || (g_hball_motion.state == HBALL_RS00_BENCH_RETURNING))
     {
-        if (!hball_motor_monitor_feedback_fresh(
+        const rt_bool_t feedback_fresh =
+            hball_motor_monitor_feedback_fresh(
                 &g_hball_motor,
                 now_ms,
-                HBALL_RS00_BENCH_FEEDBACK_TIMEOUT_MS)
-            && !hball_motion_parameter_fresh(
-                HBALL_RS00_PARAMETER_VALID_MECH_POSITION,
-                HBALL_RS00_PARAMETER_SLOT_MECH_POSITION,
-                now_ms))
+                HBALL_RS00_BENCH_FEEDBACK_TIMEOUT_MS);
+        const rt_bool_t position_fresh = hball_motion_parameter_fresh(
+            HBALL_RS00_PARAMETER_VALID_MECH_POSITION,
+            HBALL_RS00_PARAMETER_SLOT_MECH_POSITION,
+            now_ms);
+        const rt_bool_t velocity_fresh = hball_motion_parameter_fresh(
+            HBALL_RS00_PARAMETER_VALID_MECH_VELOCITY,
+            HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY,
+            now_ms);
+
+        if (!feedback_fresh && (!position_fresh || !velocity_fresh))
         {
             hball_rs00_bench_trip(
                 &g_hball_motion,
@@ -2042,6 +2171,7 @@ static int hball_q3_start_common(void)
     g_hball_ball_start_ms = now_ms;
     g_hball_ball_last_step_ms = now_ms;
     g_hball_ball_sensor_invalid_since_ms = 0U;
+    g_hball_ball_vision_lost = RT_FALSE;
     g_hball_ball_last_tx_ms = now_ms;
     g_hball_ball_settle_since_ms = 0U;
     g_hball_ball_phase = 1U;
@@ -2227,6 +2357,7 @@ static int hball_hold_start_common(
     g_hball_ball_start_ms = now_ms;
     g_hball_ball_last_step_ms = now_ms;
     g_hball_ball_sensor_invalid_since_ms = 0U;
+    g_hball_ball_vision_lost = RT_FALSE;
     g_hball_ball_last_tx_ms = now_ms;
     g_hball_ball_settle_since_ms = 0U;
     g_hball_ball_phase = (mode == 2U) ? 5U : 6U;
@@ -2262,7 +2393,7 @@ static int hball_hold_center5(int argc, char **argv)
 }
 MSH_CMD_EXPORT(
     hball_hold_center5,
-    hold ball at visual center for Q4 and Q5 commissioning
+    manually invoke the formal Q4 and Q5 center controller
 );
 
 static int hball_hold_latch5(int argc, char **argv)
@@ -2287,7 +2418,7 @@ static int hball_hold_latch5(int argc, char **argv)
 }
 MSH_CMD_EXPORT(
     hball_hold_latch5,
-    latch and hold current visual position for Q6 commissioning
+    manually invoke the formal Q6 latched-position controller
 );
 
 static int hball_control_level5(void)
@@ -2317,8 +2448,10 @@ static void hball_q3_status5(void)
         return;
     }
     rt_kprintf(
-        "[hball-control] algo=%s active=%d mode=%u phase=%u passed=%d x_mm=%ld target_mm=%ld estimate_mm=%ld velocity_mm_s=%ld pipe_mrad=%ld motor_target_mrad=%ld max_error_mm=%ld violations=%lu tx=%lu\n",
-        g_hball_ball_use_lqi ? "LQI" : "PID",
+        "[hball-control] algo=%s active=%d mode=%u phase=%u passed=%d x_mm=%ld target_mm=%ld estimate_mm=%ld velocity_mm_s=%ld disturbance_mm_s2=%ld pipe_mrad=%ld motor_target_mrad=%ld max_error_mm=%ld violations=%lu tx=%lu\n",
+        (g_hball_ball_mode == 1U)
+            ? (g_hball_ball_use_lqi ? "LQI" : "PID")
+            : "OOSM-LQI",
         (int)g_hball_ball_active,
         (unsigned int)g_hball_ball_mode,
         (unsigned int)g_hball_ball_phase,
@@ -2327,6 +2460,7 @@ static void hball_q3_status5(void)
         (long)(g_hball_ball_target_m * 1000.0F),
         (long)(g_hball_ball_output.estimated_position_m * 1000.0F),
         (long)(g_hball_ball_output.estimated_velocity_mps * 1000.0F),
+        (long)(g_hball_ball_output.estimated_disturbance_mps2 * 1000.0F),
         (long)(g_hball_ball_output.shadow_command_rad * 1000.0F),
         (long)(g_hball_ball_output.motor_target_rad * 1000.0F),
         (long)(g_hball_ball_max_abs_error_m * 1000.0F),
@@ -2403,6 +2537,7 @@ static int hball_bench_start(void)
     hball_motor_monitor_init(&g_hball_motor, HBALL_RS00_MOTOR_ID);
     hball_msp_monitor_init(&g_hball_msp);
     hball_mission_arbiter_init(&g_hball_mission_arbiter);
+    hball_m33_q456_init(&g_hball_q456_runtime);
     rt_memset(&g_hball_mission_chassis, 0, sizeof(g_hball_mission_chassis));
     hball_rate_meter_init(&g_hball_can_rx_rate);
 #if HBALL_RS00_MOTION_TX_ENABLED
@@ -2414,7 +2549,7 @@ static int hball_bench_start(void)
         return -RT_ENOMEM;
     }
     rt_kprintf(
-        "[hball-m33] SAFETY manual motion compiled but boot-disarmed: token required; CSP speed=0.5 rad/s current=0.8 A step<=20 mrad envelope=+-50 mrad; ACTUATOR_TX=0\n"
+        "[hball-m33] SAFETY boot-disarmed: formal Q4-Q6 CSP speed=3.0 rad/s current=0.8 A; manual commands still require token\n"
     );
 #else
     rt_kprintf(

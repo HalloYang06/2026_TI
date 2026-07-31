@@ -83,7 +83,37 @@ static void test_lqi_sign_rate_limit_and_edge_recovery(void)
     );
     assert(command < 0.0F);
     assert(controller.edge_recovery_total == 1U);
-    assert(fabsf(command) <= DEG_TO_RAD(6.0F));
+    assert(fabsf(command) <= DEG_TO_RAD(3.0F));
+
+    controller.previous_pipe_command_rad = 0.0F;
+    controller.state[0] = 0.090F;
+    controller.state[1] = -0.20F;
+    command = hball_deployment_controller_command(
+        &controller, &input, 0.0F, 0.005F, true
+    );
+    assert(command > 0.0F);
+}
+
+static void test_relock_resets_state_but_preserves_command_and_counters(void)
+{
+    hball_deployment_controller_t controller;
+
+    hball_deployment_controller_init(&controller, 0.020F);
+    controller.state[1] = 1.0F;
+    controller.state[2] = 2.0F;
+    controller.integral_error_m_s = 0.1F;
+    controller.previous_pipe_command_rad = -0.03F;
+    controller.accepted_camera_updates = 7U;
+    controller.edge_recovery_total = 8U;
+    hball_deployment_controller_relock_position(&controller, -0.050F);
+
+    assert(fabsf(controller.state[0] - (-0.050F)) < 1.0e-7F);
+    assert(controller.state[1] == 0.0F);
+    assert(controller.state[2] == 0.0F);
+    assert(controller.integral_error_m_s == 0.0F);
+    assert(fabsf(controller.previous_pipe_command_rad - (-0.03F)) < 1.0e-7F);
+    assert(controller.accepted_camera_updates == 7U);
+    assert(controller.edge_recovery_total == 8U);
 }
 
 int main(void)
@@ -91,5 +121,6 @@ int main(void)
     test_fourbar_level_and_limits_round_trip();
     test_history_update_replays_to_current_state();
     test_lqi_sign_rate_limit_and_edge_recovery();
+    test_relock_resets_state_but_preserves_command_and_counters();
     return 0;
 }

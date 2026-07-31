@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <string.h>
 
+#define HBALL_CONTROL_RELOCK_REJECT_COUNT 3U
+#define HBALL_CONTROL_RELOCK_ERROR_M 0.025F
+
 void hball_control_pipeline_init(
     hball_control_pipeline_t *pipeline, float initial_position_m
 )
@@ -134,6 +137,26 @@ static void hball_pipeline_consume_vision(
     if (!accepted)
     {
         pipeline->rejected_vision_measurements++;
+        if (pipeline->consecutive_vision_rejects < UINT8_MAX)
+        {
+            pipeline->consecutive_vision_rejects++;
+        }
+        if ((pipeline->consecutive_vision_rejects
+             >= HBALL_CONTROL_RELOCK_REJECT_COUNT)
+            && (fabsf(snapshot->ball_position_m
+                    - pipeline->controller.state[0])
+                >= HBALL_CONTROL_RELOCK_ERROR_M))
+        {
+            hball_deployment_controller_relock_position(
+                &pipeline->controller, snapshot->ball_position_m
+            );
+            pipeline->consecutive_vision_rejects = 0U;
+            pipeline->vision_relocks++;
+        }
+    }
+    else
+    {
+        pipeline->consecutive_vision_rejects = 0U;
     }
 }
 

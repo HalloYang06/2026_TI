@@ -14,9 +14,12 @@ extern "C" {
 #define HBALL_RS00_INDEX_POSITION_REFERENCE 0x7016U
 #define HBALL_RS00_INDEX_SPEED_LIMIT 0x7017U
 #define HBALL_RS00_INDEX_CURRENT_LIMIT 0x7018U
+#define HBALL_RS00_INDEX_POSITION_KP 0x701EU
 
-#define HBALL_RS00_BENCH_SPEED_LIMIT_RAD_S 1.0F
-#define HBALL_RS00_BENCH_CURRENT_LIMIT_A 0.8F
+#define HBALL_RS00_SPEED_LIMIT_MAX_RAD_S 5.0F
+#define HBALL_RS00_BENCH_SPEED_LIMIT_RAD_S HBALL_RS00_SPEED_LIMIT_MAX_RAD_S
+#define HBALL_RS00_BENCH_CURRENT_LIMIT_A 2.0F
+#define HBALL_RS00_BENCH_POSITION_KP 120.0F
 #define HBALL_RS00_BENCH_STEP_MAX_RAD 0.02F
 #define HBALL_RS00_BENCH_ENVELOPE_RAD 0.05F
 #define HBALL_RS00_BENCH_FEEDBACK_TIMEOUT_MS 500U
@@ -75,6 +78,9 @@ bool hball_rs00_control_make_speed_limit(
 );
 bool hball_rs00_control_make_current_limit(
     uint8_t motor_id, float current_a, hball_can_frame_t *frame
+);
+bool hball_rs00_control_make_position_kp(
+    uint8_t motor_id, float position_kp, hball_can_frame_t *frame
 );
 bool hball_rs00_control_make_position_reference(
     uint8_t motor_id, float position_rad, hball_can_frame_t *frame
