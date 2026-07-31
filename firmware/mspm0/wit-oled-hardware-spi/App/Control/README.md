@@ -17,6 +17,11 @@ module.
 and output slew. It consumes atomic encoder counts and requested wheel speeds;
 it returns a PWM request without reading registers or calling the actuator.
 
+`MotionIntent` is the timestamped, hardware-independent handoff between line
+following and wheel control. Its speed unit remains encoder counts per 100 ms
+to preserve the verified controller. A valid intent may still represent
+stateful lost-line recovery even when the current `LineSnapshot` is invalid.
+
 The first migration step is deliberately behavior-preserving: the adapter
 keeps the existing PWM signs, limits, startup ordering, and stop sequences.
 It does not tune Q2/Q4 or move PID work into an interrupt. Follow-up slices can
@@ -35,4 +40,5 @@ Ownership rules:
 - `LineSnapshot` produces facts only; it cannot select a task or request
   chassis motion.
 - `WheelControl` alone updates the active lap runtime's wheel PID state; the
-  caller owns atomic encoder sampling and the final actuator request.
+  caller owns atomic encoder sampling and the final actuator request. It may
+  consume only an explicitly valid `MotionIntent`.

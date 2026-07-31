@@ -89,9 +89,7 @@ bool wheel_control_step(
     uint32_t now_ms,
     int32_t encoder_left_count,
     int32_t encoder_right_count,
-    int16_t requested_speed_left,
-    int16_t requested_speed_right,
-    int16_t duty_slew_step,
+    const motion_intent_t *intent,
     wheel_control_output_t *output
 )
 {
@@ -102,6 +100,8 @@ bool wheel_control_step(
     int16_t target_duty_right;
 
     if ((control == NULL)
+        || (intent == NULL)
+        || !intent->valid
         || (output == NULL)
         || !wheel_control_due(control, now_ms))
     {
@@ -118,9 +118,9 @@ bool wheel_control_step(
     control->previous_left_count = encoder_left_count;
     control->previous_right_count = encoder_right_count;
 
-    control->left_pid.Target = (float)requested_speed_left;
+    control->left_pid.Target = (float)intent->requested_speed_left;
     control->left_pid.Actual = (float)measured_left_speed;
-    control->right_pid.Target = (float)requested_speed_right;
+    control->right_pid.Target = (float)intent->requested_speed_right;
     control->right_pid.Actual = (float)measured_right_speed;
     PID_Update(&control->left_pid);
     PID_Update(&control->right_pid);
@@ -128,20 +128,24 @@ bool wheel_control_step(
     clamp_integrator(&control->right_pid);
 
     target_duty_left = clamp_duty(
-        ((int32_t)requested_speed_left * 12) / 25
+        ((int32_t)intent->requested_speed_left * 12) / 25
         + 2
         + (int16_t)control->left_pid.Out
     );
     target_duty_right = clamp_duty(
-        ((int32_t)requested_speed_right * 9) / 20
+        ((int32_t)intent->requested_speed_right * 9) / 20
         + 2
         + (int16_t)control->right_pid.Out
     );
     control->commanded_duty_left = approach_duty(
-        control->commanded_duty_left, target_duty_left, duty_slew_step
+        control->commanded_duty_left,
+        target_duty_left,
+        intent->duty_slew_step
     );
     control->commanded_duty_right = approach_duty(
-        control->commanded_duty_right, target_duty_right, duty_slew_step
+        control->commanded_duty_right,
+        target_duty_right,
+        intent->duty_slew_step
     );
     control->last_update_ms = now_ms;
 

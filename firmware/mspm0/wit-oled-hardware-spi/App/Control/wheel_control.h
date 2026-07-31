@@ -1,6 +1,7 @@
 #ifndef WHEEL_CONTROL_H
 #define WHEEL_CONTROL_H
 
+#include "motion_intent.h"
 #include "pid.h"
 
 #include <stdbool.h>
@@ -39,9 +40,7 @@ bool wheel_control_step(
     uint32_t now_ms,
     int32_t encoder_left_count,
     int32_t encoder_right_count,
-    int16_t requested_speed_left,
-    int16_t requested_speed_right,
-    int16_t duty_slew_step,
+    const motion_intent_t *intent,
     wheel_control_output_t *output
 );
 void wheel_control_reset_integrators(wheel_control_t *control);

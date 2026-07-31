@@ -50,6 +50,28 @@ def test_wheel_control_has_no_hardware_transport_or_mission_dependency() -> None
         assert forbidden not in combined
 
 
+def test_motion_intent_contract_is_timestamped_and_hardware_independent() -> None:
+    contract = (CONTROL_DIR / "motion_intent.h").read_text(encoding="utf-8")
+
+    for field in (
+        "bool valid;",
+        "uint32_t timestamp_ms;",
+        "int16_t requested_speed_left;",
+        "int16_t requested_speed_right;",
+        "int16_t duty_slew_step;",
+    ):
+        assert field in contract
+    for forbidden in (
+        "ti_msp_dl_config",
+        "chassis_actuator",
+        "motor.h",
+        "hball_can",
+        "hball_mission",
+        "DL_GPIO",
+    ):
+        assert forbidden not in contract
+
+
 def test_active_lap_runtime_delegates_wheel_pid_ownership() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
     lap = main[
@@ -62,6 +84,10 @@ def test_active_lap_runtime_delegates_wheel_pid_ownership() -> None:
     assert "wheel_control_init(&wheel_control" in compact
     assert "wheel_control_reset_integrators(&wheel_control)" in compact
     assert "wheel_control_step(&wheel_control" in compact
+    assert "motion_intent_twheel_intent;" in compact
+    assert "wheel_intent.valid=true;" in compact
+    assert "wheel_intent.timestamp_ms=line_sample.timestamp_ms;" in compact
+    assert "&wheel_intent,&wheel_output" in compact
     assert "PID_Update(&LEFT)" not in compact
     assert "PID_Update(&RIGHT)" not in compact
     assert "LEFT.ErrorInt" not in compact

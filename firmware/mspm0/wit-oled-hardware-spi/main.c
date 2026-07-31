@@ -40,6 +40,7 @@
 #include "hball_runtime_target.h"
 #include "line_sensor_port.h"
 #include "line_snapshot.h"
+#include "motion_intent.h"
 #include "wheel_control.h"
 
 /*
@@ -1569,6 +1570,7 @@ static void lap_test_once(void)
     const uint32_t task3_start_ramp_ms = 1000U;
     hball_mission_policy_t mission_policy;
     static wheel_control_t wheel_control;
+    motion_intent_t wheel_intent;
     wheel_control_output_t wheel_output;
     uint8_t selected_task;
     uint8_t finish_line_enabled;
@@ -2194,6 +2196,11 @@ static void lap_test_once(void)
                 ((active_count == 0U) ? 10 :
                  (((selected_task == CAR_TASK_LAP_STOP) &&
                    (error_magnitude >= curve_enter_error)) ? 8 : 3));
+            wheel_intent.valid = true;
+            wheel_intent.timestamp_ms = line_sample.timestamp_ms;
+            wheel_intent.requested_speed_left = requested_speed_left;
+            wheel_intent.requested_speed_right = requested_speed_right;
+            wheel_intent.duty_slew_step = duty_slew_step;
             __disable_irq();
             current_left_count = Get_Encoder_countB;
             current_right_count = Get_Encoder_countA;
@@ -2209,9 +2216,7 @@ static void lap_test_once(void)
                 tick_ms,
                 current_left_count,
                 current_right_count,
-                requested_speed_left,
-                requested_speed_right,
-                duty_slew_step,
+                &wheel_intent,
                 &wheel_output
             );
             left_speed = wheel_output.measured_left_speed;
