@@ -1491,7 +1491,8 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     if ((g_hball_ball_mode == 1U)
         && g_hball_ball_q3_zero_calibrated)
     {
-        snapshot.ball_position_m -= g_hball_ball_q3_vision_zero_m;
+        snapshot.ball_position_m = g_hball_ball_q3_vision_zero_m
+            - snapshot.ball_position_m;
     }
     if ((g_hball_ball_mode == 1U)
         && ((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) == 0U)
@@ -2867,7 +2868,8 @@ static void hball_q3_status5(void)
     if ((g_hball_ball_mode == 1U)
         && g_hball_ball_q3_zero_calibrated)
     {
-        snapshot.ball_position_m -= g_hball_ball_q3_vision_zero_m;
+        snapshot.ball_position_m = g_hball_ball_q3_vision_zero_m
+            - snapshot.ball_position_m;
     }
     rt_kprintf(
         "[hball-control] algo=%s active=%d mode=%u phase=%u leveling=%d passed=%d x_mm=%ld target_mm=%ld estimate_mm=%ld velocity_mm_s=%ld disturbance_mm_s2=%ld pipe_mrad=%ld motor_target_mrad=%ld max_error_mm=%ld violations=%lu tx=%lu\n",

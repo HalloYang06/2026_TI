@@ -101,5 +101,6 @@ def test_q3_verified_pid_and_sequence_baseline_is_frozen():
     assert "#define HBALL_BALL_VISION_HOLD_MS 200U" in source
     assert "g_hball_ball_q3_zero_calibrated" in source
     assert "g_hball_ball_q3_vision_zero_m" in source
+    assert "snapshot.ball_position_m = g_hball_ball_q3_vision_zero_m" in source
     assert ">= 150U" in source
     assert ">= 300U" in source
