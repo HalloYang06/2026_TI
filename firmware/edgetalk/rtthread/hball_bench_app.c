@@ -75,8 +75,8 @@
 #define HBALL_BALL_SETTLE_CAPTURE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_SETTLE_RECOVERY_LIMIT_RAD 0.052359879F
 #define HBALL_BALL_Q3_PRELEVEL_PIPE_RATE_LIMIT_RAD_S 0.50F
-#define HBALL_BALL_Q3_TARGET_RATE_MPS 0.20F
-#define HBALL_BALL_VISION_HOLD_MS 100U
+#define HBALL_BALL_Q3_TARGET_RATE_MPS 0.30F
+#define HBALL_BALL_VISION_HOLD_MS 150U
 #define HBALL_BALL_PID_KP 0.70F
 #define HBALL_BALL_PID_KI 0.15F
 #define HBALL_BALL_PID_KD 0.15F
@@ -1485,6 +1485,15 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     if (!hball_m33_inputs_get_snapshot(&snapshot))
     {
         invalid_mask |= UINT8_C(1) << 0;
+    }
+    if ((g_hball_ball_mode == 1U)
+        && ((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) == 0U)
+        && (snapshot.vision_receive_age_ms <= HBALL_BALL_VISION_HOLD_MS)
+        && isfinite(snapshot.ball_position_m)
+        && (snapshot.vision_confidence
+            >= HBALL_CONTROL_MIN_VISION_CONFIDENCE))
+    {
+        snapshot.valid_flags |= HBALL_SENSOR_VALID_VISION;
     }
     if ((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) == 0U)
     {
