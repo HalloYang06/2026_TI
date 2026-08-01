@@ -112,6 +112,14 @@ bool hball_can_mission_request_abort(uint32_t now_ms)
     return accepted;
 }
 
+void hball_can_mission_force_reset(uint32_t now_ms)
+{
+    const uint32_t interrupt_state = hball_can_lock();
+
+    hball_mission_client_force_reset(&g_hball_mission_client, now_ms);
+    hball_can_unlock(interrupt_state);
+}
+
 bool hball_can_mission_get_snapshot(hball_mission_client_t *snapshot)
 {
     uint32_t interrupt_state;

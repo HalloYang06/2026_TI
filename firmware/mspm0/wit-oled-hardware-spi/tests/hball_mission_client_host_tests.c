@@ -157,6 +157,27 @@ static void test_pb21_setup_is_q3_to_q6_only(void)
     assert(intent.event_time_ms == 3U);
 }
 
+static void test_force_reset_unlocks_a_stuck_start(void)
+{
+    hball_mission_client_t client;
+
+    hball_mission_client_init(&client, 0U);
+    client.selected_mission = HBALL_MISSION_Q3_BALL_SEQUENCE;
+    client.start_requested = true;
+    client.status_valid = true;
+    client.setup_valid = true;
+    client.command = HBALL_MISSION_COMMAND_START;
+
+    hball_mission_client_force_reset(&client, 123U);
+
+    assert(!client.start_requested);
+    assert(!client.status_valid);
+    assert(!client.setup_valid);
+    assert(client.command == HBALL_MISSION_COMMAND_RESET);
+    assert(client.command_time_ms == 123U);
+    assert(client.selected_mission == HBALL_MISSION_Q3_BALL_SEQUENCE);
+}
+
 int main(void)
 {
     test_client_starts_in_reset_and_requires_matching_ready();
@@ -165,5 +186,6 @@ int main(void)
     test_stale_sequence_rebases_after_m33_reboot();
     test_selection_is_allowed_without_status_but_blocked_after_start();
     test_pb21_setup_is_q3_to_q6_only();
+    test_force_reset_unlocks_a_stuck_start();
     return 0;
 }

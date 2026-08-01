@@ -59,6 +59,7 @@ bool hball_can_mission_select(uint8_t mission_id, uint32_t now_ms);
 bool hball_can_mission_request_start(uint32_t now_ms);
 bool hball_can_mission_request_level(uint32_t now_ms);
 bool hball_can_mission_request_abort(uint32_t now_ms);
+void hball_can_mission_force_reset(uint32_t now_ms);
 bool hball_can_mission_get_snapshot(hball_mission_client_t *snapshot);
 hball_mission_menu_result_t hball_can_mission_menu_handle(
     hball_mission_menu_event_t event, uint32_t now_ms

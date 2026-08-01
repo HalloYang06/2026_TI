@@ -56,6 +56,9 @@ bool hball_mission_client_request_level(
 bool hball_mission_client_request_abort(
     hball_mission_client_t *client, uint32_t now_ms
 );
+void hball_mission_client_force_reset(
+    hball_mission_client_t *client, uint32_t now_ms
+);
 bool hball_mission_client_make_intent(
     const hball_mission_client_t *client,
     hball_mission_intent_t *intent

@@ -170,6 +170,21 @@ bool hball_mission_client_request_abort(
     return true;
 }
 
+void hball_mission_client_force_reset(
+    hball_mission_client_t *client, uint32_t now_ms
+)
+{
+    if (client == NULL)
+    {
+        return;
+    }
+    client->command = HBALL_MISSION_COMMAND_RESET;
+    client->command_time_ms = now_ms;
+    client->start_requested = false;
+    client->status_valid = false;
+    client->setup_valid = false;
+}
+
 bool hball_mission_client_make_intent(
     const hball_mission_client_t *client,
     hball_mission_intent_t *intent

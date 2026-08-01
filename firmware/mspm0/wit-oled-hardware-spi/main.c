@@ -80,6 +80,8 @@ _Static_assert(
 #define GYRO_LCD_REFRESH_MS 100U
 #define HBALL_MISSION_MENU_RENDER_MIN_MS 1000U
 #define HBALL_MISSION_START_LATCH_MS 5000U
+#define HBALL_MISSION_START_ACK_TIMEOUT_MS 1500U
+#define HBALL_MISSION_ABORT_ACK_TIMEOUT_MS 500U
 #define HBALL_Q4_SOFT_START_MS 600U
 #define HBALL_Q4_SOFT_STOP_MS 800U
 #define HBALL_Q4_DUTY_SLEW_STEP 5
@@ -1040,6 +1042,9 @@ static uint8_t select_car_task(void)
         {
             hball_mission_policy_t policy;
             uint8_t selected_mission;
+            bool abort_requested = false;
+            uint32_t abort_request_ms = 0U;
+            const uint32_t start_wait_ms = tick_ms;
 
             telemetry_send_string("MISSION_SW1,START_ACCEPTED\r\n");
             beep();
@@ -1056,6 +1061,8 @@ static uint8_t select_car_task(void)
             }
             while (1)
             {
+                const task_key_event_t wait_key = get_task_key_event();
+
                 if (hball_can_mission_get_snapshot(&snapshot)
                     && snapshot.status_valid
                     && (snapshot.latest_status.global_state
@@ -1071,6 +1078,28 @@ static uint8_t select_car_task(void)
                         || (snapshot.latest_status.global_state
                             >= HBALL_MISSION_STATE_CONTROLLED_ABORT)))
                 {
+                    hball_can_mission_chassis_finish(
+                        HBALL_MISSION_CHASSIS_EVENT_STOPPED, tick_ms
+                    );
+                    break;
+                }
+                if (!abort_requested
+                    && ((wait_key == TASK_KEY_EVENT_SELECT)
+                        || ((uint32_t)(tick_ms - start_wait_ms)
+                            > HBALL_MISSION_START_ACK_TIMEOUT_MS)))
+                {
+                    telemetry_send_string(
+                        "MISSION_SW1,START_WAIT_ABORT\r\n"
+                    );
+                    (void)hball_can_mission_request_abort(tick_ms);
+                    abort_requested = true;
+                    abort_request_ms = tick_ms;
+                }
+                if (abort_requested
+                    && ((uint32_t)(tick_ms - abort_request_ms)
+                        > HBALL_MISSION_ABORT_ACK_TIMEOUT_MS))
+                {
+                    hball_can_mission_force_reset(tick_ms);
                     hball_can_mission_chassis_finish(
                         HBALL_MISSION_CHASSIS_EVENT_STOPPED, tick_ms
                     );
