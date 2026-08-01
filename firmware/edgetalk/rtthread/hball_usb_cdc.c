@@ -11,6 +11,7 @@
 #include "hball_vision_protocol.h"
 #if HBALL_INTEGRATED_SHADOW
 #include "hball_m33_inputs.h"
+#include "hball_runtime_tuning.h"
 #endif
 
 #define HBALL_USB_THREAD_STACK_SIZE 4096U
@@ -61,6 +62,8 @@ typedef struct
     rt_bool_t binary_mode;
     rt_uint32_t telemetry_tx_total;
     rt_uint32_t telemetry_drop_total;
+    rt_uint32_t tuning_rx_total;
+    rt_uint32_t tuning_accept_total;
 } hball_usb_stats_t;
 
 static const USB_DEVICE_INFO g_hball_usb_device_info = {
@@ -242,9 +245,32 @@ static rt_bool_t hball_usb_write(const char *message, rt_size_t length)
 static void hball_usb_process_line(const char *line, rt_size_t length)
 {
     hball_usb_ping_t ping;
+    hball_usb_tune_t tune;
     char response[HBALL_USB_LINE_CAPACITY];
     size_t response_length;
 
+#if HBALL_INTEGRATED_SHADOW
+    if (hball_usb_parse_tune(line, length, &tune))
+    {
+        const bool accepted = hball_runtime_tuning_set(
+            tune.name, tune.value
+        );
+
+        g_hball_usb_stats.tuning_rx_total++;
+        if (accepted)
+        {
+            g_hball_usb_stats.tuning_accept_total++;
+        }
+        response_length = hball_usb_format_tune_ack(
+            response, sizeof(response), &tune, accepted
+        );
+        if (response_length > 0U)
+        {
+            (void)hball_usb_write(response, (rt_size_t)response_length);
+        }
+        return;
+    }
+#endif
     if (!hball_usb_parse_ping(line, length, &ping))
     {
         g_hball_usb_stats.invalid_rx_total++;
@@ -396,11 +422,7 @@ static void hball_usb_session(void)
                 g_hball_usb_stats.binary_mode = RT_TRUE;
             }
         }
-        if (g_hball_usb_stats.binary_mode
-            || (g_hball_vision_stream.length > 0U))
-        {
-            continue;
-        }
+        /* ASCII tuning lines are multiplexed between complete vision frames. */
         for (int index = 0; index < received; ++index)
         {
             const char value = (char)chunk[index];

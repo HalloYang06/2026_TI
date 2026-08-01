@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -605,6 +606,27 @@ void capture_loop(const Config& cfg, Frames& frames) {
   }
 }
 
+void capture_watchdog(Frames& frames) {
+  uint64_t last_sequence = 0;
+  auto last_progress = std::chrono::steady_clock::now();
+  while (running) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    uint64_t sequence;
+    {
+      std::lock_guard lock(frames.mutex);
+      sequence = frames.sequence;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (sequence != last_sequence) {
+      last_sequence = sequence;
+      last_progress = now;
+    } else if (now - last_progress > std::chrono::seconds(2)) {
+      std::cerr << "Camera capture stalled; exiting for systemd restart\n";
+      std::_Exit(2);
+    }
+  }
+}
+
 void serve_client(int client, Frames& frames, int stream_fps) {
   char request[1024]{};
   const auto received = recv(client, request, sizeof(request) - 1, 0);
@@ -740,9 +762,11 @@ int main(int argc, char** argv) {
     const Config cfg = parse_args(argc, argv);
     Frames frames;
     std::thread capture(capture_loop, std::cref(cfg), std::ref(frames));
+    std::thread watchdog(capture_watchdog, std::ref(frames));
     server_loop(cfg, frames);
     running = false;
     capture.join();
+    watchdog.join();
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

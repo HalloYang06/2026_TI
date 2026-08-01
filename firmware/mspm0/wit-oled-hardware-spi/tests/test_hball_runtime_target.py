@@ -105,3 +105,6 @@ def test_competition_follower_and_q56_nonblocking_stop_service_runtime() -> None
     assert "competition_runtime_wait_ms(20U);" not in lap
     assert "delay_cycles(CPUCLK_FREQ / 100U);" not in lap
     assert "delay_cycles(CPUCLK_FREQ / 50U);" not in lap
+    assert "run_key_event = get_task_key_event();" in lap
+    assert "hball_can_mission_request_abort(tick_ms)" in lap
+    assert "SW1 CANCEL" in lap

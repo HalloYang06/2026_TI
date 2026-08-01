@@ -43,6 +43,18 @@ def test_manual_rs00_step_trace_is_bounded_and_read_only() -> None:
     assert "< HBALL_RS00_STEP_TRACE_CAPACITY" in source
 
 
+def test_formal_hold_uses_running_and_settle_limits_and_abort_stops_motor() -> None:
+    source = (EDGETALK / "rtthread" / "hball_bench_app.c").read_text(
+        encoding="utf-8"
+    )
+
+    assert "HBALL_BALL_FORMAL_PIPE_LIMIT_RAD 0.069813170F" in source
+    assert "HBALL_BALL_SETTLE_PIPE_LIMIT_RAD 0.026179939F" in source
+    assert "g_hball_ball_pipeline.controller.integral_error_m_s = 0.0F" in source
+    assert "state == HBALL_MISSION_STATE_CONTROLLED_ABORT" in source
+    assert "HBALL_RS00_BENCH_STOP_MANUAL, now_ms, RT_TRUE" in source
+
+
 def test_active_q456_restart_waits_for_target_and_retargets_cleanly() -> None:
     source = (EDGETALK / "rtthread" / "hball_bench_app.c").read_text(
         encoding="utf-8"

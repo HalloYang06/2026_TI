@@ -427,10 +427,8 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
      * 1 ms slot can be lost while the shared TX buffer is still pending.
      * Intent outranks ordinary IMU telemetry so RESET/PREPARE cannot starve.
      */
-    intent_due = !g_hball_mission_client.status_valid
-        ? !telemetry_due
-        : (((now_ms % 50U) == 7U)
-           || ((now_ms % 50U) == 8U));
+    intent_due = ((now_ms % 50U) == 7U)
+        || ((now_ms % 50U) == 8U);
     chassis_due = ((now_ms % 20U) == 9U);
     if ((g_hball_can_stats.bus_off != 0U)
         || (!telemetry_due && !intent_due && !chassis_due))

@@ -56,6 +56,34 @@ def test_missing_ball_clears_position_valid_and_confidence():
     assert measurement.confidence == 0.0
 
 
+def test_runtime_tuning_command_and_ack_mailbox(tmp_path):
+    bridge = load_bridge_module()
+
+    class Device:
+        def __init__(self):
+            self.writes = []
+
+        def write(self, payload):
+            self.writes.append(payload)
+            return len(payload)
+
+    command_path = tmp_path / "tune.cmd"
+    ack_path = tmp_path / "tune.ack"
+    command_path.write_text("HBALL_TUNE 17 settle_deg 1.0\n", encoding="ascii")
+    device = Device()
+    mtime = bridge._send_tuning_if_changed(device, command_path, None)
+
+    assert mtime is not None
+    assert device.writes == [b"\nHBALL_TUNE 17 settle_deg 1.0\n"]
+    bridge._record_tuning_ack(
+        b"binary\x00HBALL_TUNE_ACK 17 settle_deg 1 OK\n",
+        bytearray(), ack_path,
+    )
+    assert ack_path.read_text(encoding="ascii") == (
+        "HBALL_TUNE_ACK 17 settle_deg 1 OK\n"
+    )
+
+
 def test_real_camera_defaults_match_the_frozen_100_hz_target():
     source = CAMERA_SOURCE_PATH.read_text(encoding="utf-8")
     start_script = CAMERA_START_PATH.read_text(encoding="utf-8")
@@ -63,6 +91,15 @@ def test_real_camera_defaults_match_the_frozen_100_hz_target():
     assert "int fps = 100;" in source
     assert "--fps 100" in start_script
     assert "--fps 120" not in start_script
+
+
+def test_camera_capture_stall_exits_for_systemd_restart():
+    source = CAMERA_SOURCE_PATH.read_text(encoding="utf-8")
+
+    assert "void capture_watchdog(Frames& frames)" in source
+    assert "now - last_progress > std::chrono::seconds(2)" in source
+    assert "std::_Exit(2);" in source
+    assert "std::thread watchdog(capture_watchdog" in source
 
 
 def test_real_camera_user_service_is_restartable_and_identity_neutral():

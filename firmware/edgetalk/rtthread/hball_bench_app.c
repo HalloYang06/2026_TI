@@ -8,8 +8,10 @@
 #include "hball_usb_telemetry.h"
 #if HBALL_INTEGRATED_SHADOW
 #include "hball_control_pipeline.h"
+#include "hball_deployment_controller.h"
 #include "hball_deployment_config.h"
 #include "hball_m33_inputs.h"
+#include "hball_runtime_tuning.h"
 #endif
 
 #include "drv_can.h"
@@ -18,6 +20,7 @@
 #include <rtdevice.h>
 #include <rtthread.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifndef HBALL_BENCH_AUTO_PROBE5
 #define HBALL_BENCH_AUTO_PROBE5 0
@@ -63,6 +66,11 @@
 #define HBALL_BALL_COMMISSION_LEVEL_RAD 1.7205F
 #define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.043633231F
+#define HBALL_BALL_FORMAL_PIPE_LIMIT_RAD 0.034906585F
+#define HBALL_BALL_FORMAL_RECOVERY_LIMIT_RAD 0.043633231F
+#define HBALL_BALL_SETTLE_PIPE_LIMIT_RAD 0.017453293F
+#define HBALL_BALL_SETTLE_CAPTURE_LIMIT_RAD 0.034906585F
+#define HBALL_BALL_SETTLE_RECOVERY_LIMIT_RAD 0.052359879F
 #define HBALL_BALL_Q3_PIPE_RATE_LIMIT_RAD_S 0.50F
 #define HBALL_BALL_PID_KP 0.45F
 #define HBALL_BALL_PID_KI 0.08F
@@ -190,6 +198,67 @@ static rt_uint32_t g_hball_ball_log_sequence = 0U;
 static rt_uint32_t g_hball_ball_last_log_ms = 0U;
 static rt_uint16_t g_hball_ball_control_epoch = 0U;
 static rt_uint8_t g_hball_ball_control_mission = 0U;
+static rt_bool_t g_hball_ball_settle_hold = RT_FALSE;
+static float g_hball_formal_pipe_limit_rad =
+    HBALL_BALL_FORMAL_PIPE_LIMIT_RAD;
+static float g_hball_formal_recovery_limit_rad =
+    HBALL_BALL_FORMAL_RECOVERY_LIMIT_RAD;
+static float g_hball_settle_pipe_limit_rad =
+    HBALL_BALL_SETTLE_PIPE_LIMIT_RAD;
+static float g_hball_settle_capture_limit_rad =
+    HBALL_BALL_SETTLE_CAPTURE_LIMIT_RAD;
+static float g_hball_settle_recovery_limit_rad =
+    HBALL_BALL_SETTLE_RECOVERY_LIMIT_RAD;
+static float g_hball_lqi_position_gain = 2.64956F;
+static float g_hball_lqi_velocity_gain = 0.910066F;
+static float g_hball_lqi_integral_gain = 0.787185F;
+
+bool hball_runtime_tuning_set(const char *name, float value)
+{
+    float radians;
+
+    if ((name == RT_NULL) || !isfinite(value) || g_hball_ball_active)
+    {
+        return false;
+    }
+    if ((strcmp(name, "kp") == 0) || (strcmp(name, "kv") == 0)
+        || (strcmp(name, "ki") == 0))
+    {
+        float kp = g_hball_lqi_position_gain;
+        float kv = g_hball_lqi_velocity_gain;
+        float ki = g_hball_lqi_integral_gain;
+
+        if (strcmp(name, "kp") == 0) kp = value;
+        if (strcmp(name, "kv") == 0) kv = value;
+        if (strcmp(name, "ki") == 0) ki = value;
+        if (!hball_deployment_controller_set_gains(kp, kv, ki))
+        {
+            return false;
+        }
+        g_hball_lqi_position_gain = kp;
+        g_hball_lqi_velocity_gain = kv;
+        g_hball_lqi_integral_gain = ki;
+        return true;
+    }
+    if ((value < 0.25F) || (value > 6.0F))
+    {
+        return false;
+    }
+    radians = value * 0.01745329252F;
+    if (strcmp(name, "run_deg") == 0)
+        g_hball_formal_pipe_limit_rad = radians;
+    else if (strcmp(name, "run_recovery_deg") == 0)
+        g_hball_formal_recovery_limit_rad = radians;
+    else if (strcmp(name, "settle_deg") == 0)
+        g_hball_settle_pipe_limit_rad = radians;
+    else if (strcmp(name, "settle_capture_deg") == 0)
+        g_hball_settle_capture_limit_rad = radians;
+    else if (strcmp(name, "settle_recovery_deg") == 0)
+        g_hball_settle_recovery_limit_rad = radians;
+    else
+        return false;
+    return true;
+}
 static int hball_q3_start_common(void);
 static int hball_hold_start_common(
     rt_uint8_t mode, float target_m, const char *name
@@ -1091,6 +1160,17 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
     {
         return;
     }
+    if (((state == HBALL_MISSION_STATE_CONTROLLED_ABORT)
+         || (state == HBALL_MISSION_STATE_FAULT_LATCHED))
+        && g_hball_ball_active)
+    {
+        hball_motion_stop_now(
+            HBALL_RS00_BENCH_STOP_MANUAL, now_ms, RT_TRUE
+        );
+        g_hball_ball_control_epoch = 0U;
+        g_hball_ball_control_mission = 0U;
+        return;
+    }
     if (g_hball_ball_active
         && (g_hball_ball_control_epoch != 0U)
         && ((g_hball_ball_control_epoch
@@ -1377,6 +1457,10 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     rt_uint8_t invalid_mask = 0U;
     rt_uint8_t stop_invalid_mask;
     rt_bool_t vision_stale;
+    const rt_bool_t settle_hold =
+        (g_hball_ball_mode != 1U)
+        && (g_hball_mission_arbiter.global_state
+            == HBALL_MISSION_STATE_COMPLETED);
 
     if (!g_hball_ball_active
         || ((rt_uint32_t)(now_ms - g_hball_ball_last_step_ms)
@@ -1513,6 +1597,11 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         g_hball_motor.parameters.mech_position_rad;
     snapshot.motor_velocity_rad_s =
         g_hball_motor.parameters.mech_velocity_rad_s;
+    if (settle_hold && !g_hball_ball_settle_hold)
+    {
+        g_hball_ball_pipeline.controller.integral_error_m_s = 0.0F;
+    }
+    g_hball_ball_settle_hold = settle_hold;
     hball_control_pipeline_step(
         &g_hball_ball_pipeline,
         &snapshot,
@@ -1540,9 +1629,26 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         }
         g_hball_ball_previous_error_m = position_error_m;
     }
-    pipe_limit_rad = fabsf(snapshot.ball_position_m) >= 0.080F
-        ? HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD
-        : HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD;
+    if (settle_hold)
+    {
+        pipe_limit_rad = fabsf(snapshot.ball_position_m) >= 0.080F
+            ? g_hball_settle_recovery_limit_rad
+            : (fabsf(snapshot.ball_position_m) >= 0.030F
+                ? g_hball_settle_capture_limit_rad
+                : g_hball_settle_pipe_limit_rad);
+    }
+    else if (g_hball_ball_mode != 1U)
+    {
+        pipe_limit_rad = fabsf(snapshot.ball_position_m) >= 0.080F
+            ? g_hball_formal_recovery_limit_rad
+            : g_hball_formal_pipe_limit_rad;
+    }
+    else
+    {
+        pipe_limit_rad = fabsf(snapshot.ball_position_m) >= 0.080F
+            ? HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD
+            : HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD;
+    }
     if (g_hball_ball_phase == 4U)
     {
         pipe_command_rad = 0.0F;
@@ -2333,6 +2439,7 @@ static int hball_q3_start_common(void)
     g_hball_ball_pid_static_boost_active = RT_FALSE;
     g_hball_ball_max_abs_error_m = 0.0F;
     g_hball_ball_error_violation_total = 0U;
+    g_hball_ball_settle_hold = RT_FALSE;
     g_hball_ball_active = RT_TRUE;
     g_hball_motion.last_manual_command_ms = now_ms;
     rt_kprintf(
@@ -2516,6 +2623,7 @@ static int hball_hold_start_common(
     g_hball_ball_pid_static_boost_active = RT_FALSE;
     g_hball_ball_max_abs_error_m = 0.0F;
     g_hball_ball_error_violation_total = 0U;
+    g_hball_ball_settle_hold = RT_FALSE;
     g_hball_ball_active = RT_TRUE;
     g_hball_motion.last_manual_command_ms = now_ms;
     rt_kprintf(

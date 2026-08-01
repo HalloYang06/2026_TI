@@ -52,6 +52,19 @@ def test_chassis_route_events_are_latched_only_from_observed_facts() -> None:
     )
 
 
+def test_mission_intent_slots_cannot_be_starved_by_imu_telemetry() -> None:
+    source = (PROJECT / "Drivers" / "CAN" / "hball_can_port.c").read_text(
+        encoding="utf-8"
+    )
+    service = source[
+        source.index("void hball_can_port_tick_1ms") :
+        source.index("static void hball_can_record_rx")
+    ]
+
+    assert "intent_due = ((now_ms % 50U) == 7U)" in service
+    assert "? !telemetry_due" not in service
+
+
 def test_target_startup_does_not_request_semihosted_argv() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
 

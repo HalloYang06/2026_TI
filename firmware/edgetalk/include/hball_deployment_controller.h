@@ -51,6 +51,11 @@ void hball_deployment_controller_relock_position(
     hball_deployment_controller_t *controller,
     float measured_position_m
 );
+bool hball_deployment_controller_set_gains(
+    float position_gain,
+    float velocity_gain,
+    float integral_gain
+);
 void hball_deployment_controller_predict(
     hball_deployment_controller_t *controller,
     float dt_s,

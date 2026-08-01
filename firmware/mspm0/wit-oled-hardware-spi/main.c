@@ -1572,6 +1572,7 @@ static void lap_test_once(void)
     hball_mission_client_t mission_snapshot;
     hball_mission_policy_t mission_policy;
     hball_mission_run_decision_t run_decision;
+    task_key_event_t run_key_event;
     static line_follower_t line_follower;
     static route_marker_detector_t route_marker_detector;
     static wheel_control_t wheel_control;
@@ -1762,6 +1763,26 @@ static void lap_test_once(void)
     while (1)
     {
         elapsed_ms = (uint32_t)(tick_ms - run_start_ms);
+        run_key_event = get_task_key_event();
+        if (run_key_event == TASK_KEY_EVENT_EXECUTE)
+        {
+            (void)hball_can_mission_request_abort(tick_ms);
+            finish_elapsed_ms = elapsed_ms;
+            finish_event_flags =
+                HBALL_MISSION_CHASSIS_EVENT_STOPPED
+                | HBALL_MISSION_CHASSIS_EVENT_LOCAL_FAULT;
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
+            LCD_Fill(0, 48, 280, 100, BLACK);
+            LCD_ShowString(
+                4, 58, (const unsigned char *)"SW1 CANCEL",
+                RED, BLACK, 32, 0);
+            break;
+        }
         (void)hball_can_mission_get_snapshot(&mission_snapshot);
         run_decision = hball_mission_run_guard_evaluate(
             &mission_policy,

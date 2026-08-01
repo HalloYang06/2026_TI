@@ -62,11 +62,37 @@ static void test_ready_format_contains_version_sequence_and_uptime(void)
     ) == 0U);
 }
 
+static void test_runtime_tune_parse_and_ack(void)
+{
+    hball_usb_tune_t tune;
+    char response[HBALL_USB_LINE_CAPACITY];
+    const char valid[] = "HBALL_TUNE 17 settle_capture_deg 2.5\n";
+    const char invalid[] = "HBALL_TUNE 17 run_deg 2 extra\n";
+
+    assert(hball_usb_parse_tune(
+        valid, sizeof(valid) - 1U, &tune
+    ));
+    assert(tune.sequence == 17U);
+    assert(strcmp(tune.name, "settle_capture_deg") == 0);
+    assert(tune.value == 2.5F);
+    assert(hball_usb_format_tune_ack(
+        response, sizeof(response), &tune, true
+    ) > 0U);
+    assert(strcmp(
+        response,
+        "HBALL_TUNE_ACK 17 settle_capture_deg 2.5 OK\n"
+    ) == 0);
+    assert(!hball_usb_parse_tune(
+        invalid, sizeof(invalid) - 1U, &tune
+    ));
+}
+
 int main(void)
 {
     test_ping_parse_and_pong_format();
     test_ping_without_payload_is_valid();
     test_invalid_or_unsafe_ping_is_rejected();
     test_ready_format_contains_version_sequence_and_uptime();
+    test_runtime_tune_parse_and_ack();
     return 0;
 }

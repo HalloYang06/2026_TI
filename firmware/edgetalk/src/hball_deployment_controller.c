@@ -29,6 +29,10 @@
 #define HBALL_MAX_VALID_DT_S 0.020F
 #define HBALL_MAX_CAMERA_DELAY_S 0.150F
 
+static float g_hball_lqi_position_gain = HBALL_LQI_POSITION_GAIN;
+static float g_hball_lqi_velocity_gain = HBALL_LQI_VELOCITY_GAIN;
+static float g_hball_lqi_integral_gain = HBALL_LQI_INTEGRAL_GAIN;
+
 static float hball_clampf(float value, float minimum, float maximum)
 {
     if (value < minimum)
@@ -40,6 +44,26 @@ static float hball_clampf(float value, float minimum, float maximum)
         return maximum;
     }
     return value;
+}
+
+bool hball_deployment_controller_set_gains(
+    float position_gain,
+    float velocity_gain,
+    float integral_gain
+)
+{
+    if (!isfinite(position_gain) || !isfinite(velocity_gain)
+        || !isfinite(integral_gain)
+        || (position_gain < 0.0F) || (position_gain > 10.0F)
+        || (velocity_gain < 0.0F) || (velocity_gain > 10.0F)
+        || (integral_gain < 0.0F) || (integral_gain > 10.0F))
+    {
+        return false;
+    }
+    g_hball_lqi_position_gain = position_gain;
+    g_hball_lqi_velocity_gain = velocity_gain;
+    g_hball_lqi_integral_gain = integral_gain;
+    return true;
 }
 
 static void hball_copy_state(
@@ -408,9 +432,9 @@ float hball_deployment_controller_command(
             HBALL_INTEGRAL_LIMIT_M_S
         );
         requested = hball_feedforward(controller, input)
-            - HBALL_LQI_POSITION_GAIN * position_error
-            - HBALL_LQI_VELOCITY_GAIN * controller->state[1]
-            - HBALL_LQI_INTEGRAL_GAIN
+            - g_hball_lqi_position_gain * position_error
+            - g_hball_lqi_velocity_gain * controller->state[1]
+            - g_hball_lqi_integral_gain
                 * controller->integral_error_m_s;
     }
     else
