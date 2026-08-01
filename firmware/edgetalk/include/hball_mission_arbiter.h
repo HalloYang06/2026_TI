@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define HBALL_MISSION_READY_STABLE_MS 500U
+#define HBALL_MISSION_READY_STABLE_MS 150U
 
 typedef struct
 {

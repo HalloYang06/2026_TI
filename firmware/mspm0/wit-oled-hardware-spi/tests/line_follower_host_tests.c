@@ -239,14 +239,14 @@ static void test_q4_starts_at_full_profile_speed_on_center_line(void)
 
     line_follower_init(&follower, LINE_FOLLOWER_PROFILE_Q4_TIMED_RUN, 0U);
     assert(line_follower_step(&follower, &center, false, &output));
-    assert(output.intent.requested_speed_left == 50);
-    assert(output.intent.requested_speed_right == 50);
+    assert(output.intent.requested_speed_left == 54);
+    assert(output.intent.requested_speed_right == 54);
     assert(output.intent.duty_slew_step == 3);
 
     center = sample(UINT8_C(0x01), 20U);
     assert(line_follower_step(&follower, &center, false, &output));
-    assert(output.intent.requested_speed_left == 48);
-    assert(output.intent.requested_speed_right == 52);
+    assert(output.intent.requested_speed_left == 52);
+    assert(output.intent.requested_speed_right == 56);
 }
 
 static void test_non_q2_profile_reports_lost_timeout_without_motion(void)

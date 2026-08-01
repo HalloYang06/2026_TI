@@ -49,6 +49,12 @@ static line_follower_config_t profile_config(line_follower_profile_t profile)
         config.steering_limit = 28;
         config.request_slew_step = 5;
     }
+    else if (profile == LINE_FOLLOWER_PROFILE_Q4_TIMED_RUN)
+    {
+        config.base_speed = 54;
+        config.initial_speed = 54;
+        config.max_speed = 75;
+    }
     else if (profile == LINE_FOLLOWER_PROFILE_STABLE_LAP)
     {
         config.base_speed = 46;

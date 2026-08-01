@@ -44,6 +44,7 @@
 #define HBALL_BENCH_AUTO_PROBE_DELAY_MS 1000U
 #define HBALL_BENCH_RX_BUDGET 32U
 #define HBALL_MISSION_STATUS_PERIOD_MS 50U
+#define HBALL_MISSION_READY_SENSOR_FRESH_MS 100U
 #define HBALL_RS00_READBACK_PERIOD_MS 20U
 #define HBALL_RS00_READBACK_TIMEOUT_MS 10U
 #define HBALL_RS00_MOTION_PARAMETER_FRESH_MS 250U
@@ -559,13 +560,14 @@ static rt_uint16_t hball_mission_ready_mask(rt_uint32_t now_ms)
             ready |= HBALL_MISSION_READY_CHASSIS;
         }
     }
-    if (hball_msp_monitor_imu_fresh(&g_hball_msp, now_ms, 20U)
+    if (hball_msp_monitor_imu_fresh(
+            &g_hball_msp, now_ms, HBALL_MISSION_READY_SENSOR_FRESH_MS)
         && ((g_hball_msp.status_flags & HBALL_MSP_STATUS_IMU_VALID) != 0U))
     {
         ready |= HBALL_MISSION_READY_IMU;
     }
     if (hball_motor_monitor_feedback_fresh(
-            &g_hball_motor, now_ms, 20U)
+            &g_hball_motor, now_ms, HBALL_MISSION_READY_SENSOR_FRESH_MS)
         || hball_motor_monitor_motion_parameters_fresh(
             &g_hball_motor,
             now_ms,
