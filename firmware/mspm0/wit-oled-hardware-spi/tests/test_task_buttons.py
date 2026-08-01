@@ -49,7 +49,9 @@ def test_sw1_start_is_latched_until_remote_mission_is_ready() -> None:
         "static void speed_calibration_test(void)\n{",
     )
 
-    assert "#define HBALL_MISSION_START_LATCH_MS 1500U" in main
+    assert "#define HBALL_MISSION_START_LATCH_MS 5000U" in main
     assert "start_key_latched = true;" in body
     assert "hball_mission_client_ready(&snapshot, tick_ms)" in body
     assert "key_event = TASK_KEY_EVENT_EXECUTE;" in body
+    assert 'telemetry_send_string("MISSION_SW1,LATCH\\r\\n")' in body
+    assert 'telemetry_send_string("MISSION_SW1,START_ACCEPTED\\r\\n")' in body

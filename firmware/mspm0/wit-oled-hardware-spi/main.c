@@ -79,7 +79,7 @@ _Static_assert(
 #define CAR_TASK_STABLE_LAP      3U
 #define GYRO_LCD_REFRESH_MS 100U
 #define HBALL_MISSION_MENU_RENDER_MIN_MS 1000U
-#define HBALL_MISSION_START_LATCH_MS 1500U
+#define HBALL_MISSION_START_LATCH_MS 5000U
 #define HBALL_Q4_SOFT_START_MS 600U
 #define HBALL_Q4_SOFT_STOP_MS 800U
 #define HBALL_Q4_DUTY_SLEW_STEP 5
@@ -983,6 +983,8 @@ static uint8_t select_car_task(void)
         {
             start_key_latched = true;
             start_key_latched_ms = tick_ms;
+            telemetry_send_string("MISSION_SW1,LATCH\r\n");
+            beep();
         }
         if (start_key_latched)
         {
@@ -990,6 +992,7 @@ static uint8_t select_car_task(void)
                 > HBALL_MISSION_START_LATCH_MS)
             {
                 start_key_latched = false;
+                telemetry_send_string("MISSION_SW1,READY_TIMEOUT\r\n");
                 beep();
                 continue;
             }
@@ -1038,6 +1041,7 @@ static uint8_t select_car_task(void)
             hball_mission_policy_t policy;
             uint8_t selected_mission;
 
+            telemetry_send_string("MISSION_SW1,START_ACCEPTED\r\n");
             beep();
             competition_runtime_wait_ms(50U);
             beep();
