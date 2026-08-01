@@ -85,6 +85,7 @@ _Static_assert(
 #define HBALL_Q4_SOFT_START_MS 600U
 #define HBALL_Q4_SOFT_STOP_MS 800U
 #define HBALL_Q4_DUTY_SLEW_STEP 5
+#define HBALL_Q56_SOFT_START_MS 1200U
 #define HBALL_Q56_SOFT_STOP_MS 900U
 #define HBALL_Q56_STOP_SPEED_THRESHOLD 2
 #define HBALL_Q56_STOP_SETTLE_MS 300U
@@ -1720,7 +1721,7 @@ static void lap_test_once(void)
     int32_t left_speed;
     int32_t right_speed;
     float q4_speed_scale = 1.0F;
-    float q56_speed_scale = 1.0F;
+    float q56_speed_scale = 0.0F;
     uint32_t run_start_ms;
     uint32_t elapsed_ms;
     uint32_t q56_stop_profile_complete_ms = 0U;
@@ -1849,7 +1850,8 @@ static void lap_test_once(void)
     }
     LCD_ShowString(4, 106, (const unsigned char *)"T:00.0", YELLOW, BLACK, 32, 0);
 
-    if (selected_task == CAR_TASK_TIMED_RUN)
+    if ((selected_task == CAR_TASK_TIMED_RUN)
+        || (selected_task == CAR_TASK_STABLE_LAP))
     {
         commanded_duty_left = 0;
         commanded_duty_right = 0;
@@ -1858,10 +1860,13 @@ static void lap_test_once(void)
     run_start_ms = tick_ms;
     chassis_motion_profile_start(
         &q4_speed_profile,
-        selected_task == CAR_TASK_TIMED_RUN ? 0.0F : 1.0F,
+        selected_task == CAR_TASK_LAP_STOP ? 1.0F : 0.0F,
         1.0F,
         run_start_ms,
-        selected_task == CAR_TASK_TIMED_RUN ? HBALL_Q4_SOFT_START_MS : 0U
+        selected_task == CAR_TASK_TIMED_RUN
+            ? HBALL_Q4_SOFT_START_MS
+            : (selected_task == CAR_TASK_STABLE_LAP
+                ? HBALL_Q56_SOFT_START_MS : 0U)
     );
     line_follower_init(&line_follower, follower_profile, run_start_ms);
     (void)route_marker_detector_init(
@@ -2026,7 +2031,7 @@ static void lap_test_once(void)
                 );
             wheel_intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
         }
-        else if (q56_braking)
+        else if (selected_task == CAR_TASK_STABLE_LAP)
         {
             q56_speed_scale = chassis_motion_profile_sample(
                 &q4_speed_profile, tick_ms
@@ -2040,7 +2045,9 @@ static void lap_test_once(void)
                     wheel_intent.requested_speed_right, q56_speed_scale
                 );
             wheel_intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
-            if (!q4_speed_profile.active && !q56_stop_profile_complete)
+            if (q56_braking
+                && !q4_speed_profile.active
+                && !q56_stop_profile_complete)
             {
                 q56_stop_profile_complete = true;
                 q56_stop_profile_complete_ms = tick_ms;

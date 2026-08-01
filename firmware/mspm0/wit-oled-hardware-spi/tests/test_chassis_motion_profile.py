@@ -64,6 +64,7 @@ def test_q56_marker_stop_uses_nonblocking_profile_and_measured_settle() -> None:
     compact = "".join(lap.split())
 
     assert "#define HBALL_Q56_SOFT_STOP_MS 900U" in main
+    assert "#define HBALL_Q56_SOFT_START_MS 1200U" in main
     assert "#define HBALL_Q56_STOP_SPEED_THRESHOLD 2" in main
     assert "#define HBALL_Q56_STOP_SETTLE_MS 300U" in main
     assert (
@@ -79,10 +80,10 @@ def test_q56_marker_stop_uses_nonblocking_profile_and_measured_settle() -> None:
     assert "while (" not in marker_stop
     assert "competition_runtime_wait_ms" not in marker_stop
 
-    assert "elseif(q56_braking)" in compact
+    assert "elseif(selected_task==CAR_TASK_STABLE_LAP)" in compact
     assert "chassis_motion_profile_sample(" in compact
     assert compact.count("q56_speed_scale)") == 2
-    assert "if(!q4_speed_profile.active&&!q56_stop_profile_complete)" in compact
+    assert "q56_braking&&!q4_speed_profile.active" in compact
     assert "wheel_sample_valid=true;" in compact
     assert "last_wheel_sample_ms=tick_ms;" in compact
     assert compact.count("HBALL_Q56_STOP_SPEED_THRESHOLD") == 4
