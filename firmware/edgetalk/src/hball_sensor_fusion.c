@@ -31,6 +31,10 @@ void hball_sensor_fusion_set_vision(
     {
         return;
     }
+    if ((measurement->flags & HBALL_VISION_FLAG_POSITION_VALID) == 0U)
+    {
+        return;
+    }
     fusion->vision = *measurement;
     fusion->vision_receive_ms = receive_ms;
     fusion->vision_received = true;
