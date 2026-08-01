@@ -111,13 +111,10 @@ def test_q3_runtime_tuning_is_separate_and_disables_ramp_integral():
     source = ADAPTER.read_text(encoding="utf-8")
 
     assert 'strcmp(name, "q3_level_mrad") == 0' in source
-    assert 'strcmp(name, "q3_brake_gain") == 0' in source
     assert "g_hball_ball_level_rad = g_hball_ball_commission_level_rad;" in source
 
     for name in ("q3_kp", "q3_ki", "q3_kd", "q3_rate_cms"):
         assert f'"{name}"' in source
     assert "g_hball_ball_q3_target_rate_mps * HBALL_BALL_CONTROL_DT_S" in source
     assert "g_hball_ball_position_integral = 0.0F;" in source
-    assert "approach_speed_mps > safe_speed_mps" in source
-    assert "g_hball_ball_q3_brake_gain_s" in source
     assert "g_hball_ball_target_m > -0.050F" in source

@@ -89,9 +89,6 @@
 #define HBALL_BALL_COMMISSION_POSITION_LIMIT_M 0.120F
 #define HBALL_BALL_Q3_START_WINDOW_M 0.010F
 #define HBALL_BALL_Q3_TARGET_TOLERANCE_M 0.010F
-#define HBALL_BALL_Q3_BRAKE_ACCEL_MPS2 0.35F
-#define HBALL_BALL_Q3_BRAKE_GAIN_S 0.40F
-#define HBALL_BALL_Q3_BRAKE_MIN_DISTANCE_M 0.002F
 #define HBALL_BALL_Q3_LEVEL_SETTLE_MS 100U
 #define HBALL_BALL_CONTROL_PERIOD_MS 2U
 #define HBALL_BALL_CONTROL_DT_S 0.002F
@@ -201,7 +198,6 @@ static float g_hball_ball_pid_ki = HBALL_BALL_PID_KI;
 static float g_hball_ball_pid_kd = HBALL_BALL_PID_KD;
 static float g_hball_ball_q3_target_rate_mps =
     HBALL_BALL_Q3_TARGET_RATE_MPS;
-static float g_hball_ball_q3_brake_gain_s = HBALL_BALL_Q3_BRAKE_GAIN_S;
 static float g_hball_ball_pid_static_boost_rad = 0.0F;
 static rt_bool_t g_hball_ball_pid_static_boost_active = RT_FALSE;
 static float g_hball_ball_q3_pipe_command_rad = 0.0F;
@@ -281,15 +277,6 @@ bool hball_runtime_tuning_set(const char *name, float value)
             return false;
         }
         g_hball_ball_commission_level_rad = value / 1000.0F;
-        return true;
-    }
-    if (strcmp(name, "q3_brake_gain") == 0)
-    {
-        if ((value < 0.0F) || (value > 1.5F))
-        {
-            return false;
-        }
-        g_hball_ball_q3_brake_gain_s = value;
         return true;
     }
     if ((strcmp(name, "q3_kp") == 0)
@@ -2066,29 +2053,6 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
             pipe_command_rad += copysignf(
                 g_hball_ball_pid_static_boost_rad, position_error_m
             );
-        }
-    }
-    if ((g_hball_ball_mode == 1U)
-        && (g_hball_ball_phase == 2U)
-        && (g_hball_ball_output.estimated_velocity_mps < 0.0F))
-    {
-        float remaining_m =
-            g_hball_ball_output.estimated_position_m + 0.050F;
-        const float approach_speed_mps =
-            -g_hball_ball_output.estimated_velocity_mps;
-        float safe_speed_mps;
-
-        if (remaining_m < HBALL_BALL_Q3_BRAKE_MIN_DISTANCE_M)
-        {
-            remaining_m = HBALL_BALL_Q3_BRAKE_MIN_DISTANCE_M;
-        }
-        safe_speed_mps = sqrtf(
-            2.0F * HBALL_BALL_Q3_BRAKE_ACCEL_MPS2 * remaining_m
-        );
-        if (approach_speed_mps > safe_speed_mps)
-        {
-            pipe_command_rad += g_hball_ball_q3_brake_gain_s
-                * (approach_speed_mps - safe_speed_mps);
         }
     }
     if (pipe_command_rad > pipe_limit_rad)
