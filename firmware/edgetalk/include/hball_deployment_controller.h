@@ -37,6 +37,11 @@ typedef struct
     float current_time_s;
     float integral_error_m_s;
     float previous_pipe_command_rad;
+    hball_deployment_input_t conditioned_input;
+    float longitudinal_accel_bias_mps2;
+    float lateral_accel_bias_mps2;
+    float body_pitch_bias_rad;
+    bool imu_conditioner_initialized;
     uint32_t accepted_camera_updates;
     uint32_t rejected_camera_updates;
     uint32_t too_old_camera_updates;
