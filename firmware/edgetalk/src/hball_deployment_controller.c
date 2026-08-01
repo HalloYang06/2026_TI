@@ -34,10 +34,6 @@
 static float g_hball_lqi_position_gain = HBALL_LQI_POSITION_GAIN;
 static float g_hball_lqi_velocity_gain = HBALL_LQI_VELOCITY_GAIN;
 static float g_hball_lqi_integral_gain = HBALL_LQI_INTEGRAL_GAIN;
-static float g_hball_lateral_accel_coupling =
-    HBALL_LATERAL_ACCEL_COUPLING;
-static float g_hball_imu_filter_tau_s = HBALL_IMU_FILTER_TAU_S;
-static float g_hball_normal_angle_rad = HBALL_NORMAL_ANGLE_RAD;
 
 static float hball_clampf(float value, float minimum, float maximum)
 {
@@ -69,30 +65,6 @@ bool hball_deployment_controller_set_gains(
     g_hball_lqi_position_gain = position_gain;
     g_hball_lqi_velocity_gain = velocity_gain;
     g_hball_lqi_integral_gain = integral_gain;
-    return true;
-}
-
-bool hball_deployment_controller_set_motion_compensation(
-    float lateral_accel_coupling,
-    float imu_filter_tau_s,
-    float normal_angle_limit_rad
-)
-{
-    if (!isfinite(lateral_accel_coupling)
-        || !isfinite(imu_filter_tau_s)
-        || !isfinite(normal_angle_limit_rad)
-        || (lateral_accel_coupling < 0.0F)
-        || (lateral_accel_coupling > 1.0F)
-        || (imu_filter_tau_s < 0.010F)
-        || (imu_filter_tau_s > 0.500F)
-        || (normal_angle_limit_rad < 0.017453293F)
-        || (normal_angle_limit_rad > HBALL_HARD_ANGLE_RAD))
-    {
-        return false;
-    }
-    g_hball_lateral_accel_coupling = lateral_accel_coupling;
-    g_hball_imu_filter_tau_s = imu_filter_tau_s;
-    g_hball_normal_angle_rad = normal_angle_limit_rad;
     return true;
 }
 
@@ -168,8 +140,7 @@ static void hball_predict_core(
             HBALL_GRAVITY_MPS2 * sinf(world_pipe_angle)
             - input->longitudinal_accel_mps2 * cosf(world_pipe_angle)
             + input->yaw_rate_rad_s * input->yaw_rate_rad_s * lever_arm_m
-            - input->lateral_accel_mps2
-                * g_hball_lateral_accel_coupling
+            - input->lateral_accel_mps2 * HBALL_LATERAL_ACCEL_COUPLING
         )
         - HBALL_VISCOUS_DAMPING * state[1]
         + state[2];
@@ -313,7 +284,7 @@ static void hball_condition_imu(
     float dt_s
 )
 {
-    const float alpha = dt_s / (g_hball_imu_filter_tau_s + dt_s);
+    const float alpha = dt_s / (HBALL_IMU_FILTER_TAU_S + dt_s);
     const float previous_longitudinal =
         controller->conditioned_input.longitudinal_accel_mps2;
     const float previous_lateral =
@@ -490,7 +461,7 @@ static float hball_feedforward(
             + controller->state[0]
         );
     const float lateral = input->lateral_accel_mps2
-        * g_hball_lateral_accel_coupling;
+        * HBALL_LATERAL_ACCEL_COUPLING;
     const float effective_accel =
         input->longitudinal_accel_mps2 - centripetal + lateral;
 
@@ -512,7 +483,7 @@ float hball_deployment_controller_command(
 {
     float position_error;
     float requested;
-    float angle_limit = g_hball_normal_angle_rad;
+    float angle_limit = HBALL_NORMAL_ANGLE_RAD;
     float maximum_change;
     float predicted_position;
     bool edge_recovery = false;
@@ -583,7 +554,7 @@ float hball_deployment_controller_command(
         controller->previous_pipe_command_rad + maximum_change
     );
     if (tracking_enabled && !edge_recovery
-        && (fabsf(requested) >= g_hball_normal_angle_rad))
+        && (fabsf(requested) >= HBALL_NORMAL_ANGLE_RAD))
     {
         controller->integral_error_m_s -= position_error * dt_s;
     }

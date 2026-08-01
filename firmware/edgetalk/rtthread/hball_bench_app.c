@@ -69,7 +69,6 @@
 #define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.052359878F
 #define HBALL_BALL_FORMAL_PIPE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_FORMAL_RECOVERY_LIMIT_RAD 0.043633231F
-#define HBALL_BALL_Q6_PIPE_LIMIT_RAD 0.043633231F
 #define HBALL_BALL_SETTLE_PIPE_LIMIT_RAD 0.017453293F
 #define HBALL_BALL_SETTLE_CAPTURE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_SETTLE_RECOVERY_LIMIT_RAD 0.052359879F
@@ -248,24 +247,18 @@ static bool hball_apply_mission_gains(rt_uint8_t mission)
     {
         return hball_deployment_controller_set_gains(
             HBALL_BALL_Q4_KP, HBALL_BALL_Q4_KV, HBALL_BALL_Q4_KI
-        ) && hball_deployment_controller_set_motion_compensation(
-            0.25F, 0.080F, HBALL_BALL_FORMAL_PIPE_LIMIT_RAD
         );
     }
     if (mission == HBALL_MISSION_Q5_CENTER_LAP)
     {
         return hball_deployment_controller_set_gains(
             HBALL_BALL_Q5_KP, HBALL_BALL_Q5_KV, HBALL_BALL_Q5_KI
-        ) && hball_deployment_controller_set_motion_compensation(
-            0.25F, 0.080F, HBALL_BALL_FORMAL_PIPE_LIMIT_RAD
         );
     }
     if (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
     {
         return hball_deployment_controller_set_gains(
             HBALL_BALL_Q6_KP, HBALL_BALL_Q6_KV, HBALL_BALL_Q6_KI
-        ) && hball_deployment_controller_set_motion_compensation(
-            0.40F, 0.050F, HBALL_BALL_Q6_PIPE_LIMIT_RAD
         );
     }
     return false;
@@ -2029,10 +2022,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     {
         pipe_limit_rad = fabsf(snapshot.ball_position_m) >= 0.080F
             ? g_hball_formal_recovery_limit_rad
-            : (g_hball_ball_control_mission
-                    == HBALL_MISSION_Q6_HOLD_POSITION_LAP
-                ? HBALL_BALL_Q6_PIPE_LIMIT_RAD
-                : g_hball_formal_pipe_limit_rad);
+            : g_hball_formal_pipe_limit_rad;
     }
     else
     {
