@@ -205,6 +205,10 @@ int32_t Get_Encoder_countB_LAST=0;
 
 int main(void){
     SYSCFG_DL_init();
+#if APP_MODE == APP_MODE_LAP_TEST
+    /* Complete the LCD's blocking reset delays before accepting IMU bytes. */
+    lcd_init();
+#endif
     /*
      * Several APP_MODE handlers intentionally never return. Start the WIT
      * UART/DMA before dispatching to them so CAN telemetry carries real
@@ -260,7 +264,6 @@ int main(void){
 #elif APP_MODE == APP_MODE_LAP_TEST
     chassis_actuator_stop();
     chassis_actuator_disable();
-    lcd_init();
     lap_test();
 #elif APP_MODE == APP_MODE_SPEED_CAL_TEST
     chassis_actuator_stop();

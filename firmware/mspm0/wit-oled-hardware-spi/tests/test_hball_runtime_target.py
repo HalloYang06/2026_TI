@@ -86,6 +86,7 @@ def test_runtime_target_starts_before_systick_and_is_polled_in_foreground() -> N
     assert init.index("hball_can_port_init();") < init.index(
         "hball_runtime_target_init();"
     ) < init.index("SysTick_Init();")
+    assert init.index("lcd_init();") < init.index("WIT_Init();")
     assert "hball_runtime_target_poll(tick_ms);" in menu
     assert menu.count("competition_runtime_wait_ms(5U);") == 2
     assert menu.count("competition_runtime_wait_ms(50U);") == 1
