@@ -64,7 +64,7 @@
 #define HBALL_RS00_PARAMETER_SLOT_MECH_POSITION 1U
 #define HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY 3U
 #define HBALL_RS00_CONFIRM_TOKEN "CONFIRM_NO_LOAD"
-#define HBALL_BALL_COMMISSION_LEVEL_RAD 1.7205F
+#define HBALL_BALL_COMMISSION_LEVEL_RAD 1.6000F
 #define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.052359878F
 #define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.052359878F
 #define HBALL_BALL_FORMAL_PIPE_LIMIT_RAD 0.034906585F
@@ -179,6 +179,8 @@ static hball_control_output_t g_hball_ball_output;
 static rt_bool_t g_hball_ball_active = RT_FALSE;
 static float g_hball_ball_target_m = 0.0F;
 static float g_hball_ball_level_rad = HBALL_BALL_COMMISSION_LEVEL_RAD;
+static float g_hball_ball_commission_level_rad =
+    HBALL_BALL_COMMISSION_LEVEL_RAD;
 static rt_uint32_t g_hball_ball_start_ms = 0U;
 static rt_uint32_t g_hball_ball_last_step_ms = 0U;
 static rt_uint32_t g_hball_ball_sensor_invalid_since_ms = 0U;
@@ -265,6 +267,15 @@ bool hball_runtime_tuning_set(const char *name, float value)
             return false;
         }
         g_hball_ball_q3_target_rate_mps = value / 100.0F;
+        return true;
+    }
+    if (strcmp(name, "q3_level_mrad") == 0)
+    {
+        if ((value < 1400.0F) || (value > 1900.0F))
+        {
+            return false;
+        }
+        g_hball_ball_commission_level_rad = value / 1000.0F;
         return true;
     }
     if ((strcmp(name, "q3_kp") == 0)
@@ -2761,7 +2772,7 @@ static int hball_q3_start_common(rt_bool_t level_only)
         initial_position_m -= g_hball_ball_q3_vision_zero_m;
     }
     hball_control_pipeline_init(&g_hball_ball_pipeline, initial_position_m);
-    g_hball_ball_level_rad = HBALL_BALL_COMMISSION_LEVEL_RAD;
+    g_hball_ball_level_rad = g_hball_ball_commission_level_rad;
     if (!hball_control_pipeline_set_motor_level(
             &g_hball_ball_pipeline, g_hball_ball_level_rad))
     {
@@ -2981,7 +2992,7 @@ static int hball_hold_start_common(
     hball_control_pipeline_init(
         &g_hball_ball_pipeline, snapshot.ball_position_m
     );
-    g_hball_ball_level_rad = HBALL_BALL_COMMISSION_LEVEL_RAD;
+    g_hball_ball_level_rad = g_hball_ball_commission_level_rad;
     if (!hball_control_pipeline_set_motor_level(
             &g_hball_ball_pipeline, g_hball_ball_level_rad))
     {

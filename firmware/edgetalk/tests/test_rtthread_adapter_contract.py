@@ -85,7 +85,7 @@ def test_q3_verified_pid_and_sequence_baseline_is_frozen():
     source = ADAPTER.read_text(encoding="utf-8")
 
     for definition in (
-        "#define HBALL_BALL_COMMISSION_LEVEL_RAD 1.7205F",
+        "#define HBALL_BALL_COMMISSION_LEVEL_RAD 1.6000F",
         "#define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.052359878F",
         "#define HBALL_BALL_PID_KP 0.70F",
         "#define HBALL_BALL_PID_KI 0.15F",
@@ -108,6 +108,9 @@ def test_q3_verified_pid_and_sequence_baseline_is_frozen():
 
 def test_q3_runtime_tuning_is_separate_and_disables_ramp_integral():
     source = ADAPTER.read_text(encoding="utf-8")
+
+    assert 'strcmp(name, "q3_level_mrad") == 0' in source
+    assert "g_hball_ball_level_rad = g_hball_ball_commission_level_rad;" in source
 
     for name in ("q3_kp", "q3_ki", "q3_kd", "q3_rate_cms"):
         assert f'"{name}"' in source
