@@ -69,8 +69,6 @@
 #define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.052359878F
 #define HBALL_BALL_FORMAL_PIPE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_FORMAL_RECOVERY_LIMIT_RAD 0.043633231F
-#define HBALL_BALL_Q45_STARTUP_PIPE_LIMIT_RAD 0.041887902F
-#define HBALL_BALL_Q45_STARTUP_LIMIT_MS 1000U
 #define HBALL_BALL_SETTLE_PIPE_LIMIT_RAD 0.017453293F
 #define HBALL_BALL_SETTLE_CAPTURE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_SETTLE_RECOVERY_LIMIT_RAD 0.052359879F
@@ -2025,16 +2023,6 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         pipe_limit_rad = fabsf(snapshot.ball_position_m) >= 0.080F
             ? g_hball_formal_recovery_limit_rad
             : g_hball_formal_pipe_limit_rad;
-        if (((g_hball_ball_control_mission == HBALL_MISSION_Q4_A_TO_B)
-                || (g_hball_ball_control_mission
-                    == HBALL_MISSION_Q5_CENTER_LAP))
-            && ((rt_uint32_t)(now_ms - g_hball_ball_start_ms)
-                < HBALL_BALL_Q45_STARTUP_LIMIT_MS)
-            && (pipe_limit_rad
-                < HBALL_BALL_Q45_STARTUP_PIPE_LIMIT_RAD))
-        {
-            pipe_limit_rad = HBALL_BALL_Q45_STARTUP_PIPE_LIMIT_RAD;
-        }
     }
     else
     {
