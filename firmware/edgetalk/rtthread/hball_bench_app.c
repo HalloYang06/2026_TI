@@ -67,12 +67,10 @@
 #define HBALL_BALL_COMMISSION_LEVEL_RAD 1.7205F
 #define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.043633231F
-#define HBALL_BALL_FORMAL_PIPE_LIMIT_RAD 0.052359879F
+#define HBALL_BALL_FORMAL_PIPE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_FORMAL_RECOVERY_LIMIT_RAD 0.043633231F
-#define HBALL_BALL_SETTLE_PIPE_LIMIT_RAD 0.052359879F
-#define HBALL_BALL_SETTLE_CAPTURE_LIMIT_RAD 0.052359879F
-#define HBALL_Q4_STARTUP_FEEDFORWARD_MS 900U
-#define HBALL_Q4_STARTUP_FEEDFORWARD_PEAK_RAD 0.019198622F
+#define HBALL_BALL_SETTLE_PIPE_LIMIT_RAD 0.017453293F
+#define HBALL_BALL_SETTLE_CAPTURE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_SETTLE_RECOVERY_LIMIT_RAD 0.052359879F
 #define HBALL_BALL_Q3_PIPE_RATE_LIMIT_RAD_S 0.50F
 #define HBALL_BALL_PID_KP 0.45F
@@ -213,7 +211,7 @@ static float g_hball_settle_capture_limit_rad =
 static float g_hball_settle_recovery_limit_rad =
     HBALL_BALL_SETTLE_RECOVERY_LIMIT_RAD;
 static float g_hball_lqi_position_gain = 2.64956F;
-static float g_hball_lqi_velocity_gain = 1.230000F;
+static float g_hball_lqi_velocity_gain = 0.910066F;
 static float g_hball_lqi_integral_gain = 0.787185F;
 
 bool hball_runtime_tuning_set(const char *name, float value)
@@ -1699,24 +1697,6 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
             pipe_command_rad += copysignf(
                 g_hball_ball_pid_static_boost_rad, position_error_m
             );
-        }
-    }
-    if (!settle_hold
-        && (g_hball_ball_control_mission == HBALL_MISSION_Q4_A_TO_B))
-    {
-        const rt_uint32_t startup_elapsed_ms =
-            (rt_uint32_t)(now_ms - g_hball_ball_start_ms);
-
-        if (startup_elapsed_ms < HBALL_Q4_STARTUP_FEEDFORWARD_MS)
-        {
-            const float u = (float)startup_elapsed_ms
-                / (float)HBALL_Q4_STARTUP_FEEDFORWARD_MS;
-            const float one_minus_u = 1.0F - u;
-            const float acceleration_envelope =
-                16.0F * u * u * one_minus_u * one_minus_u;
-
-            pipe_command_rad += HBALL_Q4_STARTUP_FEEDFORWARD_PEAK_RAD
-                * acceleration_envelope;
         }
     }
     if (pipe_command_rad > pipe_limit_rad)
