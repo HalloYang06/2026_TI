@@ -206,6 +206,8 @@ static rt_uint8_t g_hball_ball_control_mission = 0U;
 static rt_bool_t g_hball_ball_settle_hold = RT_FALSE;
 static rt_bool_t g_hball_ball_q3_leveling = RT_FALSE;
 static rt_bool_t g_hball_ball_q3_leveling_first_target = RT_FALSE;
+static rt_bool_t g_hball_ball_q3_zero_calibrated = RT_FALSE;
+static float g_hball_ball_q3_vision_zero_m = 0.0F;
 static float g_hball_formal_pipe_limit_rad =
     HBALL_BALL_FORMAL_PIPE_LIMIT_RAD;
 static float g_hball_formal_recovery_limit_rad =
@@ -1487,6 +1489,11 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         invalid_mask |= UINT8_C(1) << 0;
     }
     if ((g_hball_ball_mode == 1U)
+        && g_hball_ball_q3_zero_calibrated)
+    {
+        snapshot.ball_position_m -= g_hball_ball_q3_vision_zero_m;
+    }
+    if ((g_hball_ball_mode == 1U)
         && ((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) == 0U)
         && (snapshot.vision_receive_age_ms <= HBALL_BALL_VISION_HOLD_MS)
         && isfinite(snapshot.ball_position_m)
@@ -1634,9 +1641,15 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
             else if ((rt_uint32_t)(now_ms
                     - g_hball_ball_settle_since_ms) >= 100U)
             {
-                const float initial_position_m = !vision_stale
+                float initial_position_m = !vision_stale
                         && isfinite(snapshot.ball_position_m)
                     ? snapshot.ball_position_m : 0.0F;
+
+                g_hball_ball_q3_vision_zero_m =
+                    (fabsf(initial_position_m) <= 0.030F)
+                    ? initial_position_m : 0.0F;
+                g_hball_ball_q3_zero_calibrated = RT_TRUE;
+                initial_position_m -= g_hball_ball_q3_vision_zero_m;
 
                 hball_control_pipeline_init(
                     &g_hball_ball_pipeline, initial_position_m
@@ -1658,7 +1671,8 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
                 g_hball_ball_start_ms = 0U;
                 g_hball_ball_q3_leveling = RT_FALSE;
                 rt_kprintf(
-                    "[hball-q3] mechanical level ready; recover O\n"
+                    "[hball-q3] mechanical level ready; vision_zero_mm=%ld; recover O\n",
+                    (long)(g_hball_ball_q3_vision_zero_m * 1000.0F)
                 );
             }
         }
@@ -2584,6 +2598,8 @@ static int hball_q3_start_common(void)
     g_hball_ball_settle_hold = RT_FALSE;
     g_hball_ball_q3_leveling = RT_TRUE;
     g_hball_ball_q3_leveling_first_target = RT_TRUE;
+    g_hball_ball_q3_zero_calibrated = RT_FALSE;
+    g_hball_ball_q3_vision_zero_m = 0.0F;
     g_hball_ball_active = RT_TRUE;
     g_hball_motion.last_manual_command_ms = now_ms;
     rt_kprintf(
@@ -2847,6 +2863,11 @@ static void hball_q3_status5(void)
     {
         rt_kprintf("[hball-q3] snapshot unavailable\n");
         return;
+    }
+    if ((g_hball_ball_mode == 1U)
+        && g_hball_ball_q3_zero_calibrated)
+    {
+        snapshot.ball_position_m -= g_hball_ball_q3_vision_zero_m;
     }
     rt_kprintf(
         "[hball-control] algo=%s active=%d mode=%u phase=%u leveling=%d passed=%d x_mm=%ld target_mm=%ld estimate_mm=%ld velocity_mm_s=%ld disturbance_mm_s2=%ld pipe_mrad=%ld motor_target_mrad=%ld max_error_mm=%ld violations=%lu tx=%lu\n",
