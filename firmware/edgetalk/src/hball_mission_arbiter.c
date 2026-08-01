@@ -92,12 +92,16 @@ bool hball_mission_arbiter_accept_intent(
     if (intent->command == HBALL_MISSION_COMMAND_PREPARE)
     {
         if ((arbiter->global_state >= HBALL_MISSION_STATE_START_PENDING)
-            && (arbiter->global_state <= HBALL_MISSION_STATE_FINISHING)
-            && ((intent->epoch != arbiter->epoch)
-                || (intent->mission_id != arbiter->mission_id)))
+            && (arbiter->global_state <= HBALL_MISSION_STATE_FINISHING))
         {
-            arbiter->epoch_reject_total++;
-            return false;
+            if ((intent->epoch != arbiter->epoch)
+                || (intent->mission_id != arbiter->mission_id))
+            {
+                arbiter->epoch_reject_total++;
+                return false;
+            }
+            arbiter->last_intent_time_ms = now_ms;
+            return true;
         }
         hball_mission_prepare(arbiter, intent, now_ms);
         return true;
