@@ -85,6 +85,15 @@
 #define HBALL_BALL_LQI_KP 1.576194F
 #define HBALL_BALL_LQI_KI 1.000000F
 #define HBALL_BALL_LQI_KD 0.713641F
+#define HBALL_BALL_Q4_KP 2.40F
+#define HBALL_BALL_Q4_KV 1.25F
+#define HBALL_BALL_Q4_KI 0.16F
+#define HBALL_BALL_Q5_KP 2.20F
+#define HBALL_BALL_Q5_KV 1.60F
+#define HBALL_BALL_Q5_KI 0.05F
+#define HBALL_BALL_Q6_KP 2.50F
+#define HBALL_BALL_Q6_KV 1.15F
+#define HBALL_BALL_Q6_KI 0.18F
 #define HBALL_BALL_PID_INTEGRAL_LIMIT 0.050F
 #define HBALL_BALL_COMMISSION_POSITION_LIMIT_M 0.120F
 #define HBALL_BALL_Q3_START_WINDOW_M 0.010F
@@ -233,6 +242,29 @@ static float g_hball_settle_recovery_limit_rad =
 static float g_hball_lqi_position_gain = 2.64956F;
 static float g_hball_lqi_velocity_gain = 1.050000F;
 static float g_hball_lqi_integral_gain = 0.787185F;
+
+static bool hball_apply_mission_gains(rt_uint8_t mission)
+{
+    if (mission == HBALL_MISSION_Q4_A_TO_B)
+    {
+        return hball_deployment_controller_set_gains(
+            HBALL_BALL_Q4_KP, HBALL_BALL_Q4_KV, HBALL_BALL_Q4_KI
+        );
+    }
+    if (mission == HBALL_MISSION_Q5_CENTER_LAP)
+    {
+        return hball_deployment_controller_set_gains(
+            HBALL_BALL_Q5_KP, HBALL_BALL_Q5_KV, HBALL_BALL_Q5_KI
+        );
+    }
+    if (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+    {
+        return hball_deployment_controller_set_gains(
+            HBALL_BALL_Q6_KP, HBALL_BALL_Q6_KV, HBALL_BALL_Q6_KI
+        );
+    }
+    return false;
+}
 
 bool hball_runtime_tuning_set(const char *name, float value)
 {
@@ -1478,13 +1510,16 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
             }
             else if (q456 && q456_target_ready)
             {
-                result = hball_hold_start_common(
-                    mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP
-                        ? 3U : 2U,
-                    q456_target_m,
-                    mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP
-                        ? "q6-latched" : "q45-center"
-                );
+                if (hball_apply_mission_gains(mission))
+                {
+                    result = hball_hold_start_common(
+                        mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP
+                            ? 3U : 2U,
+                        q456_target_m,
+                        mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP
+                            ? "q6-latched" : "q45-center"
+                    );
+                }
             }
             if (result == RT_EOK)
             {
