@@ -79,6 +79,7 @@ _Static_assert(
 #define CAR_TASK_STABLE_LAP      3U
 #define GYRO_LCD_REFRESH_MS 100U
 #define HBALL_MISSION_MENU_RENDER_MIN_MS 1000U
+#define HBALL_MISSION_START_LATCH_MS 1500U
 #define HBALL_Q4_SOFT_START_MS 600U
 #define HBALL_Q4_SOFT_STOP_MS 800U
 #define HBALL_Q4_DUTY_SLEW_STEP 5
@@ -940,7 +941,9 @@ static uint8_t select_car_task(void)
     hball_mission_menu_result_t result;
     task_key_event_t key_event;
     bool last_view_valid = false;
+    bool start_key_latched = false;
     uint32_t last_render_ms = 0U;
+    uint32_t start_key_latched_ms = 0U;
 
     mission_lcd_fill_serviced(0, 0, LCD_W, LCD_H, BLACK);
 
@@ -971,6 +974,35 @@ static uint8_t select_car_task(void)
                 beep();
             }
             continue;
+        }
+        if (key_event == TASK_KEY_EVENT_SELECT)
+        {
+            start_key_latched = false;
+        }
+        else if (key_event == TASK_KEY_EVENT_EXECUTE)
+        {
+            start_key_latched = true;
+            start_key_latched_ms = tick_ms;
+        }
+        if (start_key_latched)
+        {
+            if ((uint32_t)(tick_ms - start_key_latched_ms)
+                > HBALL_MISSION_START_LATCH_MS)
+            {
+                start_key_latched = false;
+                beep();
+                continue;
+            }
+            if (!hball_can_mission_get_snapshot(&snapshot)
+                || ((snapshot.selected_mission
+                        >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+                    && !hball_mission_client_ready(&snapshot, tick_ms)))
+            {
+                competition_runtime_wait_ms(5U);
+                continue;
+            }
+            key_event = TASK_KEY_EVENT_EXECUTE;
+            start_key_latched = false;
         }
         if (key_event == TASK_KEY_EVENT_NONE)
         {
