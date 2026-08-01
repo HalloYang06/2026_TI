@@ -47,6 +47,8 @@ typedef struct
     uint32_t mission_status_invalid;
     uint32_t mission_ui_rx;
     uint32_t mission_ui_invalid;
+    uint32_t mission_setup_rx;
+    uint32_t mission_setup_invalid;
 } hball_can_port_stats_t;
 
 extern volatile hball_can_port_stats_t g_hball_can_stats;

@@ -44,6 +44,7 @@ bool hball_mission_client_select(
     client->command = HBALL_MISSION_COMMAND_PREPARE;
     client->command_time_ms = now_ms;
     client->status_valid = false;
+    client->setup_valid = false;
     return true;
 }
 

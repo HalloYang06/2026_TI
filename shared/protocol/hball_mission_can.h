@@ -14,6 +14,11 @@ extern "C" {
 #define HBALL_CAN_ID_MISSION_STATUS UINT32_C(0x082)
 #define HBALL_CAN_ID_MISSION_UI UINT32_C(0x083)
 #define HBALL_CAN_ID_MISSION_CHASSIS_STATUS UINT32_C(0x084)
+#define HBALL_CAN_ID_MISSION_SETUP UINT32_C(0x085)
+
+#define HBALL_MISSION_SETUP_MOTOR_VALID (UINT8_C(1) << 0)
+#define HBALL_MISSION_SETUP_LEVEL_READY (UINT8_C(1) << 1)
+#define HBALL_MISSION_SETUP_TARGET_SET (UINT8_C(1) << 2)
 
 #define HBALL_MISSION_READY_M33_ALIVE (UINT16_C(1) << 0)
 #define HBALL_MISSION_READY_MSP_LINK (UINT16_C(1) << 1)
@@ -130,6 +135,15 @@ typedef struct
     uint32_t elapsed_ms;
 } hball_mission_chassis_status_t;
 
+typedef struct
+{
+    uint16_t epoch;
+    int16_t motor_angle_mrad;
+    int16_t target_position_mm;
+    uint8_t flags;
+    uint8_t sequence;
+} hball_mission_setup_t;
+
 bool hball_mission_id_valid(uint8_t mission_id);
 bool hball_mission_encode_intent(
     const hball_mission_intent_t *message,
@@ -162,6 +176,14 @@ bool hball_mission_encode_chassis_status(
 bool hball_mission_decode_chassis_status(
     const hball_mission_can_frame_t *frame,
     hball_mission_chassis_status_t *message
+);
+bool hball_mission_encode_setup(
+    const hball_mission_setup_t *message,
+    hball_mission_can_frame_t *frame
+);
+bool hball_mission_decode_setup(
+    const hball_mission_can_frame_t *frame,
+    hball_mission_setup_t *message
 );
 
 #ifdef __cplusplus

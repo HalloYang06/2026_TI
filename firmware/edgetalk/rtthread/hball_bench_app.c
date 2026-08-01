@@ -127,6 +127,8 @@ static rt_uint32_t g_hball_mission_chassis_invalid = 0U;
 static rt_uint32_t g_hball_mission_status_tx = 0U;
 static rt_uint32_t g_hball_mission_status_tx_failure = 0U;
 static rt_uint32_t g_hball_mission_last_status_ms = 0U;
+static rt_uint32_t g_hball_mission_last_setup_ms = 0U;
+static rt_uint8_t g_hball_mission_setup_sequence = 0U;
 #if HBALL_RS00_MOTION_TX_ENABLED
 typedef enum
 {
@@ -335,7 +337,8 @@ static rt_err_t hball_send_can_frame(const hball_can_frame_t *frame)
     allowed_extended = frame->is_extended != 0U;
     allowed_standard = (frame->is_extended == 0U)
         && ((frame->id == HBALL_CAN_ID_MISSION_STATUS)
-            || (frame->id == HBALL_CAN_ID_MISSION_UI));
+            || (frame->id == HBALL_CAN_ID_MISSION_UI)
+            || (frame->id == HBALL_CAN_ID_MISSION_SETUP));
     if (!g_hball_can_ready || (frame->is_remote != 0U)
         || (frame->dlc != 8U)
         || (!allowed_extended && !allowed_standard))
@@ -373,7 +376,8 @@ static rt_err_t hball_send_mission_frame(
         || (frame->is_extended != 0U) || (frame->is_remote != 0U)
         || (frame->dlc != HBALL_MISSION_CAN_DLC)
         || ((frame->id != HBALL_CAN_ID_MISSION_STATUS)
-            && (frame->id != HBALL_CAN_ID_MISSION_UI)))
+            && (frame->id != HBALL_CAN_ID_MISSION_UI)
+            && (frame->id != HBALL_CAN_ID_MISSION_SETUP)))
     {
         return -RT_ERROR;
     }
@@ -641,6 +645,7 @@ static rt_uint16_t hball_mission_ready_mask(rt_uint32_t now_ms)
 static void hball_mission_tick(rt_uint32_t now_ms)
 {
     hball_mission_status_t status;
+    hball_mission_setup_t setup;
     hball_mission_can_frame_t frame;
 
     hball_mission_arbiter_update_ready(
@@ -649,24 +654,61 @@ static void hball_mission_tick(rt_uint32_t now_ms)
         now_ms
     );
     if ((rt_uint32_t)(now_ms - g_hball_mission_last_status_ms)
-        < HBALL_MISSION_STATUS_PERIOD_MS)
+        >= HBALL_MISSION_STATUS_PERIOD_MS)
+    {
+        g_hball_mission_last_status_ms = now_ms;
+        if (hball_mission_arbiter_make_status(
+                &g_hball_mission_arbiter, &status)
+            && hball_mission_encode_status(&status, &frame))
+        {
+            if (hball_send_mission_frame(&frame) == RT_EOK)
+            {
+                g_hball_mission_status_tx++;
+            }
+            else
+            {
+                g_hball_mission_status_tx_failure++;
+            }
+        }
+        return;
+    }
+    if (!g_hball_mission_arbiter.context_valid
+        || ((rt_uint32_t)(now_ms - g_hball_mission_last_setup_ms)
+            < HBALL_MISSION_STATUS_PERIOD_MS))
     {
         return;
     }
-    g_hball_mission_last_status_ms = now_ms;
-    if (!hball_mission_arbiter_make_status(
-            &g_hball_mission_arbiter, &status)
-        || !hball_mission_encode_status(&status, &frame))
+    g_hball_mission_last_setup_ms = now_ms;
+    rt_memset(&setup, 0, sizeof(setup));
+    setup.epoch = g_hball_mission_arbiter.epoch;
+    setup.sequence = g_hball_mission_setup_sequence++;
+    if (hball_motor_monitor_motion_parameters_fresh(
+            &g_hball_motor, now_ms, HBALL_RS00_MOTION_PARAMETER_FRESH_MS))
     {
-        return;
+        setup.motor_angle_mrad = (int16_t)(
+            g_hball_motor.parameters.mech_position_rad * 1000.0F
+        );
+        setup.flags |= HBALL_MISSION_SETUP_MOTOR_VALID;
     }
-    if (hball_send_mission_frame(&frame) == RT_EOK)
+#if HBALL_INTEGRATED_SHADOW
+    if (g_hball_prestart_setup_ready
+        && (g_hball_prestart_setup_epoch == setup.epoch))
     {
-        g_hball_mission_status_tx++;
+        setup.flags |= HBALL_MISSION_SETUP_LEVEL_READY;
     }
-    else
+    if ((g_hball_mission_arbiter.mission_id
+            == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+        && g_hball_q456_runtime.target_latched)
     {
-        g_hball_mission_status_tx_failure++;
+        setup.target_position_mm = (int16_t)(
+            g_hball_q456_runtime.target_position_m * 1000.0F
+        );
+        setup.flags |= HBALL_MISSION_SETUP_TARGET_SET;
+    }
+#endif
+    if (hball_mission_encode_setup(&setup, &frame))
+    {
+        (void)hball_send_mission_frame(&frame);
     }
 }
 

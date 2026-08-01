@@ -599,6 +599,23 @@ static void hball_can_record_rx(const DL_MCAN_RxBufElement *message)
             g_hball_can_stats.mission_ui_invalid++;
         }
     }
+    else if ((message->xtd == 0U) && (id == HBALL_CAN_ID_MISSION_SETUP))
+    {
+        hball_mission_setup_t setup;
+
+        hball_rx_element_to_mission_frame(id, message, &mission_frame);
+        if (hball_mission_decode_setup(&mission_frame, &setup)
+            && (setup.epoch == g_hball_mission_client.candidate_epoch))
+        {
+            g_hball_mission_client.latest_setup = setup;
+            g_hball_mission_client.setup_valid = true;
+            g_hball_can_stats.mission_setup_rx++;
+        }
+        else
+        {
+            g_hball_can_stats.mission_setup_invalid++;
+        }
+    }
 }
 
 static void hball_can_drain_fifo0(uint8_t max_frames)

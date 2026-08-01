@@ -1056,6 +1056,8 @@ static void render_mission_menu(
 )
 {
     char ready_text[5];
+    int32_t motor_mrad;
+    int32_t target_cm;
 
     if (view == NULL)
     {
@@ -1093,23 +1095,57 @@ static void render_mission_menu(
         BLACK, 24, 0
     );
     mission_lcd_fill_serviced(0, 136, LCD_W, 203, BLACK);
-    if (view->start_requested)
+    if (view->setup_valid
+        && ((view->setup_flags & HBALL_MISSION_SETUP_MOTOR_VALID) != 0U))
     {
-        LCD_ShowString(4, 140, (const unsigned char *)"START SENT", MAGENTA, BLACK, 24, 0);
-        LCD_ShowString(4, 172, (const unsigned char *)"SHADOW ONLY", YELLOW, BLACK, 24, 0);
+        motor_mrad = view->motor_angle_mrad;
+        LCD_ShowString(4, 140, (const unsigned char *)"M:", WHITE, BLACK, 24, 0);
+        LCD_ShowString(
+            28, 140,
+            (const unsigned char *)((motor_mrad < 0) ? "-" : "+"),
+            CYAN, BLACK, 24, 0
+        );
+        if (motor_mrad < 0)
+        {
+            motor_mrad = -motor_mrad;
+        }
+        LCD_ShowIntNum(40, 140, (uint32_t)(motor_mrad / 1000), 1, CYAN, BLACK, 24);
+        LCD_ShowString(56, 140, (const unsigned char *)".", CYAN, BLACK, 24, 0);
+        LCD_ShowIntNum(68, 140, (uint32_t)(motor_mrad % 1000), 3, CYAN, BLACK, 24);
+        LCD_ShowString(116, 140, (const unsigned char *)"RAD", WHITE, BLACK, 24, 0);
     }
     else
     {
-        LCD_ShowString(4, 140, (const unsigned char *)"SW3 SELECT", WHITE, BLACK, 24, 0);
-        if ((view->mission_id >= HBALL_MISSION_Q3_BALL_SEQUENCE)
-            && (view->mission_id <= HBALL_MISSION_Q6_HOLD_POSITION_LAP))
+        LCD_ShowString(4, 140, (const unsigned char *)"M: ---.--- RAD", YELLOW, BLACK, 24, 0);
+    }
+    if (view->mission_id == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+    {
+        target_cm = view->target_position_mm / 10;
+        LCD_ShowString(4, 172, (const unsigned char *)"Q6 T:", WHITE, BLACK, 24, 0);
+        LCD_ShowString(
+            64, 172,
+            (const unsigned char *)((target_cm < 0) ? "-" : "+"),
+            GREEN, BLACK, 24, 0
+        );
+        if (target_cm < 0)
         {
-            LCD_ShowString(4, 172, (const unsigned char *)"PB21 SET SW1 GO", WHITE, BLACK, 24, 0);
+            target_cm = -target_cm;
         }
-        else
-        {
-            LCD_ShowString(4, 172, (const unsigned char *)"SW1 EXECUTE", WHITE, BLACK, 24, 0);
-        }
+        LCD_ShowIntNum(76, 172, (uint32_t)target_cm, 2, GREEN, BLACK, 24);
+        LCD_ShowString(108, 172, (const unsigned char *)"CM PB21+1", WHITE, BLACK, 24, 0);
+    }
+    else if (view->start_requested)
+    {
+        LCD_ShowString(4, 172, (const unsigned char *)"START SENT", MAGENTA, BLACK, 24, 0);
+    }
+    else if ((view->mission_id >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+             && (view->mission_id <= HBALL_MISSION_Q5_CENTER_LAP))
+    {
+        LCD_ShowString(4, 172, (const unsigned char *)"PB21 LEVEL SW1 GO", WHITE, BLACK, 24, 0);
+    }
+    else
+    {
+        LCD_ShowString(4, 172, (const unsigned char *)"SW3 SELECT SW1 GO", WHITE, BLACK, 24, 0);
     }
 }
 

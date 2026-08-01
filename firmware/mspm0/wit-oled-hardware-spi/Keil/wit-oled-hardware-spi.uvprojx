@@ -383,7 +383,7 @@
           <Files>
             <File>
               <FileName>driverlib.a</FileName>
-              <FileType>2</FileType>
+              <FileType>4</FileType>
               <FilePath>C:\ti\mspm0_sdk_2_05_01_00\source\ti\driverlib\lib\keil\m0p\mspm0g1x0x_g3x0x\driverlib.a</FilePath>
             </File>
           </Files>

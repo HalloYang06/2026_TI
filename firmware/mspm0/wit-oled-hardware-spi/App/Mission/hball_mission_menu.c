@@ -207,6 +207,14 @@ bool hball_mission_menu_make_view(
     view->missing_label = hball_mission_menu_missing_label(client, now_ms);
     view->epoch = client->candidate_epoch;
     view->start_requested = client->start_requested;
+    view->setup_valid = client->setup_valid
+        && (client->latest_setup.epoch == client->candidate_epoch);
+    if (view->setup_valid)
+    {
+        view->motor_angle_mrad = client->latest_setup.motor_angle_mrad;
+        view->target_position_mm = client->latest_setup.target_position_mm;
+        view->setup_flags = client->latest_setup.flags;
+    }
     view->local_execution =
         hball_mission_policy_get(client->selected_mission, &policy)
         && policy.local_start;
@@ -245,6 +253,10 @@ bool hball_mission_menu_view_equal(
         && (left->local_execution == right->local_execution)
         && (left->status_fresh == right->status_fresh)
         && (left->start_requested == right->start_requested)
+        && (left->setup_valid == right->setup_valid)
+        && (left->motor_angle_mrad == right->motor_angle_mrad)
+        && (left->target_position_mm == right->target_position_mm)
+        && (left->setup_flags == right->setup_flags)
         && (strcmp(left->mission_label, right->mission_label) == 0)
         && (strcmp(left->state_label, right->state_label) == 0)
         && (strcmp(left->missing_label, right->missing_label) == 0);

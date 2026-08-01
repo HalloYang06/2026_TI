@@ -25,7 +25,9 @@ typedef struct
     uint32_t out_of_order_status_total;
     uint32_t status_resync_total;
     uint32_t epoch_mismatch_total;
+    hball_mission_setup_t latest_setup;
     bool status_valid;
+    bool setup_valid;
     bool start_requested;
 } hball_mission_client_t;
 

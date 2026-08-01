@@ -35,9 +35,13 @@ typedef struct
     uint16_t ready_mask;
     uint8_t mission_id;
     uint8_t global_state;
+    int16_t motor_angle_mrad;
+    int16_t target_position_mm;
+    uint8_t setup_flags;
     bool local_execution;
     bool status_fresh;
     bool start_requested;
+    bool setup_valid;
 } hball_mission_menu_view_t;
 
 uint8_t hball_mission_menu_next(uint8_t mission_id);

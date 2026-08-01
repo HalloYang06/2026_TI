@@ -81,6 +81,23 @@ static void test_ui_and_chassis_status_preserve_signed_and_time_values(void)
     assert(memcmp(&chassis_output, &chassis_input, sizeof(chassis_input)) == 0);
 }
 
+static void test_setup_preserves_motor_angle_and_target(void)
+{
+    const hball_mission_setup_t input = {
+        9U, 1721, -50,
+        HBALL_MISSION_SETUP_MOTOR_VALID
+            | HBALL_MISSION_SETUP_LEVEL_READY,
+        7U,
+    };
+    hball_mission_setup_t output;
+    hball_mission_can_frame_t frame;
+
+    assert(hball_mission_encode_setup(&input, &frame));
+    assert(frame.id == HBALL_CAN_ID_MISSION_SETUP);
+    assert(hball_mission_decode_setup(&frame, &output));
+    assert(memcmp(&output, &input, sizeof(input)) == 0);
+}
+
 static void test_invalid_frames_and_values_fail_closed(void)
 {
     hball_mission_can_frame_t frame;
@@ -122,6 +139,7 @@ int main(void)
     test_intent_golden_vector_and_round_trip();
     test_status_golden_vector_and_round_trip();
     test_ui_and_chassis_status_preserve_signed_and_time_values();
+    test_setup_preserves_motor_angle_and_target();
     test_invalid_frames_and_values_fail_closed();
     return 0;
 }
