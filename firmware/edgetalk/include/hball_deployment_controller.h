@@ -61,6 +61,11 @@ bool hball_deployment_controller_set_gains(
     float velocity_gain,
     float integral_gain
 );
+bool hball_deployment_controller_set_motion_compensation(
+    float lateral_accel_coupling,
+    float imu_filter_tau_s,
+    float normal_angle_limit_rad
+);
 void hball_deployment_controller_predict(
     hball_deployment_controller_t *controller,
     float dt_s,
