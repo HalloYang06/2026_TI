@@ -2552,10 +2552,6 @@ static int hball_q3_start_common(void)
     g_hball_ball_phase = 0U;
     g_hball_ball_mode = 1U;
     g_hball_ball_q3_passed = RT_FALSE;
-    g_hball_ball_pid_kp = HBALL_BALL_PID_KP;
-    g_hball_ball_pid_ki = HBALL_BALL_PID_KI;
-    g_hball_ball_pid_kd = HBALL_BALL_PID_KD;
-    g_hball_ball_pid_static_boost_rad = 0.0F;
     g_hball_ball_q3_pipe_command_rad = current_pipe_rad;
     g_hball_ball_position_integral = 0.0F;
     g_hball_ball_previous_error_m = 0.0F;
