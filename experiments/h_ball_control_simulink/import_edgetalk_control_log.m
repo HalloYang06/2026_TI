@@ -16,10 +16,11 @@ required = ["time_s", "ball_position_m", "estimated_position_m", ...
 missing = setdiff(required, string(table_data.Properties.VariableNames));
 assert(isempty(missing), "Missing log columns: %s", strjoin(missing, ", "));
 
-if any(table_data.is_q3_actual ~= 1)
+if ismember("is_q3_actual", string(table_data.Properties.VariableNames)) ...
+        && any(table_data.is_q3_actual ~= 1)
     table_data = table_data(table_data.is_q3_actual == 1, :);
 end
-assert(height(table_data) >= 2, "Need at least two Q3 actual records");
+assert(height(table_data) >= 2, "Need at least two control records");
 
 time_s = table_data.time_s - table_data.time_s(1);
 assert(all(diff(time_s) > 0), "Log time must be strictly increasing");
@@ -47,6 +48,6 @@ for index = 1:numel(fields)
     end
 end
 
-fprintf("Loaded %d Q3 records, duration %.3f s, median rate %.1f Hz\n", ...
+fprintf("Loaded %d control records, duration %.3f s, median rate %.1f Hz\n", ...
     height(table_data), time_s(end), 1/median(diff(time_s)));
 end
