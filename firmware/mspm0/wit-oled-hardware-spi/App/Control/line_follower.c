@@ -51,9 +51,10 @@ static line_follower_config_t profile_config(line_follower_profile_t profile)
     }
     else if (profile == LINE_FOLLOWER_PROFILE_Q4_TIMED_RUN)
     {
-        config.base_speed = 54;
-        config.initial_speed = 54;
-        config.max_speed = 75;
+        config.base_speed = 46;
+        config.initial_speed = 28;
+        config.max_speed = 65;
+        config.request_slew_step = 3;
     }
     else if (profile == LINE_FOLLOWER_PROFILE_STABLE_LAP)
     {
