@@ -54,3 +54,9 @@ def test_wit_foreground_service_has_a_fixed_byte_budget() -> None:
     assert "wit_byte_queue_push(" in source
     assert "wit_byte_queue_pop(" in source
     assert source.count("WIT_ProcessBytes(buffer, count);") == 1
+
+
+def test_wit_queue_buffers_foreground_stalls() -> None:
+    header = (WIT_DIR / "wit_byte_queue.h").read_text(encoding="utf-8")
+
+    assert "#define WIT_BYTE_QUEUE_CAPACITY 1024U" in header

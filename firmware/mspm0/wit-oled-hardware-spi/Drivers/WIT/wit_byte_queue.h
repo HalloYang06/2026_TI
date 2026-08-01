@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define WIT_BYTE_QUEUE_CAPACITY 256U
+#define WIT_BYTE_QUEUE_CAPACITY 1024U
 
 typedef struct
 {
