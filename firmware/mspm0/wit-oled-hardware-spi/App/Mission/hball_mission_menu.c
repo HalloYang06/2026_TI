@@ -69,6 +69,15 @@ uint16_t hball_mission_menu_required_mask(uint8_t mission_id)
     {
         required |= HBALL_MISSION_READY_IMU;
     }
+    if ((mission_id >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+        && (mission_id <= HBALL_MISSION_Q5_CENTER_LAP))
+    {
+        required |= HBALL_MISSION_READY_START_GEOMETRY;
+    }
+    else if (mission_id == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+    {
+        required |= HBALL_MISSION_READY_BALL_PRECONDITION;
+    }
     return required;
 }
 
@@ -193,6 +202,7 @@ bool hball_mission_menu_make_view(
     view->mission_label = hball_mission_menu_mission_label(
         client->selected_mission
     );
+    view->mission_id = client->selected_mission;
     view->state_label = "NO STATUS";
     view->missing_label = hball_mission_menu_missing_label(client, now_ms);
     view->epoch = client->candidate_epoch;
@@ -229,6 +239,7 @@ bool hball_mission_menu_view_equal(
         return false;
     }
     return (left->epoch == right->epoch)
+        && (left->mission_id == right->mission_id)
         && (left->ready_mask == right->ready_mask)
         && (left->global_state == right->global_state)
         && (left->local_execution == right->local_execution)

@@ -16,5 +16,6 @@ typedef enum
 
 int get_keynum(void);
 task_key_event_t get_task_key_event(void);
+uint8_t get_q3_level_key_event(void);
 
 #endif

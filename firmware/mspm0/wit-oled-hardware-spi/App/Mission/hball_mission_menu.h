@@ -33,6 +33,7 @@ typedef struct
     const char *missing_label;
     uint16_t epoch;
     uint16_t ready_mask;
+    uint8_t mission_id;
     uint8_t global_state;
     bool local_execution;
     bool status_fresh;

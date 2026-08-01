@@ -11,7 +11,7 @@ extern "C" {
 #endif
 
 #define HBALL_Q456_LATCH_SAMPLE_COUNT 5U
-#define HBALL_Q456_TARGET_LIMIT_M 0.080F
+#define HBALL_Q456_TARGET_LIMIT_M 0.110F
 #define HBALL_Q4_DEADLINE_MS 8000U
 #define HBALL_Q5_DEADLINE_MS 30000U
 #define HBALL_Q6_DEADLINE_MS 30000U
@@ -61,6 +61,7 @@ void hball_m33_q456_observe_vision(
     float ball_position_m,
     bool valid
 );
+bool hball_m33_q456_step_q6_target(hball_m33_q456_t *runtime);
 bool hball_m33_q456_start_target(
     hball_m33_q456_t *runtime, float *target_position_m
 );

@@ -961,6 +961,17 @@ static uint8_t select_car_task(void)
             last_render_ms = tick_ms;
         }
         key_event = get_task_key_event();
+        if (hball_can_mission_get_snapshot(&snapshot)
+            && (snapshot.selected_mission
+                >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+            && (get_q3_level_key_event() != 0U))
+        {
+            if (hball_can_mission_request_level(tick_ms))
+            {
+                beep();
+            }
+            continue;
+        }
         if (key_event == TASK_KEY_EVENT_NONE)
         {
             competition_runtime_wait_ms(5U);
@@ -1090,7 +1101,15 @@ static void render_mission_menu(
     else
     {
         LCD_ShowString(4, 140, (const unsigned char *)"SW3 SELECT", WHITE, BLACK, 24, 0);
-        LCD_ShowString(4, 172, (const unsigned char *)"SW1 EXECUTE", WHITE, BLACK, 24, 0);
+        if ((view->mission_id >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+            && (view->mission_id <= HBALL_MISSION_Q6_HOLD_POSITION_LAP))
+        {
+            LCD_ShowString(4, 172, (const unsigned char *)"PB21 SET SW1 GO", WHITE, BLACK, 24, 0);
+        }
+        else
+        {
+            LCD_ShowString(4, 172, (const unsigned char *)"SW1 EXECUTE", WHITE, BLACK, 24, 0);
+        }
     }
 }
 

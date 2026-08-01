@@ -3,21 +3,6 @@
 #include <assert.h>
 #include <math.h>
 
-static void add_q6_samples(hball_m33_q456_t *runtime)
-{
-    static const float samples[5] = {
-        0.020F, 0.018F, 0.060F, 0.019F, 0.017F
-    };
-    uint32_t index;
-
-    for (index = 0U; index < 5U; ++index)
-    {
-        hball_m33_q456_observe_vision(
-            runtime, index + 1U, samples[index], true
-        );
-    }
-}
-
 static void test_q4_q5_use_center_target(void)
 {
     hball_m33_q456_t runtime;
@@ -35,7 +20,7 @@ static void test_q4_q5_use_center_target(void)
     assert(target == 0.0F);
 }
 
-static void test_q6_latches_five_sample_median_once(void)
+static void test_q6_target_steps_by_one_centimeter(void)
 {
     hball_m33_q456_t runtime;
     float target;
@@ -43,15 +28,14 @@ static void test_q6_latches_five_sample_median_once(void)
     hball_m33_q456_init(&runtime);
     assert(hball_m33_q456_sync_context(
         &runtime, 6U, HBALL_MISSION_Q6_HOLD_POSITION_LAP));
-    hball_m33_q456_observe_vision(&runtime, 1U, 0.020F, true);
     assert(!hball_m33_q456_start_target(&runtime, &target));
-    add_q6_samples(&runtime);
+    assert(hball_m33_q456_step_q6_target(&runtime));
     assert(hball_m33_q456_start_target(&runtime, &target));
-    assert(fabsf(target - 0.019F) < 1.0e-6F);
+    assert(fabsf(target) < 1.0e-6F);
 
-    hball_m33_q456_observe_vision(&runtime, 20U, -0.070F, true);
+    assert(hball_m33_q456_step_q6_target(&runtime));
     assert(hball_m33_q456_start_target(&runtime, &target));
-    assert(fabsf(target - 0.019F) < 1.0e-6F);
+    assert(fabsf(target - 0.010F) < 1.0e-6F);
 }
 
 static void test_completion_requires_matching_epoch_and_events(void)
@@ -117,7 +101,7 @@ static void start_q6(
     hball_m33_q456_init(runtime);
     assert(hball_m33_q456_sync_context(
         runtime, epoch, HBALL_MISSION_Q6_HOLD_POSITION_LAP));
-    add_q6_samples(runtime);
+    assert(hball_m33_q456_step_q6_target(runtime));
     assert(hball_m33_q456_start_target(runtime, &target));
     assert(hball_m33_q456_mark_running(runtime, now_ms));
 }
@@ -338,12 +322,8 @@ static void advance_q5_to_wait_stopped(
 
 static void test_q6_prepare_relatches_target_on_same_epoch(void)
 {
-    static const float new_samples[5] = {
-        -0.030F, -0.028F, -0.027F, -0.026F, -0.025F
-    };
     hball_m33_q456_t runtime;
     float target;
-    uint32_t index;
 
     start_q6(&runtime, 30U, 100U);
     assert(hball_m33_q456_prepare(&runtime));
@@ -352,24 +332,10 @@ static void test_q6_prepare_relatches_target_on_same_epoch(void)
     assert(runtime.sample_count == 0U);
     assert(!runtime.vision_sequence_valid);
 
-    for (index = 0U; index < 2U; ++index)
-    {
-        hball_m33_q456_observe_vision(
-            &runtime, index + 1U, new_samples[index], true
-        );
-    }
-    assert(runtime.sample_count == 2U);
-    assert(hball_m33_q456_prepare(&runtime));
-    assert(runtime.sample_count == 2U);
-    assert(runtime.vision_sequence_valid);
-    for (; index < 5U; ++index)
-    {
-        hball_m33_q456_observe_vision(
-            &runtime, index + 1U, new_samples[index], true
-        );
-    }
+    assert(hball_m33_q456_step_q6_target(&runtime));
+    assert(hball_m33_q456_step_q6_target(&runtime));
     assert(hball_m33_q456_start_target(&runtime, &target));
-    assert(fabsf(target - (-0.027F)) < 1.0e-6F);
+    assert(fabsf(target - 0.010F) < 1.0e-6F);
 }
 
 static void test_q6_prepare_resets_target_latched_before_running(void)
@@ -381,7 +347,7 @@ static void test_q6_prepare_resets_target_latched_before_running(void)
     assert(hball_m33_q456_sync_context(
         &runtime, 31U, HBALL_MISSION_Q6_HOLD_POSITION_LAP));
     assert(hball_m33_q456_prepare(&runtime));
-    add_q6_samples(&runtime);
+    assert(hball_m33_q456_step_q6_target(&runtime));
     assert(hball_m33_q456_start_target(&runtime, &target));
     assert(runtime.target_latched);
     assert(!runtime.running);
@@ -467,7 +433,7 @@ static void test_q5_deadline_precedes_success_at_boundary(void)
 int main(void)
 {
     test_q4_q5_use_center_target();
-    test_q6_latches_five_sample_median_once();
+    test_q6_target_steps_by_one_centimeter();
     test_completion_requires_matching_epoch_and_events();
     test_deadlines_and_faults_are_explicit();
     test_q5_q6_completion_requires_ordered_route_events();

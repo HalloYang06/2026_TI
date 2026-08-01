@@ -9,9 +9,9 @@ LOG_HEADER = EDGETALK / "include" / "hball_log_protocol.h"
 def test_q3_uses_calibrated_level_and_feedback_initialized_slew() -> None:
     source = APP.read_text(encoding="utf-8")
     start = source[
-        source.index("static int hball_q3_start_common(void)\n{") :
+        source.index("static int hball_q3_start_common(rt_bool_t level_only)\n{") :
         source.index("static int hball_q3_start5", source.index(
-            "static int hball_q3_start_common(void)\n{")
+            "static int hball_q3_start_common(rt_bool_t level_only)\n{")
         )
     ]
 
@@ -20,7 +20,8 @@ def test_q3_uses_calibrated_level_and_feedback_initialized_slew() -> None:
     assert "g_hball_motor.parameters.mech_position_rad\n                - g_hball_ball_level_rad" in start
     assert "g_hball_ball_q3_pipe_command_rad = current_pipe_rad;" in start
     assert "g_hball_ball_output.motor_target_rad =\n        g_hball_motor.parameters.mech_position_rad;" in start
-    assert "g_hball_ball_q3_leveling = RT_TRUE;" in start
+    assert "g_hball_ball_q3_leveling = level_only;" in start
+    assert "g_hball_ball_q3_vision_zero_m" in start
 
 
 def test_q3_prelevel_is_vision_independent_and_settles_before_pid() -> None:
@@ -34,7 +35,7 @@ def test_q3_prelevel_is_vision_independent_and_settles_before_pid() -> None:
         tick.index("if ((g_hball_ball_mode == 1U) && vision_stale)")
     ]
 
-    assert "HBALL_BALL_Q3_PIPE_RATE_LIMIT_RAD_S" in leveling
+    assert "HBALL_BALL_Q3_PRELEVEL_PIPE_RATE_LIMIT_RAD_S" in leveling
     assert "g_hball_ball_q3_leveling_first_target" in leveling
     assert "hball_fourbar_motor_offset(" in leveling
     assert "<= 0.002F" in leveling
@@ -44,6 +45,7 @@ def test_q3_prelevel_is_vision_independent_and_settles_before_pid() -> None:
     assert "g_hball_ball_previous_error_m = 0.0F;" in leveling
     assert "g_hball_ball_start_ms = 0U;" in leveling
     assert "g_hball_ball_q3_leveling = RT_FALSE;" in leveling
+    assert "g_hball_ball_phase = 7U;" in leveling
     assert "hball_control_pipeline_step(" not in leveling
 
 

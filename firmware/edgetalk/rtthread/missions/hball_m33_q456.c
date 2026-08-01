@@ -90,25 +90,27 @@ void hball_m33_q456_observe_vision(
     }
 }
 
-static float hball_q456_median(const float *values, uint8_t count)
+bool hball_m33_q456_step_q6_target(hball_m33_q456_t *runtime)
 {
-    float sorted[HBALL_Q456_LATCH_SAMPLE_COUNT];
-    uint8_t index;
-
-    memcpy(sorted, values, (size_t)count * sizeof(sorted[0]));
-    for (index = 1U; index < count; ++index)
+    if ((runtime == NULL) || !runtime->context_valid
+        || (runtime->mission_id != HBALL_MISSION_Q6_HOLD_POSITION_LAP))
     {
-        const float value = sorted[index];
-        uint8_t position = index;
-
-        while ((position > 0U) && (sorted[position - 1U] > value))
-        {
-            sorted[position] = sorted[position - 1U];
-            position--;
-        }
-        sorted[position] = value;
+        return false;
     }
-    return sorted[count / 2U];
+    if (runtime->target_latched)
+    {
+        runtime->target_position_m += 0.010F;
+        if (runtime->target_position_m > 0.110F)
+        {
+            runtime->target_position_m = -0.110F;
+        }
+    }
+    else
+    {
+        runtime->target_position_m = 0.0F;
+    }
+    runtime->target_latched = true;
+    return true;
 }
 
 bool hball_m33_q456_start_target(
@@ -126,14 +128,6 @@ bool hball_m33_q456_start_target(
             || (runtime->mission_id == HBALL_MISSION_Q5_CENTER_LAP))
         {
             runtime->target_position_m = 0.0F;
-        }
-        else if ((runtime->mission_id
-                  == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
-            && (runtime->sample_count == HBALL_Q456_LATCH_SAMPLE_COUNT))
-        {
-            runtime->target_position_m = hball_q456_median(
-                runtime->samples_m, runtime->sample_count
-            );
         }
         else
         {

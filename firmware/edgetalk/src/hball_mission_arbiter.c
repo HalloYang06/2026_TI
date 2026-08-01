@@ -32,6 +32,15 @@ uint16_t hball_mission_required_ready_mask(uint8_t mission_id)
     {
         required |= HBALL_MISSION_READY_IMU;
     }
+    if ((mission_id >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+        && (mission_id <= HBALL_MISSION_Q5_CENTER_LAP))
+    {
+        required |= HBALL_MISSION_READY_START_GEOMETRY;
+    }
+    else if (mission_id == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+    {
+        required |= HBALL_MISSION_READY_BALL_PRECONDITION;
+    }
     return required;
 }
 
@@ -104,6 +113,31 @@ bool hball_mission_arbiter_accept_intent(
             return true;
         }
         hball_mission_prepare(arbiter, intent, now_ms);
+        return true;
+    }
+
+    if (intent->command == HBALL_MISSION_COMMAND_LEVEL)
+    {
+        if ((intent->mission_id < HBALL_MISSION_Q3_BALL_SEQUENCE)
+            || (intent->mission_id > HBALL_MISSION_Q6_HOLD_POSITION_LAP))
+        {
+            return false;
+        }
+        if (!arbiter->context_valid
+            || (intent->epoch != arbiter->epoch)
+            || (intent->mission_id != arbiter->mission_id))
+        {
+            hball_mission_prepare(arbiter, intent, now_ms);
+        }
+        if (arbiter->level_event_time_ms != intent->event_time_ms)
+        {
+            arbiter->level_event_time_ms = intent->event_time_ms;
+            arbiter->global_state = HBALL_MISSION_STATE_PREPARING;
+            arbiter->reason = HBALL_MISSION_REASON_NOT_READY;
+            arbiter->ready_candidate_valid = false;
+            arbiter->level_accept_total++;
+        }
+        arbiter->last_intent_time_ms = now_ms;
         return true;
     }
 

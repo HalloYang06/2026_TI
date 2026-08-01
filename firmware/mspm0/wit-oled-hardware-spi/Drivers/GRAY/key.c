@@ -3,6 +3,7 @@
 #define TASK_KEY_DEBOUNCE_CYCLES (CPUCLK_FREQ / 50U)
 
 static uint8_t task_key_latched;
+static uint8_t q3_level_key_latched;
 
 static uint8_t task_key_is_pressed(uint32_t pin)
 {
@@ -53,6 +54,33 @@ task_key_event_t get_task_key_event(void)
 
     task_key_latched = 1U;
     return event;
+}
+
+uint8_t get_q3_level_key_event(void)
+{
+    const uint8_t pressed =
+        (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) == 0U)
+        ? 1U : 0U;
+
+    if (q3_level_key_latched != 0U)
+    {
+        if (pressed == 0U)
+        {
+            q3_level_key_latched = 0U;
+        }
+        return 0U;
+    }
+    if (pressed == 0U)
+    {
+        return 0U;
+    }
+    delay_cycles(TASK_KEY_DEBOUNCE_CYCLES);
+    if (DL_GPIO_readPins(START_KEY_PORT, START_KEY_BUTTON_PIN) != 0U)
+    {
+        return 0U;
+    }
+    q3_level_key_latched = 1U;
+    return 1U;
 }
 
 int get_keynum(void)

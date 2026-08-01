@@ -48,6 +48,9 @@ bool hball_mission_client_ready(
 bool hball_mission_client_request_start(
     hball_mission_client_t *client, uint32_t now_ms
 );
+bool hball_mission_client_request_level(
+    hball_mission_client_t *client, uint32_t now_ms
+);
 bool hball_mission_client_request_abort(
     hball_mission_client_t *client, uint32_t now_ms
 );

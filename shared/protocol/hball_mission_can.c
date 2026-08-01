@@ -65,7 +65,7 @@ bool hball_mission_encode_intent(
         || (message->epoch == 0U)
         || !hball_mission_id_valid(message->mission_id)
         || (message->command < HBALL_MISSION_COMMAND_PREPARE)
-        || (message->command > HBALL_MISSION_COMMAND_RESET))
+        || (message->command > HBALL_MISSION_COMMAND_LEVEL))
     {
         return false;
     }
@@ -97,7 +97,7 @@ bool hball_mission_decode_intent(
     if ((decoded.epoch == 0U)
         || !hball_mission_id_valid(decoded.mission_id)
         || (decoded.command < HBALL_MISSION_COMMAND_PREPARE)
-        || (decoded.command > HBALL_MISSION_COMMAND_RESET))
+        || (decoded.command > HBALL_MISSION_COMMAND_LEVEL))
     {
         return false;
     }

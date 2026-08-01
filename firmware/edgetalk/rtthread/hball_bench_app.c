@@ -206,6 +206,11 @@ static rt_uint8_t g_hball_ball_control_mission = 0U;
 static rt_bool_t g_hball_ball_settle_hold = RT_FALSE;
 static rt_bool_t g_hball_ball_q3_leveling = RT_FALSE;
 static rt_bool_t g_hball_ball_q3_leveling_first_target = RT_FALSE;
+static rt_bool_t g_hball_ball_prelevel_hold = RT_FALSE;
+static rt_bool_t g_hball_prestart_setup_pending = RT_FALSE;
+static rt_bool_t g_hball_prestart_setup_ready = RT_FALSE;
+static rt_uint16_t g_hball_prestart_setup_epoch = 0U;
+static rt_uint32_t g_hball_prestart_setup_event_ms = 0U;
 static rt_bool_t g_hball_ball_q3_zero_calibrated = RT_FALSE;
 static float g_hball_ball_q3_vision_zero_m = 0.0F;
 static float g_hball_formal_pipe_limit_rad =
@@ -268,7 +273,7 @@ bool hball_runtime_tuning_set(const char *name, float value)
         return false;
     return true;
 }
-static int hball_q3_start_common(void);
+static int hball_q3_start_common(rt_bool_t level_only);
 static int hball_hold_start_common(
     rt_uint8_t mode, float target_m, const char *name
 );
@@ -509,6 +514,19 @@ static void hball_poll_can(void)
                     && hball_mission_arbiter_accept_intent(
                         &g_hball_mission_arbiter, &intent, now_ms))
                 {
+#if HBALL_INTEGRATED_SHADOW
+                    if ((intent.command == HBALL_MISSION_COMMAND_LEVEL)
+                        && ((intent.epoch != g_hball_prestart_setup_epoch)
+                            || (intent.event_time_ms
+                                != g_hball_prestart_setup_event_ms)))
+                    {
+                        g_hball_prestart_setup_epoch = intent.epoch;
+                        g_hball_prestart_setup_event_ms =
+                            intent.event_time_ms;
+                        g_hball_prestart_setup_pending = RT_TRUE;
+                        g_hball_prestart_setup_ready = RT_FALSE;
+                    }
+#endif
                     g_hball_mission_intent_rx++;
                 }
                 else
@@ -596,6 +614,24 @@ static rt_uint16_t hball_mission_ready_mask(rt_uint32_t now_ms)
         {
             ready |= HBALL_MISSION_READY_PI_USB;
             ready |= HBALL_MISSION_READY_VISION;
+        }
+    }
+    if (g_hball_mission_arbiter.context_valid
+        && (g_hball_prestart_setup_epoch
+            == g_hball_mission_arbiter.epoch))
+    {
+        const rt_uint8_t mission = g_hball_mission_arbiter.mission_id;
+
+        if (g_hball_prestart_setup_ready
+            && (mission >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+            && (mission <= HBALL_MISSION_Q5_CENTER_LAP))
+        {
+            ready |= HBALL_MISSION_READY_START_GEOMETRY;
+        }
+        if ((mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+            && g_hball_q456_runtime.target_latched)
+        {
+            ready |= HBALL_MISSION_READY_BALL_PRECONDITION;
         }
     }
 #endif
@@ -1172,6 +1208,17 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
     {
         return;
     }
+    if (g_hball_ball_prelevel_hold
+        && (g_hball_prestart_setup_epoch
+            != g_hball_mission_arbiter.epoch))
+    {
+        hball_motion_stop_now(
+            HBALL_RS00_BENCH_STOP_MANUAL, now_ms, RT_TRUE
+        );
+        g_hball_ball_active = RT_FALSE;
+        g_hball_ball_prelevel_hold = RT_FALSE;
+        return;
+    }
     if (((state == HBALL_MISSION_STATE_CONTROLLED_ABORT)
          || (state == HBALL_MISSION_STATE_FAULT_LATCHED))
         && g_hball_ball_active)
@@ -1230,6 +1277,56 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
             q456_target_ready = hball_m33_q456_start_target(
                 &g_hball_q456_runtime, &q456_target_m
             ) ? RT_TRUE : RT_FALSE;
+        }
+    }
+    if (g_hball_prestart_setup_pending
+        && (g_hball_prestart_setup_epoch
+            == g_hball_mission_arbiter.epoch))
+    {
+        if (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+        {
+            if (hball_m33_q456_step_q6_target(&g_hball_q456_runtime))
+            {
+                g_hball_prestart_setup_pending = RT_FALSE;
+                g_hball_prestart_setup_ready = RT_TRUE;
+                rt_kprintf(
+                    "[hball-q6] PB21 target latched x_mm=%ld\n",
+                    (long)(g_hball_q456_runtime.target_position_m * 1000.0F)
+                );
+            }
+            return;
+        }
+        if ((mission >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+            && (mission <= HBALL_MISSION_Q5_CENTER_LAP))
+        {
+            if (g_hball_ball_prelevel_hold
+                && g_hball_prestart_setup_ready)
+            {
+                g_hball_prestart_setup_pending = RT_FALSE;
+                return;
+            }
+            if (g_hball_motion.state == HBALL_RS00_BENCH_PREPARED)
+            {
+                hball_motion_arm(now_ms);
+                return;
+            }
+            if (g_hball_motion.state == HBALL_RS00_BENCH_ARMED)
+            {
+                if (hball_q3_start_common(RT_TRUE) == RT_EOK)
+                {
+                    g_hball_prestart_setup_pending = RT_FALSE;
+                }
+                return;
+            }
+            if (((g_hball_motion.state == HBALL_RS00_BENCH_SAFE)
+                 || (g_hball_motion.state == HBALL_RS00_BENCH_STOPPED))
+                && ((rt_uint32_t)(now_ms - g_hball_mission_action_last_ms)
+                    >= 200U))
+            {
+                g_hball_mission_action_last_ms = now_ms;
+                hball_motion_begin_prepare(now_ms);
+            }
+            return;
         }
     }
     if (state == HBALL_MISSION_STATE_START_PENDING)
@@ -1291,7 +1388,7 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
 
             if (mission == HBALL_MISSION_Q3_BALL_SEQUENCE)
             {
-                result = hball_q3_start_common();
+                result = hball_q3_start_common(RT_FALSE);
             }
             else if (q456 && q456_target_ready)
             {
@@ -1491,8 +1588,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     if ((g_hball_ball_mode == 1U)
         && g_hball_ball_q3_zero_calibrated)
     {
-        snapshot.ball_position_m = g_hball_ball_q3_vision_zero_m
-            - snapshot.ball_position_m;
+        snapshot.ball_position_m -= g_hball_ball_q3_vision_zero_m;
     }
     if ((g_hball_ball_mode == 1U)
         && ((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) == 0U)
@@ -1527,7 +1623,8 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     }
     vision_stale = (invalid_mask & UINT8_C(0x06)) != 0U;
     stop_invalid_mask = invalid_mask & UINT8_C(0x19);
-    if ((stop_invalid_mask == 0U) && !vision_stale
+    if (!g_hball_ball_prelevel_hold
+        && (stop_invalid_mask == 0U) && !vision_stale
         && (fabsf(snapshot.ball_position_m)
             >= HBALL_BALL_COMMISSION_POSITION_LIMIT_M))
     {
@@ -1642,18 +1739,8 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
             else if ((rt_uint32_t)(now_ms
                     - g_hball_ball_settle_since_ms) >= 100U)
             {
-                float initial_position_m = !vision_stale
-                        && isfinite(snapshot.ball_position_m)
-                    ? snapshot.ball_position_m : 0.0F;
-
-                g_hball_ball_q3_vision_zero_m =
-                    (fabsf(initial_position_m) <= 0.030F)
-                    ? initial_position_m : 0.0F;
-                g_hball_ball_q3_zero_calibrated = RT_TRUE;
-                initial_position_m -= g_hball_ball_q3_vision_zero_m;
-
                 hball_control_pipeline_init(
-                    &g_hball_ball_pipeline, initial_position_m
+                    &g_hball_ball_pipeline, 0.0F
                 );
                 (void)hball_control_pipeline_set_motor_level(
                     &g_hball_ball_pipeline, g_hball_ball_level_rad
@@ -1671,16 +1758,37 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
                 g_hball_ball_settle_since_ms = 0U;
                 g_hball_ball_start_ms = 0U;
                 g_hball_ball_q3_leveling = RT_FALSE;
-                rt_kprintf(
-                    "[hball-q3] mechanical level ready; vision_zero_mm=%ld; recover O\n",
-                    (long)(g_hball_ball_q3_vision_zero_m * 1000.0F)
-                );
+                g_hball_ball_phase = 7U;
+                g_hball_prestart_setup_ready = RT_TRUE;
+                rt_kprintf("[hball-setup] mechanical level ready; place ball then SW1\n");
             }
         }
         else
         {
             g_hball_ball_settle_since_ms = 0U;
         }
+        return;
+    }
+    if (g_hball_ball_prelevel_hold && (g_hball_ball_phase == 7U))
+    {
+        if ((rt_uint32_t)(now_ms - g_hball_ball_last_tx_ms)
+            >= HBALL_BALL_COMMISSION_TX_PERIOD_MS)
+        {
+            g_hball_ball_last_tx_ms = now_ms;
+            if (!hball_rs00_control_make_position_reference(
+                    HBALL_RS00_MOTOR_ID,
+                    g_hball_ball_level_rad,
+                    &frame)
+                || (hball_motion_send_frame(&frame, RT_NULL) != RT_EOK))
+            {
+                hball_motion_stop_now(
+                    HBALL_RS00_BENCH_STOP_TX_FAILURE, now_ms, RT_TRUE
+                );
+                return;
+            }
+            g_hball_ball_tx_total++;
+        }
+        g_hball_motion.last_manual_command_ms = now_ms;
         return;
     }
     if ((g_hball_ball_mode == 1U) && vision_stale)
@@ -2526,7 +2634,7 @@ MSH_CMD_EXPORT(
 );
 
 #if HBALL_INTEGRATED_SHADOW
-static int hball_q3_start_common(void)
+static int hball_q3_start_common(rt_bool_t level_only)
 {
     hball_sensor_snapshot_t snapshot;
     float current_pipe_rad;
@@ -2554,9 +2662,23 @@ static int hball_q3_start_common(void)
         && (fabsf(snapshot.ball_position_m)
             < HBALL_BALL_COMMISSION_POSITION_LIMIT_M)
         ? snapshot.ball_position_m : 0.0F;
-    hball_control_pipeline_init(
-        &g_hball_ball_pipeline, initial_position_m
-    );
+    if (!level_only
+        && (!g_hball_prestart_setup_ready
+            || (g_hball_prestart_setup_epoch
+                != g_hball_mission_arbiter.epoch)))
+    {
+        rt_kprintf("[hball-q3] start rejected: press PB21 LEVEL first\n");
+        return -RT_ERROR;
+    }
+    if (!level_only)
+    {
+        g_hball_ball_q3_vision_zero_m =
+            (fabsf(initial_position_m) <= 0.030F)
+            ? initial_position_m : 0.0F;
+        g_hball_ball_q3_zero_calibrated = RT_TRUE;
+        initial_position_m -= g_hball_ball_q3_vision_zero_m;
+    }
+    hball_control_pipeline_init(&g_hball_ball_pipeline, initial_position_m);
     g_hball_ball_level_rad = HBALL_BALL_COMMISSION_LEVEL_RAD;
     if (!hball_control_pipeline_set_motor_level(
             &g_hball_ball_pipeline, g_hball_ball_level_rad))
@@ -2587,7 +2709,7 @@ static int hball_q3_start_common(void)
     g_hball_ball_vision_lost = RT_FALSE;
     g_hball_ball_last_tx_ms = now_ms;
     g_hball_ball_settle_since_ms = 0U;
-    g_hball_ball_phase = 0U;
+    g_hball_ball_phase = level_only ? 7U : 0U;
     g_hball_ball_mode = 1U;
     g_hball_ball_q3_passed = RT_FALSE;
     g_hball_ball_q3_pipe_command_rad = current_pipe_rad;
@@ -2597,18 +2719,32 @@ static int hball_q3_start_common(void)
     g_hball_ball_max_abs_error_m = 0.0F;
     g_hball_ball_error_violation_total = 0U;
     g_hball_ball_settle_hold = RT_FALSE;
-    g_hball_ball_q3_leveling = RT_TRUE;
-    g_hball_ball_q3_leveling_first_target = RT_TRUE;
-    g_hball_ball_q3_zero_calibrated = RT_FALSE;
-    g_hball_ball_q3_vision_zero_m = 0.0F;
+    g_hball_ball_q3_leveling = level_only;
+    g_hball_ball_q3_leveling_first_target = level_only;
+    g_hball_ball_prelevel_hold = level_only;
+    if (level_only)
+    {
+        g_hball_ball_q3_zero_calibrated = RT_FALSE;
+        g_hball_ball_q3_vision_zero_m = 0.0F;
+    }
     g_hball_ball_active = RT_TRUE;
     g_hball_motion.last_manual_command_ms = now_ms;
-    rt_kprintf(
-        "[hball-q3] pre-level motor=%ld->%ld mrad pipe=%ld mrad; then recover O\n",
-        (long)(g_hball_motor.parameters.mech_position_rad * 1000.0F),
-        (long)(g_hball_ball_level_rad * 1000.0F),
-        (long)(current_pipe_rad * 1000.0F)
-    );
+    if (level_only)
+    {
+        rt_kprintf(
+            "[hball-setup] PB21 level motor=%ld->%ld mrad pipe=%ld mrad\n",
+            (long)(g_hball_motor.parameters.mech_position_rad * 1000.0F),
+            (long)(g_hball_ball_level_rad * 1000.0F),
+            (long)(current_pipe_rad * 1000.0F)
+        );
+    }
+    else
+    {
+        rt_kprintf(
+            "[hball-q3] O locked vision_zero_mm=%ld; start +50,-50\n",
+            (long)(g_hball_ball_q3_vision_zero_m * 1000.0F)
+        );
+    }
     return RT_EOK;
 }
 
@@ -2619,7 +2755,7 @@ static int hball_q3_start5(int argc, char **argv)
         rt_kprintf("usage: hball_q3_start5 %s\n", HBALL_RS00_CONFIRM_TOKEN);
         return -RT_EINVAL;
     }
-    return hball_q3_start_common();
+    return hball_q3_start_common(RT_FALSE);
 }
 MSH_CMD_EXPORT(
     hball_q3_start5,
@@ -2755,7 +2891,7 @@ static int hball_hold_start_common(
             now_ms)
         || (fabsf(snapshot.ball_position_m)
             >= HBALL_BALL_COMMISSION_POSITION_LIMIT_M)
-        || (fabsf(target_m) > 0.080F))
+        || (fabsf(target_m) > HBALL_Q456_TARGET_LIMIT_M))
     {
         rt_kprintf("[hball-hold] start rejected state/input/position\n");
         return -RT_ERROR;
@@ -2786,6 +2922,7 @@ static int hball_hold_start_common(
     g_hball_ball_max_abs_error_m = 0.0F;
     g_hball_ball_error_violation_total = 0U;
     g_hball_ball_settle_hold = RT_FALSE;
+    g_hball_ball_prelevel_hold = RT_FALSE;
     g_hball_ball_active = RT_TRUE;
     g_hball_motion.last_manual_command_ms = now_ms;
     rt_kprintf(
@@ -2868,8 +3005,7 @@ static void hball_q3_status5(void)
     if ((g_hball_ball_mode == 1U)
         && g_hball_ball_q3_zero_calibrated)
     {
-        snapshot.ball_position_m = g_hball_ball_q3_vision_zero_m
-            - snapshot.ball_position_m;
+        snapshot.ball_position_m -= g_hball_ball_q3_vision_zero_m;
     }
     rt_kprintf(
         "[hball-control] algo=%s active=%d mode=%u phase=%u leveling=%d passed=%d x_mm=%ld target_mm=%ld estimate_mm=%ld velocity_mm_s=%ld disturbance_mm_s2=%ld pipe_mrad=%ld motor_target_mrad=%ld max_error_mm=%ld violations=%lu tx=%lu\n",

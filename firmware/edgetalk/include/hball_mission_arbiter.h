@@ -26,10 +26,12 @@ typedef struct
     uint32_t start_event_time_ms;
     uint32_t start_accept_time_ms;
     uint32_t last_intent_time_ms;
+    uint32_t level_event_time_ms;
     uint32_t prepare_accept_total;
     uint32_t start_accept_total;
     uint32_t start_reject_total;
     uint32_t epoch_reject_total;
+    uint32_t level_accept_total;
     bool context_valid;
     bool ready_candidate_valid;
 } hball_mission_arbiter_t;

@@ -141,6 +141,21 @@ bool hball_mission_client_request_start(
     return true;
 }
 
+bool hball_mission_client_request_level(
+    hball_mission_client_t *client, uint32_t now_ms
+)
+{
+    if ((client == NULL) || client->start_requested
+        || (client->selected_mission < HBALL_MISSION_Q3_BALL_SEQUENCE)
+        || (client->selected_mission > HBALL_MISSION_Q6_HOLD_POSITION_LAP))
+    {
+        return false;
+    }
+    client->command = HBALL_MISSION_COMMAND_LEVEL;
+    client->command_time_ms = now_ms;
+    return true;
+}
+
 bool hball_mission_client_request_abort(
     hball_mission_client_t *client, uint32_t now_ms
 )
