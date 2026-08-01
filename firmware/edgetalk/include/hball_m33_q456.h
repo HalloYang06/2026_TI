@@ -24,10 +24,19 @@ typedef enum
     HBALL_Q456_OUTCOME_CONTROL_FAULT,
 } hball_q456_outcome_t;
 
+typedef enum
+{
+    HBALL_Q456_ROUTE_WAIT_CONTROL_ACTIVE = 0,
+    HBALL_Q456_ROUTE_WAIT_LEFT_A,
+    HBALL_Q456_ROUTE_WAIT_REACQUIRE_A,
+    HBALL_Q456_ROUTE_WAIT_STOPPED,
+} hball_q456_route_phase_t;
+
 typedef struct
 {
     uint16_t epoch;
     uint8_t mission_id;
+    uint8_t route_phase;
     uint8_t sample_count;
     uint8_t sample_next;
     uint32_t last_vision_sequence;
@@ -38,12 +47,14 @@ typedef struct
     bool vision_sequence_valid;
     bool target_latched;
     bool running;
+    bool prepare_applied;
 } hball_m33_q456_t;
 
 void hball_m33_q456_init(hball_m33_q456_t *runtime);
 bool hball_m33_q456_sync_context(
     hball_m33_q456_t *runtime, uint16_t epoch, uint8_t mission_id
 );
+bool hball_m33_q456_prepare(hball_m33_q456_t *runtime);
 void hball_m33_q456_observe_vision(
     hball_m33_q456_t *runtime,
     uint32_t vision_sequence,
@@ -57,7 +68,7 @@ bool hball_m33_q456_mark_running(
     hball_m33_q456_t *runtime, uint32_t now_ms
 );
 hball_q456_outcome_t hball_m33_q456_step(
-    const hball_m33_q456_t *runtime,
+    hball_m33_q456_t *runtime,
     uint32_t now_ms,
     uint16_t chassis_epoch,
     uint8_t chassis_event_flags,

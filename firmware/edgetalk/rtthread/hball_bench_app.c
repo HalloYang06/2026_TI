@@ -1120,6 +1120,10 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
             g_hball_mission_arbiter.epoch,
             mission
         );
+        if (state == HBALL_MISSION_STATE_PREPARING)
+        {
+            (void)hball_m33_q456_prepare(&g_hball_q456_runtime);
+        }
         if (hball_m33_inputs_get_snapshot(&snapshot))
         {
             hball_m33_q456_observe_vision(
@@ -1143,6 +1147,35 @@ static void hball_mission_action_tick(rt_uint32_t now_ms)
                 == g_hball_mission_arbiter.epoch)
             && (g_hball_ball_control_mission == mission))
         {
+            if (q456 && !q456_target_ready)
+            {
+                return;
+            }
+            if (q456)
+            {
+                g_hball_ball_target_m = q456_target_m;
+                g_hball_ball_start_ms =
+                    g_hball_mission_arbiter.start_accept_time_ms;
+                g_hball_ball_last_step_ms = now_ms;
+                g_hball_ball_sensor_invalid_since_ms = 0U;
+                g_hball_ball_vision_lost = RT_FALSE;
+                g_hball_ball_last_tx_ms = now_ms;
+                g_hball_ball_settle_since_ms = 0U;
+                g_hball_ball_phase =
+                    (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+                        ? 6U : 5U;
+                g_hball_ball_mode =
+                    (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+                        ? 3U : 2U;
+                g_hball_ball_q3_passed = RT_FALSE;
+                g_hball_ball_pipeline.controller.integral_error_m_s = 0.0F;
+                g_hball_ball_position_integral = 0.0F;
+                g_hball_ball_previous_error_m = 0.0F;
+                g_hball_ball_pid_static_boost_active = RT_FALSE;
+                g_hball_ball_max_abs_error_m = 0.0F;
+                g_hball_ball_error_violation_total = 0U;
+                g_hball_ball_settle_hold = RT_FALSE;
+            }
             (void)hball_mission_arbiter_mark_running(
                 &g_hball_mission_arbiter
             );

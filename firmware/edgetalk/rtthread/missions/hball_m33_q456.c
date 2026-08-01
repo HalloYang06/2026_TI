@@ -41,6 +41,29 @@ bool hball_m33_q456_sync_context(
     return true;
 }
 
+bool hball_m33_q456_prepare(hball_m33_q456_t *runtime)
+{
+    if ((runtime == NULL) || !runtime->context_valid)
+    {
+        return false;
+    }
+    if (runtime->prepare_applied)
+    {
+        return true;
+    }
+    runtime->route_phase = HBALL_Q456_ROUTE_WAIT_CONTROL_ACTIVE;
+    runtime->sample_count = 0U;
+    runtime->sample_next = 0U;
+    runtime->last_vision_sequence = 0U;
+    runtime->running_since_ms = 0U;
+    runtime->target_position_m = 0.0F;
+    runtime->vision_sequence_valid = false;
+    runtime->target_latched = false;
+    runtime->running = false;
+    runtime->prepare_applied = true;
+    return true;
+}
+
 void hball_m33_q456_observe_vision(
     hball_m33_q456_t *runtime,
     uint32_t vision_sequence,
@@ -119,6 +142,7 @@ bool hball_m33_q456_start_target(
         runtime->target_latched = true;
     }
     *target_position_m = runtime->target_position_m;
+    runtime->prepare_applied = false;
     return true;
 }
 
@@ -136,6 +160,7 @@ bool hball_m33_q456_mark_running(
         runtime->running = true;
         runtime->running_since_ms = now_ms;
     }
+    runtime->prepare_applied = false;
     return true;
 }
 
@@ -159,29 +184,73 @@ static hball_q456_outcome_t hball_m33_q4_step(
 }
 
 static hball_q456_outcome_t hball_m33_q5_q6_step(
-    const hball_m33_q456_t *runtime,
+    hball_m33_q456_t *runtime,
     uint32_t now_ms,
     uint8_t chassis_event_flags
 )
 {
-    const uint8_t completed = HBALL_MISSION_CHASSIS_EVENT_STOPPED
-        | HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;
+    const uint8_t chassis_faults = HBALL_MISSION_CHASSIS_EVENT_LINE_LOST
+        | HBALL_MISSION_CHASSIS_EVENT_LOCAL_FAULT
+        | HBALL_MISSION_CHASSIS_EVENT_INHIBITED;
+    const bool control_active = (chassis_event_flags
+            & HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE)
+        != 0U;
     const uint32_t deadline_ms =
         (runtime->mission_id == HBALL_MISSION_Q5_CENTER_LAP)
             ? HBALL_Q5_DEADLINE_MS
             : HBALL_Q6_DEADLINE_MS;
 
-    if ((chassis_event_flags & completed) == completed)
+    if ((runtime->route_phase == HBALL_Q456_ROUTE_WAIT_CONTROL_ACTIVE)
+        && !control_active)
+    {
+        return ((uint32_t)(now_ms - runtime->running_since_ms)
+                >= deadline_ms)
+            ? HBALL_Q456_OUTCOME_DEADLINE
+            : HBALL_Q456_OUTCOME_NONE;
+    }
+    if ((chassis_event_flags & chassis_faults) != 0U)
+    {
+        return HBALL_Q456_OUTCOME_CONTROL_FAULT;
+    }
+    if ((uint32_t)(now_ms - runtime->running_since_ms) >= deadline_ms)
+    {
+        return HBALL_Q456_OUTCOME_DEADLINE;
+    }
+    if (runtime->route_phase == HBALL_Q456_ROUTE_WAIT_CONTROL_ACTIVE)
+    {
+        runtime->route_phase = HBALL_Q456_ROUTE_WAIT_LEFT_A;
+    }
+    else if (runtime->route_phase == HBALL_Q456_ROUTE_WAIT_LEFT_A)
+    {
+        if ((chassis_event_flags & HBALL_MISSION_CHASSIS_EVENT_LEFT_A)
+            != 0U)
+        {
+            runtime->route_phase = HBALL_Q456_ROUTE_WAIT_REACQUIRE_A;
+        }
+    }
+    else if (runtime->route_phase
+             == HBALL_Q456_ROUTE_WAIT_REACQUIRE_A)
+    {
+        if ((chassis_event_flags
+                & HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A)
+            != 0U)
+        {
+            runtime->route_phase = HBALL_Q456_ROUTE_WAIT_STOPPED;
+        }
+    }
+    else if ((runtime->route_phase == HBALL_Q456_ROUTE_WAIT_STOPPED)
+             && !control_active
+             && ((chassis_event_flags
+                     & HBALL_MISSION_CHASSIS_EVENT_STOPPED)
+                 != 0U))
     {
         return HBALL_Q456_OUTCOME_COMPLETED;
     }
-    return ((uint32_t)(now_ms - runtime->running_since_ms) >= deadline_ms)
-        ? HBALL_Q456_OUTCOME_DEADLINE
-        : HBALL_Q456_OUTCOME_NONE;
+    return HBALL_Q456_OUTCOME_NONE;
 }
 
 hball_q456_outcome_t hball_m33_q456_step(
-    const hball_m33_q456_t *runtime,
+    hball_m33_q456_t *runtime,
     uint32_t now_ms,
     uint16_t chassis_epoch,
     uint8_t chassis_event_flags,

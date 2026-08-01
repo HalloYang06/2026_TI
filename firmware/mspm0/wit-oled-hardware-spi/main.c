@@ -1673,6 +1673,7 @@ static void lap_test_once(void)
     {
         mission_lcd_fill_serviced(0, 48, 240, 150, BLACK);
         LCD_ShowString(4, 68, (const unsigned char *)"NO LINE", RED, BLACK, 32, 0);
+        (void)hball_can_mission_request_abort(tick_ms);
         hball_can_mission_chassis_finish(
             HBALL_MISSION_CHASSIS_EVENT_STOPPED
                 | HBALL_MISSION_CHASSIS_EVENT_LINE_LOST
@@ -1918,7 +1919,9 @@ static void lap_test_once(void)
         }
         if (follower_output.lost_timeout)
         {
-            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED
+                | HBALL_MISSION_CHASSIS_EVENT_LINE_LOST
+                | HBALL_MISSION_CHASSIS_EVENT_LOCAL_FAULT;
             chassis_actuator_stop();
             chassis_actuator_set_wheel_speed(
                 0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
