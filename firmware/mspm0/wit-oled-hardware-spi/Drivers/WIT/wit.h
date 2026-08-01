@@ -21,7 +21,7 @@
 #include "ti_msp_dl_config.h"
 
 #define WIT_DMA_TRANSFER_SIZE 32U
-#define WIT_FOREGROUND_BUDGET_PER_SERVICE 32U
+#define WIT_FOREGROUND_BUDGET_PER_SERVICE 256U
 
 typedef struct {
     float pitch;

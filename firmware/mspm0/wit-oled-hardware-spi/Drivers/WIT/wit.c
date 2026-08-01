@@ -140,7 +140,7 @@ uint16_t WIT_QueueBytesFromISR(const uint8_t *data, uint16_t length)
 
 uint16_t WIT_Service(uint16_t max_bytes)
 {
-    uint8_t buffer[WIT_FOREGROUND_BUDGET_PER_SERVICE];
+    uint8_t buffer[WIT_DMA_TRANSFER_SIZE];
     uint16_t serviced = 0U;
 
     while (serviced < max_bytes)
