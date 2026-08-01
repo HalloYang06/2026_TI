@@ -65,8 +65,8 @@
 #define HBALL_RS00_PARAMETER_SLOT_MECH_VELOCITY 3U
 #define HBALL_RS00_CONFIRM_TOKEN "CONFIRM_NO_LOAD"
 #define HBALL_BALL_COMMISSION_LEVEL_RAD 1.7205F
-#define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.034906585F
-#define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.043633231F
+#define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.052359878F
+#define HBALL_BALL_COMMISSION_RECOVERY_LIMIT_RAD 0.052359878F
 #define HBALL_BALL_FORMAL_PIPE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_FORMAL_RECOVERY_LIMIT_RAD 0.043633231F
 #define HBALL_BALL_Q45_STARTUP_PIPE_LIMIT_RAD 0.041887902F
@@ -74,10 +74,10 @@
 #define HBALL_BALL_SETTLE_PIPE_LIMIT_RAD 0.017453293F
 #define HBALL_BALL_SETTLE_CAPTURE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_SETTLE_RECOVERY_LIMIT_RAD 0.052359879F
-#define HBALL_BALL_Q3_PIPE_RATE_LIMIT_RAD_S 0.50F
-#define HBALL_BALL_PID_KP 0.45F
-#define HBALL_BALL_PID_KI 0.08F
-#define HBALL_BALL_PID_KD 0.12F
+#define HBALL_BALL_Q3_PRELEVEL_PIPE_RATE_LIMIT_RAD_S 0.50F
+#define HBALL_BALL_PID_KP 0.70F
+#define HBALL_BALL_PID_KI 0.15F
+#define HBALL_BALL_PID_KD 0.40F
 #define HBALL_BALL_PID_BOOST_ENTER_MPS 0.003F
 #define HBALL_BALL_PID_BOOST_EXIT_MPS 0.015F
 #define HBALL_BALL_LQI_KP 1.576194F
@@ -1561,7 +1561,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     if ((g_hball_ball_mode == 1U) && g_hball_ball_q3_leveling)
     {
         const float max_delta_rad =
-            HBALL_BALL_Q3_PIPE_RATE_LIMIT_RAD_S
+            HBALL_BALL_Q3_PRELEVEL_PIPE_RATE_LIMIT_RAD_S
             * HBALL_BALL_CONTROL_DT_S;
         float delta_rad = -g_hball_ball_q3_pipe_command_rad;
 
@@ -1826,22 +1826,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     }
     if (g_hball_ball_mode == 1U)
     {
-        const float max_delta_rad =
-            HBALL_BALL_Q3_PIPE_RATE_LIMIT_RAD_S
-            * HBALL_BALL_CONTROL_DT_S;
-        float delta_rad =
-            pipe_command_rad - g_hball_ball_q3_pipe_command_rad;
-
-        if (delta_rad > max_delta_rad)
-        {
-            delta_rad = max_delta_rad;
-        }
-        else if (delta_rad < -max_delta_rad)
-        {
-            delta_rad = -max_delta_rad;
-        }
-        g_hball_ball_q3_pipe_command_rad += delta_rad;
-        pipe_command_rad = g_hball_ball_q3_pipe_command_rad;
+        g_hball_ball_q3_pipe_command_rad = pipe_command_rad;
     }
     if (!hball_fourbar_motor_offset(
             &g_hball_ball_pipeline.fourbar,
