@@ -34,6 +34,8 @@
 static float g_hball_lqi_position_gain = HBALL_LQI_POSITION_GAIN;
 static float g_hball_lqi_velocity_gain = HBALL_LQI_VELOCITY_GAIN;
 static float g_hball_lqi_integral_gain = HBALL_LQI_INTEGRAL_GAIN;
+static float g_hball_lateral_accel_coupling =
+    HBALL_LATERAL_ACCEL_COUPLING;
 
 static float hball_clampf(float value, float minimum, float maximum)
 {
@@ -65,6 +67,38 @@ bool hball_deployment_controller_set_gains(
     g_hball_lqi_position_gain = position_gain;
     g_hball_lqi_velocity_gain = velocity_gain;
     g_hball_lqi_integral_gain = integral_gain;
+    return true;
+}
+
+bool hball_deployment_controller_set_lateral_accel_coupling(float coupling)
+{
+    if (!isfinite(coupling) || (coupling < 0.0F) || (coupling > 1.0F))
+    {
+        return false;
+    }
+    g_hball_lateral_accel_coupling = coupling;
+    return true;
+}
+
+bool hball_deployment_controller_seed_imu_bias(
+    hball_deployment_controller_t *controller,
+    float longitudinal_accel_mps2,
+    float lateral_accel_mps2,
+    float body_pitch_rad
+)
+{
+    if ((controller == NULL)
+        || !isfinite(longitudinal_accel_mps2)
+        || !isfinite(lateral_accel_mps2)
+        || !isfinite(body_pitch_rad))
+    {
+        return false;
+    }
+    controller->longitudinal_accel_bias_mps2 = longitudinal_accel_mps2;
+    controller->lateral_accel_bias_mps2 = lateral_accel_mps2;
+    controller->body_pitch_bias_rad = body_pitch_rad;
+    memset(&controller->conditioned_input, 0, sizeof(controller->conditioned_input));
+    controller->imu_conditioner_initialized = true;
     return true;
 }
 
@@ -140,7 +174,8 @@ static void hball_predict_core(
             HBALL_GRAVITY_MPS2 * sinf(world_pipe_angle)
             - input->longitudinal_accel_mps2 * cosf(world_pipe_angle)
             + input->yaw_rate_rad_s * input->yaw_rate_rad_s * lever_arm_m
-            - input->lateral_accel_mps2 * HBALL_LATERAL_ACCEL_COUPLING
+            - input->lateral_accel_mps2
+                * g_hball_lateral_accel_coupling
         )
         - HBALL_VISCOUS_DAMPING * state[1]
         + state[2];
@@ -461,7 +496,7 @@ static float hball_feedforward(
             + controller->state[0]
         );
     const float lateral = input->lateral_accel_mps2
-        * HBALL_LATERAL_ACCEL_COUPLING;
+        * g_hball_lateral_accel_coupling;
     const float effective_accel =
         input->longitudinal_accel_mps2 - centripetal + lateral;
 

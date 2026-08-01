@@ -247,19 +247,19 @@ static bool hball_apply_mission_gains(rt_uint8_t mission)
     {
         return hball_deployment_controller_set_gains(
             HBALL_BALL_Q4_KP, HBALL_BALL_Q4_KV, HBALL_BALL_Q4_KI
-        );
+        ) && hball_deployment_controller_set_lateral_accel_coupling(0.25F);
     }
     if (mission == HBALL_MISSION_Q5_CENTER_LAP)
     {
         return hball_deployment_controller_set_gains(
             HBALL_BALL_Q5_KP, HBALL_BALL_Q5_KV, HBALL_BALL_Q5_KI
-        );
+        ) && hball_deployment_controller_set_lateral_accel_coupling(0.25F);
     }
     if (mission == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
     {
         return hball_deployment_controller_set_gains(
             HBALL_BALL_Q6_KP, HBALL_BALL_Q6_KV, HBALL_BALL_Q6_KI
-        );
+        ) && hball_deployment_controller_set_lateral_accel_coupling(0.50F);
     }
     return false;
 }
@@ -2998,6 +2998,7 @@ static int hball_hold_start_common(
     if ((g_hball_motion.state != HBALL_RS00_BENCH_ARMED)
         || !hball_m33_inputs_get_snapshot(&snapshot)
         || ((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) == 0U)
+        || ((snapshot.valid_flags & HBALL_SENSOR_VALID_IMU) == 0U)
         || !hball_motion_parameter_fresh(
             HBALL_RS00_PARAMETER_VALID_MECH_POSITION,
             HBALL_RS00_PARAMETER_SLOT_MECH_POSITION,
@@ -3016,6 +3017,14 @@ static int hball_hold_start_common(
     hball_control_pipeline_init(
         &g_hball_ball_pipeline, snapshot.ball_position_m
     );
+    if (!hball_deployment_controller_seed_imu_bias(
+            &g_hball_ball_pipeline.controller,
+            snapshot.longitudinal_accel_mps2,
+            snapshot.lateral_accel_mps2,
+            snapshot.body_pitch_rad))
+    {
+        return -RT_ERROR;
+    }
     g_hball_ball_level_rad = g_hball_ball_commission_level_rad;
     if (!hball_control_pipeline_set_motor_level(
             &g_hball_ball_pipeline, g_hball_ball_level_rad))

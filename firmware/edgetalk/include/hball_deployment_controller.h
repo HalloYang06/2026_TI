@@ -61,6 +61,13 @@ bool hball_deployment_controller_set_gains(
     float velocity_gain,
     float integral_gain
 );
+bool hball_deployment_controller_set_lateral_accel_coupling(float coupling);
+bool hball_deployment_controller_seed_imu_bias(
+    hball_deployment_controller_t *controller,
+    float longitudinal_accel_mps2,
+    float lateral_accel_mps2,
+    float body_pitch_rad
+);
 void hball_deployment_controller_predict(
     hball_deployment_controller_t *controller,
     float dt_s,
