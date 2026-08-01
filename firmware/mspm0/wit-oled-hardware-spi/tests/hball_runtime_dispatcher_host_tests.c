@@ -96,7 +96,7 @@ static void test_single_release_runs_can_and_imu_once_in_foreground(void)
                &dispatcher, HBALL_COOP_TASK_IMU) == 0U);
 }
 
-static void test_backlog_is_coalesced_without_unbounded_catch_up(void)
+static void test_imu_backlog_drains_each_bounded_release(void)
 {
     hball_runtime_dispatcher_t dispatcher;
     fake_runtime_t runtime;
@@ -116,7 +116,7 @@ static void test_backlog_is_coalesced_without_unbounded_catch_up(void)
     hball_runtime_dispatcher_poll(&dispatcher, 205U);
 
     assert(runtime.can_service_total == 1U);
-    assert(runtime.imu_service_total == 1U);
+    assert(runtime.imu_service_total == HBALL_COOP_MAX_PENDING);
     assert(hball_runtime_dispatcher_pending(
                &dispatcher, HBALL_COOP_TASK_CAN) == 0U);
     assert(hball_runtime_dispatcher_missed(
@@ -180,7 +180,7 @@ static void test_invalid_configuration_fails_closed(void)
 int main(void)
 {
     test_single_release_runs_can_and_imu_once_in_foreground();
-    test_backlog_is_coalesced_without_unbounded_catch_up();
+    test_imu_backlog_drains_each_bounded_release();
     test_disabled_services_consume_release_without_business_work();
     test_invalid_configuration_fails_closed();
     return 0;

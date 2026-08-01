@@ -79,7 +79,14 @@ void hball_runtime_dispatcher_poll(
     if ((imu_consumed != 0U)
         && dispatcher->hooks.imu_enabled(dispatcher->hooks.context))
     {
-        dispatcher->hooks.imu_service(dispatcher->hooks.context, now_ms);
+        uint8_t release;
+
+        for (release = 0U; release < imu_consumed; ++release)
+        {
+            dispatcher->hooks.imu_service(
+                dispatcher->hooks.context, now_ms
+            );
+        }
     }
     if ((can_consumed != 0U)
         && dispatcher->hooks.can_enabled(dispatcher->hooks.context))
