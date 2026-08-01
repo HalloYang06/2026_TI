@@ -13,6 +13,7 @@ CAMERA_START_PATH = VISION_DIR / "ball_camera" / "start_ball_camera.sh"
 CAMERA_USER_SERVICE_PATH = (
     VISION_DIR / "systemd" / "hball-edgetalk-camera-user.service"
 )
+TUNE_PATH = VISION_DIR / "edgetalk_tune.py"
 
 
 def load_bridge_module():
@@ -82,6 +83,16 @@ def test_runtime_tuning_command_and_ack_mailbox(tmp_path):
     assert ack_path.read_text(encoding="ascii") == (
         "HBALL_TUNE_ACK 17 settle_deg 1 OK\n"
     )
+
+
+def test_runtime_tuning_cli_exposes_q3_and_q456_parameters():
+    spec = importlib.util.spec_from_file_location("edgetalk_tune", TUNE_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert {"q3_kp", "q3_ki", "q3_kd", "q3_rate_cms"} <= module.PARAMETERS
+    assert {"kp", "kv", "ki", "run_deg", "settle_deg"} <= module.PARAMETERS
 
 
 def test_real_camera_defaults_match_the_frozen_100_hz_target():

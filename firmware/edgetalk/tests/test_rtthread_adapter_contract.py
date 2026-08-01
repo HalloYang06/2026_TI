@@ -104,3 +104,13 @@ def test_q3_verified_pid_and_sequence_baseline_is_frozen():
     assert "snapshot.ball_position_m -= g_hball_ball_q3_vision_zero_m" in source
     assert ">= 150U" in source
     assert ">= 300U" in source
+
+
+def test_q3_runtime_tuning_is_separate_and_disables_ramp_integral():
+    source = ADAPTER.read_text(encoding="utf-8")
+
+    for name in ("q3_kp", "q3_ki", "q3_kd", "q3_rate_cms"):
+        assert f'"{name}"' in source
+    assert "g_hball_ball_q3_target_rate_mps * HBALL_BALL_CONTROL_DT_S" in source
+    assert "g_hball_ball_position_integral = 0.0F;" in source
+    assert "g_hball_ball_target_m > -0.050F" in source

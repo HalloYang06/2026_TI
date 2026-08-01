@@ -11,7 +11,8 @@ from pathlib import Path
 
 PARAMETERS = {
     "kp", "kv", "ki", "run_deg", "run_recovery_deg", "settle_deg",
-    "settle_capture_deg", "settle_recovery_deg",
+    "settle_capture_deg", "settle_recovery_deg", "q3_kp", "q3_ki",
+    "q3_kd", "q3_rate_cms",
 }
 
 

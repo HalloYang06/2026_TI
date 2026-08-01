@@ -193,6 +193,8 @@ static float g_hball_ball_previous_error_m = 0.0F;
 static float g_hball_ball_pid_kp = HBALL_BALL_PID_KP;
 static float g_hball_ball_pid_ki = HBALL_BALL_PID_KI;
 static float g_hball_ball_pid_kd = HBALL_BALL_PID_KD;
+static float g_hball_ball_q3_target_rate_mps =
+    HBALL_BALL_Q3_TARGET_RATE_MPS;
 static float g_hball_ball_pid_static_boost_rad = 0.0F;
 static rt_bool_t g_hball_ball_pid_static_boost_active = RT_FALSE;
 static float g_hball_ball_q3_pipe_command_rad = 0.0F;
@@ -254,6 +256,36 @@ bool hball_runtime_tuning_set(const char *name, float value)
         g_hball_lqi_position_gain = kp;
         g_hball_lqi_velocity_gain = kv;
         g_hball_lqi_integral_gain = ki;
+        return true;
+    }
+    if (strcmp(name, "q3_rate_cms") == 0)
+    {
+        if ((value < 5.0F) || (value > 30.0F))
+        {
+            return false;
+        }
+        g_hball_ball_q3_target_rate_mps = value / 100.0F;
+        return true;
+    }
+    if ((strcmp(name, "q3_kp") == 0)
+        || (strcmp(name, "q3_ki") == 0)
+        || (strcmp(name, "q3_kd") == 0))
+    {
+        if (((strcmp(name, "q3_kp") == 0)
+                && ((value < 0.3F) || (value > 1.2F)))
+            || ((strcmp(name, "q3_ki") == 0)
+                && ((value < 0.0F) || (value > 0.6F)))
+            || ((strcmp(name, "q3_kd") == 0)
+                && ((value < 0.15F) || (value > 0.6F))))
+        {
+            return false;
+        }
+        if (strcmp(name, "q3_kp") == 0)
+            g_hball_ball_pid_kp = value;
+        if (strcmp(name, "q3_ki") == 0)
+            g_hball_ball_pid_ki = value;
+        if (strcmp(name, "q3_kd") == 0)
+            g_hball_ball_pid_kd = value;
         return true;
     }
     if ((value < 0.25F) || (value > 6.0F))
@@ -1892,7 +1924,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         && (g_hball_ball_target_m > -0.050F))
     {
         g_hball_ball_target_m -=
-            HBALL_BALL_Q3_TARGET_RATE_MPS * HBALL_BALL_CONTROL_DT_S;
+            g_hball_ball_q3_target_rate_mps * HBALL_BALL_CONTROL_DT_S;
         if (g_hball_ball_target_m < -0.050F)
         {
             g_hball_ball_target_m = -0.050F;
@@ -1907,7 +1939,9 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     );
     position_error_m =
         g_hball_ball_target_m - g_hball_ball_output.estimated_position_m;
-    if ((g_hball_ball_mode == 1U) && (g_hball_ball_phase != 4U))
+    if ((g_hball_ball_mode == 1U) && (g_hball_ball_phase != 4U)
+        && !((g_hball_ball_phase == 2U)
+            && (g_hball_ball_target_m > -0.050F)))
     {
         g_hball_ball_position_integral +=
             position_error_m * HBALL_BALL_CONTROL_DT_S;
@@ -1924,6 +1958,12 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
                     -HBALL_BALL_PID_INTEGRAL_LIMIT;
         }
         g_hball_ball_previous_error_m = position_error_m;
+    }
+    else if ((g_hball_ball_mode == 1U)
+        && (g_hball_ball_phase == 2U)
+        && (g_hball_ball_target_m > -0.050F))
+    {
+        g_hball_ball_position_integral = 0.0F;
     }
     if (settle_hold)
     {
