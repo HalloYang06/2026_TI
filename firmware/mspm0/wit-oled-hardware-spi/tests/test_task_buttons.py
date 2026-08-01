@@ -55,3 +55,5 @@ def test_sw1_start_is_latched_until_remote_mission_is_ready() -> None:
     assert "key_event = TASK_KEY_EVENT_EXECUTE;" in body
     assert 'telemetry_send_string("MISSION_SW1,LATCH\\r\\n")' in body
     assert 'telemetry_send_string("MISSION_SW1,START_ACCEPTED\\r\\n")' in body
+    assert "remote_started = true;" in body
+    assert "if (!abort_requested && !remote_started" in body

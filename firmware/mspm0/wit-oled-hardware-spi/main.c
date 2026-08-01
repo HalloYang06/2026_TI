@@ -1043,6 +1043,7 @@ static uint8_t select_car_task(void)
             hball_mission_policy_t policy;
             uint8_t selected_mission;
             bool abort_requested = false;
+            bool remote_started = false;
             uint32_t abort_request_ms = 0U;
             const uint32_t start_wait_ms = tick_ms;
 
@@ -1066,10 +1067,13 @@ static uint8_t select_car_task(void)
                 if (hball_can_mission_get_snapshot(&snapshot)
                     && snapshot.status_valid
                     && (snapshot.latest_status.global_state
-                        == HBALL_MISSION_STATE_RUNNING)
-                    && policy.chassis_allowed)
+                        == HBALL_MISSION_STATE_RUNNING))
                 {
-                    return selected_mission;
+                    remote_started = true;
+                    if (policy.chassis_allowed)
+                    {
+                        return selected_mission;
+                    }
                 }
                 if (hball_can_mission_get_snapshot(&snapshot)
                     && snapshot.status_valid
@@ -1083,7 +1087,7 @@ static uint8_t select_car_task(void)
                     );
                     break;
                 }
-                if (!abort_requested
+                if (!abort_requested && !remote_started
                     && ((wait_key == TASK_KEY_EVENT_SELECT)
                         || ((uint32_t)(tick_ms - start_wait_ms)
                             > HBALL_MISSION_START_ACK_TIMEOUT_MS)))
