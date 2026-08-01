@@ -89,7 +89,7 @@ def test_q3_verified_pid_and_sequence_baseline_is_frozen():
         "#define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.052359878F",
         "#define HBALL_BALL_PID_KP 0.70F",
         "#define HBALL_BALL_PID_KI 0.15F",
-        "#define HBALL_BALL_PID_KD 0.40F",
+        "#define HBALL_BALL_PID_KD 0.15F",
         "static float g_hball_ball_pid_static_boost_rad = 0.0F;",
     ):
         assert definition in source
@@ -97,5 +97,6 @@ def test_q3_verified_pid_and_sequence_baseline_is_frozen():
     assert "if ((g_hball_ball_mode != 1U)" in source
     assert "g_hball_ball_target_m = 0.050F;" in source
     assert "g_hball_ball_target_m = -0.050F;" in source
+    assert "#define HBALL_BALL_Q3_TARGET_RATE_MPS 0.20F" in source
     assert ">= 150U" in source
     assert ">= 300U" in source

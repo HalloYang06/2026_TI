@@ -75,9 +75,11 @@
 #define HBALL_BALL_SETTLE_CAPTURE_LIMIT_RAD 0.034906585F
 #define HBALL_BALL_SETTLE_RECOVERY_LIMIT_RAD 0.052359879F
 #define HBALL_BALL_Q3_PRELEVEL_PIPE_RATE_LIMIT_RAD_S 0.50F
+#define HBALL_BALL_Q3_TARGET_RATE_MPS 0.20F
+#define HBALL_BALL_VISION_HOLD_MS 100U
 #define HBALL_BALL_PID_KP 0.70F
 #define HBALL_BALL_PID_KI 0.15F
-#define HBALL_BALL_PID_KD 0.40F
+#define HBALL_BALL_PID_KD 0.15F
 #define HBALL_BALL_PID_BOOST_ENTER_MPS 0.003F
 #define HBALL_BALL_PID_BOOST_EXIT_MPS 0.015F
 #define HBALL_BALL_LQI_KP 1.576194F
@@ -1488,7 +1490,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     {
         invalid_mask |= UINT8_C(1) << 1;
     }
-    if (snapshot.vision_receive_age_ms > 50U)
+    if (snapshot.vision_receive_age_ms > HBALL_BALL_VISION_HOLD_MS)
     {
         invalid_mask |= UINT8_C(1) << 2;
     }
@@ -1711,6 +1713,17 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         g_hball_ball_pipeline.controller.integral_error_m_s = 0.0F;
     }
     g_hball_ball_settle_hold = settle_hold;
+    if ((g_hball_ball_mode == 1U)
+        && (g_hball_ball_phase == 2U)
+        && (g_hball_ball_target_m > -0.050F))
+    {
+        g_hball_ball_target_m -=
+            HBALL_BALL_Q3_TARGET_RATE_MPS * HBALL_BALL_CONTROL_DT_S;
+        if (g_hball_ball_target_m < -0.050F)
+        {
+            g_hball_ball_target_m = -0.050F;
+        }
+    }
     hball_control_pipeline_step(
         &g_hball_ball_pipeline,
         &snapshot,
@@ -1932,6 +1945,8 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
     }
     position_error_m = snapshot.ball_position_m - g_hball_ball_target_m;
     if ((fabsf(position_error_m) <= 0.010F)
+        && ((g_hball_ball_phase != 2U)
+            || (g_hball_ball_target_m <= -0.050F))
         && (fabsf(g_hball_ball_output.estimated_velocity_mps) <= 0.020F))
     {
         if (g_hball_ball_settle_since_ms == 0U)
@@ -1949,7 +1964,6 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         && ((rt_uint32_t)(now_ms - g_hball_ball_settle_since_ms) >= 150U))
     {
         g_hball_ball_phase = 2U;
-        g_hball_ball_target_m = -0.050F;
         g_hball_ball_position_integral = 0.0F;
         g_hball_ball_previous_error_m = 0.0F;
         g_hball_ball_pid_static_boost_active = RT_FALSE;
