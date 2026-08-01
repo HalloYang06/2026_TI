@@ -141,6 +141,19 @@ bool hball_mission_client_request_start(
     return true;
 }
 
+bool hball_mission_client_request_abort(
+    hball_mission_client_t *client, uint32_t now_ms
+)
+{
+    if ((client == NULL) || !client->start_requested)
+    {
+        return false;
+    }
+    client->command = HBALL_MISSION_COMMAND_ABORT;
+    client->command_time_ms = now_ms;
+    return true;
+}
+
 bool hball_mission_client_make_intent(
     const hball_mission_client_t *client,
     hball_mission_intent_t *intent

@@ -67,6 +67,11 @@ static void test_start_is_one_shot_and_keeps_button_time(void)
     assert(intent.epoch == 1U);
     assert(intent.command == HBALL_MISSION_COMMAND_START);
     assert(intent.event_time_ms == 120U);
+
+    assert(hball_mission_client_request_abort(&client, 150U));
+    assert(hball_mission_client_make_intent(&client, &intent));
+    assert(intent.command == HBALL_MISSION_COMMAND_ABORT);
+    assert(intent.event_time_ms == 150U);
 }
 
 static void test_stale_duplicate_and_out_of_order_status_do_not_unlock(void)
