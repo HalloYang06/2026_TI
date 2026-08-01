@@ -4,7 +4,7 @@ from pathlib import Path
 PROJECT = Path(__file__).resolve().parents[1]
 
 
-def test_keil_build_extends_vendor_stack_to_two_kibibytes() -> None:
+def test_keil_build_extends_vendor_stack_to_four_kibibytes() -> None:
     reserve_path = (
         PROJECT / "Drivers" / "MSPM0" / "hball_stack_reserve.s"
     )
@@ -19,7 +19,7 @@ def test_keil_build_extends_vendor_stack_to_two_kibibytes() -> None:
     reserve = reserve_path.read_text(encoding="utf-8")
     assert "AREA    STACK, NOINIT, READWRITE, ALIGN=3" in reserve
     assert "EXPORT  hball_stack_extension" in reserve
-    assert "SPACE   0x00000700" in reserve
+    assert "SPACE   0x00000F00" in reserve
 
     reserve_source = "'Drivers\\MSPM0\\hball_stack_reserve.s'"
     vendor_startup = (
@@ -27,7 +27,7 @@ def test_keil_build_extends_vendor_stack_to_two_kibibytes() -> None:
         'startup_system_files\\keil\\startup_mspm0g350x_uvision.s"'
     )
     assert build.index(reserve_source) < build.index(vendor_startup)
-    assert "$minimumStackBytes = 0x800" in build
+    assert "$minimumStackBytes = 0x1000" in build
     assert "__initial_sp" in build
     assert "--keep=hball_stack_extension" in build
     assert "[regex]::Matches" in build

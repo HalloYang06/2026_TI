@@ -107,7 +107,7 @@ $map = Join-Path $listingDir 'wit-oled-hardware-spi.map'
 $driverLib = Join-Path $SdkRoot 'source\ti\driverlib\lib\keil\m0p\mspm0g1x0x_g3x0x\driverlib.a'
 Invoke-Tool $linker (@('--cpu', 'Cortex-M0+', '--strict', '--keep=hball_stack_extension', "--scatter=$(Join-Path $ProjectRoot 'Keil\mspm0g3507.sct')", '--summary_stderr', '--info', 'summarysizes', '--map', "--list=$map", "--output=$elf") + $objects + @($driverLib)) 'Link failed.'
 
-$minimumStackBytes = 0x800
+$minimumStackBytes = 0x1000
 $symbolTable = & $fromElf --text -s $elf
 if ($LASTEXITCODE -ne 0) {
     throw "Unable to inspect linked stack layout (exit $LASTEXITCODE)"
