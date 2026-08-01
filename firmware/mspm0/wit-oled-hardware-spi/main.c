@@ -85,7 +85,11 @@ _Static_assert(
 #define HBALL_Q4_SOFT_START_MS 1200U
 #define HBALL_Q4_SOFT_STOP_MS 800U
 #define HBALL_Q4_DUTY_SLEW_STEP 5
-#define HBALL_Q56_SOFT_START_MS 1200U
+#define HBALL_Q5_SOFT_START_MS 1200U
+#define HBALL_Q6_SOFT_START_MS 1450U
+#define HBALL_Q6_SOFT_START_MAX_MS 1800U
+#define HBALL_Q6_POSITIVE_START_MS_PER_MM 3U
+#define HBALL_Q6_NEGATIVE_START_MS_PER_MM 2U
 #define HBALL_Q56_SOFT_STOP_MS 900U
 #define HBALL_Q56_STOP_SPEED_THRESHOLD 2
 #define HBALL_Q56_STOP_SETTLE_MS 300U
@@ -1726,6 +1730,7 @@ static void lap_test_once(void)
     uint32_t elapsed_ms;
     uint32_t q56_stop_profile_complete_ms = 0U;
     uint32_t q56_stop_settle_start_ms = 0U;
+    uint32_t q56_soft_start_ms = HBALL_Q5_SOFT_START_MS;
     uint32_t last_wheel_sample_ms = 0U;
     uint32_t finish_elapsed_ms = 0U;
     char time_text[8];
@@ -1782,6 +1787,32 @@ static void lap_test_once(void)
         marker_config.marker_min_elapsed_ms = 23000U;
         marker_config.marker_confirm_ms = 20U;
         run_timeout_ms = 0U;
+    }
+    if (mission_id == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+    {
+        q56_soft_start_ms = HBALL_Q6_SOFT_START_MS;
+    }
+    if ((mission_id == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+        && mission_snapshot.setup_valid
+        && ((mission_snapshot.latest_setup.flags
+                & HBALL_MISSION_SETUP_TARGET_SET) != 0U))
+    {
+        int32_t target_mm = mission_snapshot.latest_setup.target_position_mm;
+        uint32_t target_abs_mm;
+
+        if (target_mm < 0)
+        {
+            target_mm = -target_mm;
+        }
+        target_abs_mm = (uint32_t)target_mm;
+        q56_soft_start_ms += target_abs_mm
+            * (mission_snapshot.latest_setup.target_position_mm < 0
+                ? HBALL_Q6_NEGATIVE_START_MS_PER_MM
+                : HBALL_Q6_POSITIVE_START_MS_PER_MM);
+        if (q56_soft_start_ms > HBALL_Q6_SOFT_START_MAX_MS)
+        {
+            q56_soft_start_ms = HBALL_Q6_SOFT_START_MAX_MS;
+        }
     }
     line_sample = line_snapshot_decode(line_sensor_port_read_raw(), tick_ms);
     line_mask = line_sample.line_mask;
@@ -1866,7 +1897,7 @@ static void lap_test_once(void)
         selected_task == CAR_TASK_TIMED_RUN
             ? HBALL_Q4_SOFT_START_MS
             : (selected_task == CAR_TASK_STABLE_LAP
-                ? HBALL_Q56_SOFT_START_MS : 0U)
+                ? q56_soft_start_ms : 0U)
     );
     line_follower_init(&line_follower, follower_profile, run_start_ms);
     (void)route_marker_detector_init(
