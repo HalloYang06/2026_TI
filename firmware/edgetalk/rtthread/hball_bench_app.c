@@ -88,6 +88,7 @@
 #define HBALL_BALL_PID_INTEGRAL_LIMIT 0.050F
 #define HBALL_BALL_COMMISSION_POSITION_LIMIT_M 0.120F
 #define HBALL_BALL_Q3_START_WINDOW_M 0.010F
+#define HBALL_BALL_Q3_TARGET_TOLERANCE_M 0.003F
 #define HBALL_BALL_Q3_LEVEL_SETTLE_MS 100U
 #define HBALL_BALL_CONTROL_PERIOD_MS 2U
 #define HBALL_BALL_CONTROL_DT_S 0.002F
@@ -2169,7 +2170,7 @@ static void hball_ball_commission_tick(rt_uint32_t now_ms)
         g_hball_ball_error_violation_total++;
     }
     position_error_m = snapshot.ball_position_m - g_hball_ball_target_m;
-    if ((fabsf(position_error_m) <= 0.010F)
+    if ((fabsf(position_error_m) <= HBALL_BALL_Q3_TARGET_TOLERANCE_M)
         && ((g_hball_ball_phase != 2U)
             || (g_hball_ball_target_m <= -0.050F))
         && (fabsf(g_hball_ball_output.estimated_velocity_mps) <= 0.020F))
