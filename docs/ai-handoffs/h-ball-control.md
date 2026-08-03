@@ -6,6 +6,63 @@ Role: H-ball EdgeTalk USB/CAN/LQG integration + RS00两连杆仿真
 
 Updated: 2026-07-31
 
+## 2026-07-31 MSPM0活跃循迹状态迁出main
+
+Owner: Codex
+
+- 分支`codex/mspm0-runtime-decoupling`已把`lap_test_once()`中的Q2、Q4和稳定循迹状态
+  迁入纯`App/Control/LineFollower`；模块只消费`LineSnapshot + profile + timestamp +
+  force_straight`，输出带时间戳`MotionIntent`、重捕获积分复位事件和丢线超时事件。
+- 保留原双时基：`LineFollower`仍由比赛循环每10 ms更新请求，`WheelControl`仍每100 ms
+  消费一次。Stable重捕获状态必须等`wheel_control_step()`成功、PWM已应用后才ack，期间持续
+  使用原来的重捕获滤波/斜率和搜索方向锁存。
+- Q2参数和时序未调参：63基速、55弯道基速、20 ms入弯确认、80 ms出弯确认、250 ms
+  提速坡道、300 ms两段丢线搜索以及Q2不触发700 ms丢线停止全部保留。Q4继续50直接
+  起步/7800 ms任务超时；Stable继续28到46的一秒起步坡道、3:2整数滤波、中心死区、
+  预瞄限幅、40 ms毛刺保持和700 ms丢线停止。
+- 主机测试新增黄金轨迹并更新旧参数归属测试；全量结果为`71 passed`。Keil ArmClang
+  构建成功，`Code=44928, RO=15424, RW=144, ZI=8424`，连续栈区仍为`0x800` B；
+  `lap_test_once`自动局部帧从约`0x2FC`降到`0x1B4`（另有保存寄存器20 B）。
+- 未烧录、未模拟按键、未启动任务、未使能电机。生成HEX仅为编译证据，SHA-256为
+  `F4E327D8AAB4437C7812B527FFA89F4A5D518486D5E819F8152F501C004875B8`。
+- 下一独立切片应把终点/起点线确认、任务deadline、停止原因和运行阶段迁入Mission
+  Runtime；不要把这些重新塞进LineFollower，也不要在该切片顺带调Q2/Q4参数。
+
+## 2026-07-31 MSPM0控制所有权继续收拢
+
+Owner: Codex
+
+- `754b4da`建立`LineSensorPort`作为八路灰度GPIO唯一读取入口；全部256种位组合与旧
+  raw/低有效语义对拍通过。
+- `79a1434`把活跃比赛路径的双轮PID、100 ms编码器归一化、积分限幅、前馈和PWM斜坡
+  迁入硬件无关`WheelControl`。64步旧公式对拍、定向18项、全量66项主机测试及Keil构建
+  均通过，构建仍验证连续`0x800` B栈。
+- 生成但未烧录的HEX SHA-256为
+  `021632B9FC966F57A6EA6C6BEB2391722EB083CD3B407E386A7C36EED35BAD73`。烧录器已断开，
+  本轮没有按键、任务启动或执行器动作，板上仍是此前验收过的Q2固件。
+- 下一步是从`lap_test_once()`提取带时间戳的纯`LineFollower -> MotionIntent`，之后再把
+  完成/丢线阶段交给`Mission Runtime`。不得顺带修改Q2/Q4参数；旧`track.c/start`耦合
+  暂时明确保留为后续独立迁移项。
+
+## 2026-07-31 MSPM0任务选择状态机热修复
+
+Owner: Codex
+
+- 分支`codex/mspm0-runtime-decoupling`上的`c869689`恢复了无M33状态时的本地选题：
+  SW3可连续循环Q2→Q3→Q4→Q5→Q6→Q2，并为每次选择递增epoch、发布PREPARE、
+  清除旧status。
+- Q3～Q6的SW1执行门没有放宽：没有匹配当前mission/epoch且新鲜的M33 READY时，
+  仍返回`START_BLOCKED`；任务启动后SW3仍锁定。Q2继续走MSPM0本地启动路径。
+- 根因是`hball_mission_client_select()`错误依赖`status_valid`，把“允许换题”和
+  “允许执行分布式任务”耦合到同一条件。
+- 验证：定向状态机测试`5 passed`，MSPM0全量主机回归`62 passed`，SDK
+  `2.05.01.00`+Keil ArmClang隔离构建成功。隔离HEX SHA-256为
+  `8F8B07BBC34C564D17DDC9AA67E3A2594C1E0664655E25DF3BFB8881FA1D3BA3`。
+- 本次未烧录：烧录前发现本机pyOCD CMSIS-Pack索引被截断，重建过程中烧录器断开，
+  随即停止；目标板仍运行此前已验收Q2的固件。重新连接后只需烧入`c869689`构建，
+  人工验证SW3循环和Q3～Q6无READY不启动，不要模拟按键或自动启动电机。
+- 工作区中未提交的灰度GPIO唯一读取者收口仍是独立后续工作，不属于本热修复。
+
 ## 当前结论
 
 后续实现与审计的第一入口是
@@ -393,3 +450,31 @@ MATLAB/Simulink R2025b按新机构和115200 bit/s、200 Hz唯一IMU基线重跑�
 - 先前人工台架中“仅右轮转”最终定位为左轮线束松动；重新插紧后操作者确认两轮均可动。
   本次提交没有再次自动运行车辆，未形成定量起步时间差数据；后续落地验收仍需记录车轮
   状态、电源/限流、断电急停和操作者接管方式。
+
+## 2026-07-31 通用循迹地标检测接入
+
+- `c2b34d4`新增纯`RouteMarkerDetector`，只从`LineSnapshot + timestamp`生成起点清除、
+  地标出现/确认和直行覆盖事实；不拥有Q号、任务完成、CAN、显示或执行器。
+- 后续小提交已把`lap_test_once()`原有起点线/终点横线计时替换为该模块调用，保留Q2、
+  Q4和Stable原阈值及停车逻辑，没有扩展MSP全局任务状态机。
+- 变更文件为`main.c`和三个相关测试；通用模块及Keil源清单已在`c2b34d4`提交。
+- 验证结果：MSP全量主机回归`75 passed`；Keil ArmClang构建成功；目标栈门禁为
+  `0x800 bytes`；`git diff --check`通过。两次子审查均未发现Critical或Important问题。
+- 本轮未烧录、未模拟按键、未使能电机，也未启动任何任务。下一步仅需在满足硬件测试
+  前提后人工验证Q2/Q4地标时序；不要继续把M33拥有的任务deadline或完成状态下沉到MSP。
+
+## 2026-08-01 MSP远程任务运行许可监督
+
+- `e7cd38e`新增纯`hball_mission_run_guard`：Q2本地运行不依赖M33；Q4～Q6只在任务号、
+  epoch均匹配且150 ms内收到`RUNNING`状态时继续。M33进入FINISHING/COMPLETED、
+  ABORT/FAULT或状态失联时分别返回完成、中止或不可用停车原因。
+- 后续接入切片在`lap_test_once()`启动电机前及每次10 ms循环中检查运行许可；远程停止、
+  丢线停止只上报`STOPPED`，不再伪装成A/B地标成功。Q2/Q4/Stable参数、10 ms循迹和
+  100 ms轮速控制节拍、本地完成时限均未修改。
+- 软件验证为MSP全量主机回归`80 passed`；Keil ArmClang构建成功，连续目标栈仍为
+  `0x800 bytes`。当前HEX SHA-256为
+  `00CBA4172F78FA07B6F7A70074E861378D4B2360E83C42A9E455588AD659587D`。
+- 尚未形成实机结论。Horco CMSIS-DAP UID`2d2670f3`能够枚举，但pyOCD 0.44.1打开USB
+  会话超时；三次写入尝试均在擦写前失败，Windows软件重启设备又因权限不足被拒绝。
+  必须手动拔插Horco后重新烧录并显式reset/go，再在不自动触发按键的前提下确认菜单态、
+  STBY低和关键变量。Q2/Q4～Q6运动效果仍未验收。

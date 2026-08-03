@@ -31,6 +31,10 @@ void hball_sensor_fusion_set_vision(
     {
         return;
     }
+    if ((measurement->flags & HBALL_VISION_FLAG_POSITION_VALID) == 0U)
+    {
+        return;
+    }
     fusion->vision = *measurement;
     fusion->vision_receive_ms = receive_ms;
     fusion->vision_received = true;
@@ -164,8 +168,9 @@ void hball_sensor_fusion_snapshot(
     snapshot->motor_run_mode = fusion->motor_parameters.run_mode;
     snapshot->ball_position_m = fusion->vision.ball_position_m;
     snapshot->vision_confidence = fusion->vision.confidence;
-    snapshot->longitudinal_accel_mps2 = fusion->msp.accel_mps2[0];
-    snapshot->lateral_accel_mps2 = fusion->msp.accel_mps2[1];
+    /* Vehicle installation: JY901S +Y is forward and +X is lateral. */
+    snapshot->longitudinal_accel_mps2 = fusion->msp.accel_mps2[1];
+    snapshot->lateral_accel_mps2 = fusion->msp.accel_mps2[0];
     snapshot->body_pitch_rad = fusion->msp.attitude_rad[1];
     snapshot->yaw_rate_rad_s = fusion->msp.gyro_rad_s[2];
     snapshot->body_speed_mps = fusion->msp.body_speed_mps;

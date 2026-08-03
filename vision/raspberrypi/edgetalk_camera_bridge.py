@@ -14,6 +14,7 @@ import json
 import math
 import sys
 import time
+from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 
@@ -28,6 +29,36 @@ from vision_measurement_protocol import (
 
 
 WRITE_TIMEOUT_S = 0.020
+
+
+def _send_tuning_if_changed(device, command_path: Path, last_mtime_ns: int | None) -> int | None:
+    try:
+        stat = command_path.stat()
+    except FileNotFoundError:
+        return last_mtime_ns
+    if stat.st_mtime_ns == last_mtime_ns:
+        return last_mtime_ns
+    command = command_path.read_text(encoding="ascii").strip()
+    parts = command.split()
+    if len(parts) != 4 or parts[0] != "HBALL_TUNE":
+        raise ValueError(f"invalid tuning command: {command!r}")
+    payload = ("\n" + command + "\n").encode("ascii")
+    if device.write(payload) != len(payload):
+        raise OSError("short USB CDC tuning write")
+    return stat.st_mtime_ns
+
+
+def _record_tuning_ack(data: bytes, buffer: bytearray, ack_path: Path) -> None:
+    buffer.extend(data)
+    marker = b"HBALL_TUNE_ACK "
+    start = buffer.find(marker)
+    if start >= 0:
+        end = buffer.find(b"\n", start)
+        if end >= 0:
+            ack_path.write_bytes(buffer[start:end + 1])
+            del buffer[:end + 1]
+    if len(buffer) > 1024:
+        del buffer[:-128]
 
 
 def _finite_number(payload: dict[str, Any], name: str, default: float = 0.0) -> float:
@@ -69,12 +100,15 @@ def build_measurement(payload: dict[str, Any]) -> VisionMeasurement:
 
 def forward_stream(
     source_url: str, device, *, max_frames: int | None = None,
-    telemetry_log=None,
+    telemetry_log=None, tuning_command_path: Path | None = None,
+    tuning_ack_path: Path | None = None,
 ) -> int:
     """Forward fresh SSE records; a disconnect raises so the caller reconnects."""
     forwarded = 0
     last_sequence: int | None = None
     telemetry = ControlLogStream()
+    tuning_mtime_ns: int | None = None
+    tuning_ack_buffer = bytearray()
     with urlopen(source_url, timeout=5.0) as response:
         for raw_line in response:
             if not raw_line.startswith(b"data: "):
@@ -88,6 +122,10 @@ def forward_stream(
             sequence = _uint(payload, "sequence", 0xFFFFFFFF)
             if last_sequence == sequence:
                 continue
+            if tuning_command_path is not None and (forwarded % 12) == 0:
+                tuning_mtime_ns = _send_tuning_if_changed(
+                    device, tuning_command_path, tuning_mtime_ns
+                )
             frame = encode_measurement(build_measurement(payload))
             written = device.write(frame)
             if written != len(frame):
@@ -97,7 +135,12 @@ def forward_stream(
             # write(), and the next iteration naturally maintains ordering.
             waiting = getattr(device, "in_waiting", 0)
             if waiting:
-                for record in telemetry.push(device.read(waiting)):
+                incoming = device.read(waiting)
+                if tuning_ack_path is not None:
+                    _record_tuning_ack(
+                        incoming, tuning_ack_buffer, tuning_ack_path
+                    )
+                for record in telemetry.push(incoming):
                     if telemetry_log is not None:
                         telemetry_log.write(record.raw)
             last_sequence = sequence
@@ -113,6 +156,12 @@ def main() -> int:
     parser.add_argument("--port", help="EdgeTalk /dev/serial/by-id path; auto-detect by default")
     parser.add_argument("--retry", type=float, default=1.0)
     parser.add_argument("--lock-file", default="/tmp/hball-edgetalk-camera.lock")
+    parser.add_argument(
+        "--tuning-command-file", default="/tmp/hball-edgetalk-tune.cmd"
+    )
+    parser.add_argument(
+        "--tuning-ack-file", default="/tmp/hball-edgetalk-tune.ack"
+    )
     parser.add_argument(
         "--telemetry-log",
         help="append validated 80-byte control records; disabled by default",
@@ -146,6 +195,8 @@ def main() -> int:
                     count = forward_stream(
                         arguments.source_url, device,
                         telemetry_log=telemetry_log,
+                        tuning_command_path=Path(arguments.tuning_command_file),
+                        tuning_ack_path=Path(arguments.tuning_ack_file),
                     )
                     print(f"RECONNECT: SSE ended after {count} frames", file=sys.stderr)
             except (OSError, RuntimeError, ValueError) as error:

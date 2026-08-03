@@ -12,7 +12,7 @@ static hball_mission_intent_t make_intent(
     return intent;
 }
 
-static void test_prepare_requires_complete_mask_for_500_ms(void)
+static void test_prepare_requires_complete_mask_for_150_ms(void)
 {
     hball_mission_arbiter_t arbiter;
     hball_mission_intent_t intent = make_intent(
@@ -28,15 +28,15 @@ static void test_prepare_requires_complete_mask_for_500_ms(void)
 
     hball_mission_arbiter_update_ready(&arbiter, required, 100U);
     assert(arbiter.global_state == HBALL_MISSION_STATE_PREPARING);
-    hball_mission_arbiter_update_ready(&arbiter, required, 599U);
+    hball_mission_arbiter_update_ready(&arbiter, required, 249U);
     assert(arbiter.global_state == HBALL_MISSION_STATE_PREPARING);
-    hball_mission_arbiter_update_ready(&arbiter, required, 600U);
+    hball_mission_arbiter_update_ready(&arbiter, required, 250U);
     assert(arbiter.global_state == HBALL_MISSION_STATE_READY);
 
     hball_mission_arbiter_update_ready(
         &arbiter,
         (uint16_t)(required & ~HBALL_MISSION_READY_VISION),
-        601U
+        251U
     );
     assert(arbiter.global_state == HBALL_MISSION_STATE_PREPARING);
     assert(arbiter.reason == HBALL_MISSION_REASON_NOT_READY);
@@ -61,13 +61,46 @@ static void test_start_outside_ready_is_rejected_and_not_queued(void)
         &arbiter, hball_mission_required_ready_mask(prepare.mission_id), 10U
     );
     hball_mission_arbiter_update_ready(
-        &arbiter, hball_mission_required_ready_mask(prepare.mission_id), 510U
+        &arbiter, hball_mission_required_ready_mask(prepare.mission_id), 160U
     );
     assert(arbiter.global_state == HBALL_MISSION_STATE_READY);
-    assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 511U));
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 161U));
     assert(arbiter.global_state == HBALL_MISSION_STATE_START_PENDING);
-    assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 512U));
+    assert(arbiter.start_accept_time_ms == 161U);
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 162U));
     assert(arbiter.start_accept_total == 1U);
+    assert(hball_mission_arbiter_mark_running(&arbiter));
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 163U));
+    assert(arbiter.global_state == HBALL_MISSION_STATE_RUNNING);
+    assert(arbiter.start_accept_total == 1U);
+    assert(arbiter.start_reject_total == 1U);
+}
+
+static void test_same_context_prepare_cannot_roll_back_execution(void)
+{
+    hball_mission_arbiter_t arbiter;
+    hball_mission_intent_t prepare = make_intent(
+        5U, HBALL_MISSION_Q3_BALL_SEQUENCE,
+        HBALL_MISSION_COMMAND_PREPARE
+    );
+    hball_mission_intent_t start = prepare;
+    const uint16_t required = hball_mission_required_ready_mask(
+        prepare.mission_id
+    );
+
+    start.command = HBALL_MISSION_COMMAND_START;
+    hball_mission_arbiter_init(&arbiter);
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &prepare, 0U));
+    hball_mission_arbiter_update_ready(&arbiter, required, 1U);
+    hball_mission_arbiter_update_ready(&arbiter, required, 501U);
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &start, 502U));
+    assert(arbiter.global_state == HBALL_MISSION_STATE_START_PENDING);
+
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &prepare, 503U));
+    assert(arbiter.global_state == HBALL_MISSION_STATE_START_PENDING);
+    assert(hball_mission_arbiter_mark_running(&arbiter));
+    assert(hball_mission_arbiter_accept_intent(&arbiter, &prepare, 504U));
+    assert(arbiter.global_state == HBALL_MISSION_STATE_RUNNING);
 }
 
 static void test_epoch_and_mission_must_match_after_start(void)
@@ -288,8 +321,9 @@ static void test_start_rebuilds_context_after_m33_only_reboot(void)
 
 int main(void)
 {
-    test_prepare_requires_complete_mask_for_500_ms();
+    test_prepare_requires_complete_mask_for_150_ms();
     test_start_outside_ready_is_rejected_and_not_queued();
+    test_same_context_prepare_cannot_roll_back_execution();
     test_epoch_and_mission_must_match_after_start();
     test_q3_uses_available_stationary_dependencies();
     test_status_mirrors_context_and_increments_sequence();

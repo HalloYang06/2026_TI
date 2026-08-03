@@ -79,3 +79,42 @@ def test_manual_csp_session_uses_targeted_100_hz_each_position_velocity_readback
     assert "g_hball_motor.parameters.mech_position_rad" in source
     assert "g_hball_motor.parameters.mech_velocity_rad_s" in source
     assert "HBALL_RS00_BENCH_RETURNING" in source
+
+
+def test_q3_verified_pid_and_sequence_baseline_is_frozen():
+    source = ADAPTER.read_text(encoding="utf-8")
+
+    for definition in (
+        "#define HBALL_BALL_COMMISSION_LEVEL_RAD 1.6000F",
+        "#define HBALL_BALL_COMMISSION_PIPE_LIMIT_RAD 0.052359878F",
+        "#define HBALL_BALL_PID_KP 0.70F",
+        "#define HBALL_BALL_PID_KI 0.15F",
+        "#define HBALL_BALL_PID_KD 0.15F",
+        "static float g_hball_ball_pid_static_boost_rad = 0.0F;",
+    ):
+        assert definition in source
+
+    assert "if ((g_hball_ball_mode != 1U)" in source
+    assert "g_hball_ball_target_m = 0.050F;" in source
+    assert "g_hball_ball_target_m = -0.050F;" in source
+    assert "#define HBALL_BALL_Q3_TARGET_RATE_MPS 0.20F" in source
+    assert "#define HBALL_BALL_Q3_TARGET_TOLERANCE_M 0.010F" in source
+    assert "#define HBALL_BALL_VISION_HOLD_MS 200U" in source
+    assert "g_hball_ball_q3_zero_calibrated" in source
+    assert "g_hball_ball_q3_vision_zero_m" in source
+    assert "snapshot.ball_position_m -= g_hball_ball_q3_vision_zero_m" in source
+    assert ">= 150U" in source
+    assert ">= 300U" in source
+
+
+def test_q3_runtime_tuning_is_separate_and_disables_ramp_integral():
+    source = ADAPTER.read_text(encoding="utf-8")
+
+    assert 'strcmp(name, "q3_level_mrad") == 0' in source
+    assert "g_hball_ball_level_rad = g_hball_ball_commission_level_rad;" in source
+
+    for name in ("q3_kp", "q3_ki", "q3_kd", "q3_rate_cms"):
+        assert f'"{name}"' in source
+    assert "g_hball_ball_q3_target_rate_mps * HBALL_BALL_CONTROL_DT_S" in source
+    assert "g_hball_ball_position_integral = 0.0F;" in source
+    assert "g_hball_ball_target_m > -0.050F" in source

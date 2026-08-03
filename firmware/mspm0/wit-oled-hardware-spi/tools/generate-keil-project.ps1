@@ -39,7 +39,8 @@ $target.TargetOption.TargetArmAds.Cads.VariousControls.Define = '__MSPM0G3507__'
 $include = @(
     "$SdkRoot\source",
     "$SdkRoot\source\third_party\CMSIS\Core\Include",
-    '..', '..\Debug', '..\App\Mission',
+    '..', '..\Debug', '..\App\Chassis', '..\App\Control', '..\App\Mission',
+    '..\App\Runtime',
     '..\Drivers\CAN', '..\Drivers\ENCODER', '..\Drivers\GRAY', '..\Drivers\MOTOR',
     '..\Drivers\MSPM0', '..\Drivers\OLED_Hardware_SPI', '..\Drivers\PID',
     '..\Drivers\UART_VOFA+', '..\Drivers\WIT',
@@ -47,6 +48,7 @@ $include = @(
 ) -join ';'
 $target.TargetOption.TargetArmAds.Cads.VariousControls.IncludePath = $include
 $target.TargetOption.TargetArmAds.LDads.ScatterFile = '.\mspm0g3507.sct'
+$target.TargetOption.TargetArmAds.LDads.Misc = '--keep=hball_stack_extension'
 
 $groups = $target.Groups
 $groups.RemoveAll()
@@ -74,20 +76,34 @@ $libraryFiles = @(
     ,@('driverlib.a', '2', "$SdkRoot\source\ti\driverlib\lib\keil\m0p\mspm0g1x0x_g3x0x\driverlib.a")
 )
 $applicationFiles = @(
+    ,@('hball_stack_reserve.s', '2', '..\Drivers\MSPM0\hball_stack_reserve.s')
     ,@('startup_mspm0g350x_uvision.s', '2', "$SdkRoot\source\ti\devices\msp\m0p\startup_system_files\keil\startup_mspm0g350x_uvision.s")
     ,@('main.c', '1', '..\main.c')
     ,@('ti_msp_dl_config.c', '1', '..\Debug\ti_msp_dl_config.c')
+    ,@('route_marker_detector.c', '1', '..\App\Chassis\route_marker_detector.c')
+    ,@('chassis_actuator.c', '1', '..\App\Control\chassis_actuator.c')
+    ,@('chassis_motion_profile.c', '1', '..\App\Control\chassis_motion_profile.c')
+    ,@('line_snapshot.c', '1', '..\App\Control\line_snapshot.c')
+    ,@('line_follower.c', '1', '..\App\Control\line_follower.c')
+    ,@('wheel_control.c', '1', '..\App\Control\wheel_control.c')
     ,@('hball_can_protocol.c', '1', '..\Drivers\CAN\hball_can_protocol.c')
     ,@('hball_can_recovery.c', '1', '..\Drivers\CAN\hball_can_recovery.c')
     ,@('hball_can_port.c', '1', '..\Drivers\CAN\hball_can_port.c')
     ,@('hball_mission_client.c', '1', '..\Drivers\CAN\hball_mission_client.c')
     ,@('hball_mission_menu.c', '1', '..\App\Mission\hball_mission_menu.c')
+    ,@('hball_mission_policy.c', '1', '..\App\Mission\hball_mission_policy.c')
+    ,@('hball_mission_run_guard.c', '1', '..\App\Mission\hball_mission_run_guard.c')
+    ,@('hball_coop_scheduler.c', '1', '..\App\Runtime\hball_coop_scheduler.c')
+    ,@('hball_runtime_dispatcher.c', '1', '..\App\Runtime\hball_runtime_dispatcher.c')
+    ,@('hball_runtime_services.c', '1', '..\App\Runtime\hball_runtime_services.c')
+    ,@('hball_runtime_target.c', '1', '..\App\Runtime\hball_runtime_target.c')
     ,@('hball_mission_can.c', '1', '..\..\..\..\shared\protocol\hball_mission_can.c')
     ,@('encoder.c', '1', '..\Drivers\ENCODER\encoder.c')
     ,@('beeper.c', '1', '..\Drivers\GRAY\beeper.c')
     ,@('gray.c', '1', '..\Drivers\GRAY\gray.c')
     ,@('key.c', '1', '..\Drivers\GRAY\key.c')
     ,@('led.c', '1', '..\Drivers\GRAY\led.c')
+    ,@('line_sensor_port.c', '1', '..\Drivers\GRAY\line_sensor_port.c')
     ,@('track.c', '1', '..\Drivers\GRAY\track.c')
     ,@('motor.c', '1', '..\Drivers\MOTOR\motor.c')
     ,@('clock.c', '1', '..\Drivers\MSPM0\clock.c')
@@ -97,6 +113,7 @@ $applicationFiles = @(
     ,@('uart_vofa.c', '1', '..\Drivers\UART_VOFA+\uart_vofa.c')
     ,@('wit_jy901s_config.c', '1', '..\Drivers\WIT\wit_jy901s_config.c')
     ,@('wit_parser.c', '1', '..\Drivers\WIT\wit_parser.c')
+    ,@('wit_byte_queue.c', '1', '..\Drivers\WIT\wit_byte_queue.c')
     ,@('wit.c', '1', '..\Drivers\WIT\wit.c')
     ,@('wit-oled-hardware-spi.syscfg', '5', '..\wit-oled-hardware-spi.syscfg')
 )

@@ -24,6 +24,7 @@ typedef struct
     uint32_t rx_fd_rejected;
     uint32_t rx_fifo_full;
     uint32_t rx_fifo_lost;
+    uint32_t rx_budget_exhausted;
     uint32_t bus_off_events;
     uint32_t protocol_error_events;
     uint32_t message_ram_errors;
@@ -46,6 +47,8 @@ typedef struct
     uint32_t mission_status_invalid;
     uint32_t mission_ui_rx;
     uint32_t mission_ui_invalid;
+    uint32_t mission_setup_rx;
+    uint32_t mission_setup_invalid;
 } hball_can_port_stats_t;
 
 extern volatile hball_can_port_stats_t g_hball_can_stats;
@@ -54,11 +57,15 @@ void hball_can_port_init(void);
 void hball_can_port_tick_1ms(uint32_t now_ms);
 bool hball_can_mission_select(uint8_t mission_id, uint32_t now_ms);
 bool hball_can_mission_request_start(uint32_t now_ms);
+bool hball_can_mission_request_level(uint32_t now_ms);
+bool hball_can_mission_request_abort(uint32_t now_ms);
+void hball_can_mission_force_reset(uint32_t now_ms);
 bool hball_can_mission_get_snapshot(hball_mission_client_t *snapshot);
 hball_mission_menu_result_t hball_can_mission_menu_handle(
     hball_mission_menu_event_t event, uint32_t now_ms
 );
 void hball_can_mission_chassis_start(uint32_t now_ms);
+void hball_can_mission_chassis_latch_events(uint8_t event_flags);
 void hball_can_mission_chassis_finish(
     uint8_t event_flags, uint32_t now_ms
 );

@@ -21,15 +21,11 @@ def test_lap_start_preloads_both_wheels_before_shared_enable() -> None:
         "void set_motor_speed",
     )
 
-    disable = start_body.index(
-        "DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN)"
-    )
+    disable = start_body.index("motor_driver_disable()")
     preload = start_body.index("motor_pwm_set(pwm1, pwm2)")
-    enable = start_body.index(
-        "DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN)"
-    )
+    enable = start_body.index("motor_driver_enable()")
     assert disable < preload < enable
-    assert "motor_start_synchronized((float)commanded_duty_left" in main
+    assert "chassis_actuator_start_synchronized((float)commanded_duty_left" in main
 
 
 def test_motor_pwm_keeps_verified_per_wheel_direction_writes() -> None:

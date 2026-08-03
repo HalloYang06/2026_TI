@@ -31,7 +31,6 @@ bool hball_mission_client_select(
 {
     if ((client == NULL)
         || client->start_requested
-        || !client->status_valid
         || !hball_mission_id_valid(mission_id))
     {
         return false;
@@ -45,6 +44,7 @@ bool hball_mission_client_select(
     client->command = HBALL_MISSION_COMMAND_PREPARE;
     client->command_time_ms = now_ms;
     client->status_valid = false;
+    client->setup_valid = false;
     return true;
 }
 
@@ -55,6 +55,7 @@ bool hball_mission_client_accept_status(
 )
 {
     uint8_t sequence_delta;
+    bool status_timed_out;
 
     if ((client == NULL) || (status == NULL))
     {
@@ -68,18 +69,34 @@ bool hball_mission_client_accept_status(
     }
     if (client->status_valid)
     {
+        status_timed_out = (uint32_t)(now_ms - client->last_status_ms)
+            > HBALL_MISSION_STATUS_FRESH_MS;
         sequence_delta = (uint8_t)(
             status->status_sequence - client->latest_status.status_sequence
         );
         if (sequence_delta == 0U)
         {
-            client->duplicate_status_total++;
-            return false;
+            if (status_timed_out)
+            {
+                client->status_resync_total++;
+            }
+            else
+            {
+                client->duplicate_status_total++;
+                return false;
+            }
         }
-        if (sequence_delta >= 128U)
+        else if (sequence_delta >= 128U)
         {
-            client->out_of_order_status_total++;
-            return false;
+            if (status_timed_out)
+            {
+                client->status_resync_total++;
+            }
+            else
+            {
+                client->out_of_order_status_total++;
+                return false;
+            }
         }
     }
 
@@ -123,6 +140,49 @@ bool hball_mission_client_request_start(
     client->command_time_ms = now_ms;
     client->start_requested = true;
     return true;
+}
+
+bool hball_mission_client_request_level(
+    hball_mission_client_t *client, uint32_t now_ms
+)
+{
+    if ((client == NULL) || client->start_requested
+        || (client->selected_mission < HBALL_MISSION_Q3_BALL_SEQUENCE)
+        || (client->selected_mission > HBALL_MISSION_Q6_HOLD_POSITION_LAP))
+    {
+        return false;
+    }
+    client->command = HBALL_MISSION_COMMAND_LEVEL;
+    client->command_time_ms = now_ms;
+    return true;
+}
+
+bool hball_mission_client_request_abort(
+    hball_mission_client_t *client, uint32_t now_ms
+)
+{
+    if ((client == NULL) || !client->start_requested)
+    {
+        return false;
+    }
+    client->command = HBALL_MISSION_COMMAND_ABORT;
+    client->command_time_ms = now_ms;
+    return true;
+}
+
+void hball_mission_client_force_reset(
+    hball_mission_client_t *client, uint32_t now_ms
+)
+{
+    if (client == NULL)
+    {
+        return;
+    }
+    client->command = HBALL_MISSION_COMMAND_RESET;
+    client->command_time_ms = now_ms;
+    client->start_requested = false;
+    client->status_valid = false;
+    client->setup_valid = false;
 }
 
 bool hball_mission_client_make_intent(

@@ -12,6 +12,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#define HBALL_CAN_RX_BUDGET_PER_SERVICE 8U
+
 /* Automated builds and tests must never create an actuator command frame. */
 #define HBALL_CAN_MOTOR_COMMAND_TX_ENABLED 0U
 
@@ -39,7 +41,7 @@ static bool g_hball_wit_attitude_seen;
 static hball_can_recovery_t g_hball_can_recovery;
 static hball_mission_client_t g_hball_mission_client;
 static hball_mission_ui_t g_hball_mission_ui;
-static void hball_can_drain_fifo0(void);
+static void hball_can_drain_fifo0(uint8_t max_frames);
 static volatile uint32_t g_hball_port_now_ms;
 static uint32_t g_hball_chassis_start_ms;
 static uint8_t g_hball_chassis_phase;
@@ -86,6 +88,38 @@ bool hball_can_mission_request_start(uint32_t now_ms)
     return accepted;
 }
 
+bool hball_can_mission_request_level(uint32_t now_ms)
+{
+    bool accepted;
+    const uint32_t interrupt_state = hball_can_lock();
+
+    accepted = hball_mission_client_request_level(
+        &g_hball_mission_client, now_ms
+    );
+    hball_can_unlock(interrupt_state);
+    return accepted;
+}
+
+bool hball_can_mission_request_abort(uint32_t now_ms)
+{
+    bool accepted;
+    const uint32_t interrupt_state = hball_can_lock();
+
+    accepted = hball_mission_client_request_abort(
+        &g_hball_mission_client, now_ms
+    );
+    hball_can_unlock(interrupt_state);
+    return accepted;
+}
+
+void hball_can_mission_force_reset(uint32_t now_ms)
+{
+    const uint32_t interrupt_state = hball_can_lock();
+
+    hball_mission_client_force_reset(&g_hball_mission_client, now_ms);
+    hball_can_unlock(interrupt_state);
+}
+
 bool hball_can_mission_get_snapshot(hball_mission_client_t *snapshot)
 {
     uint32_t interrupt_state;
@@ -120,9 +154,16 @@ void hball_can_mission_chassis_start(uint32_t now_ms)
 
     g_hball_chassis_start_ms = now_ms;
     g_hball_chassis_phase = HBALL_MISSION_STATE_RUNNING;
+    g_hball_chassis_events = HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE;
+    hball_can_unlock(interrupt_state);
+}
+
+void hball_can_mission_chassis_latch_events(uint8_t event_flags)
+{
+    const uint32_t interrupt_state = hball_can_lock();
+
     g_hball_chassis_events =
-        HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE
-        | HBALL_MISSION_CHASSIS_EVENT_LEFT_A;
+        (uint8_t)(g_hball_chassis_events | event_flags);
     hball_can_unlock(interrupt_state);
 }
 
@@ -133,8 +174,11 @@ void hball_can_mission_chassis_finish(
     const uint32_t interrupt_state = hball_can_lock();
 
     g_hball_chassis_phase = HBALL_MISSION_STATE_COMPLETED;
-    g_hball_chassis_events =
-        (uint8_t)(event_flags | HBALL_MISSION_CHASSIS_EVENT_STOPPED);
+    g_hball_chassis_events = (uint8_t)(
+        (g_hball_chassis_events | event_flags
+         | HBALL_MISSION_CHASSIS_EVENT_STOPPED)
+        & (uint8_t)~HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE
+    );
     (void)now_ms;
     hball_can_unlock(interrupt_state);
 }
@@ -382,7 +426,7 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
      * the MCAN line-1 interrupt is not delivered. The FIFO acknowledge keeps
      * this harmless when the IRQ path is working normally.
      */
-    hball_can_drain_fifo0();
+    hball_can_drain_fifo0(HBALL_CAN_RX_BUDGET_PER_SERVICE);
     if (hball_can_recovery_should_attempt(
             &g_hball_can_recovery,
             now_ms,
@@ -403,10 +447,8 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
      * 1 ms slot can be lost while the shared TX buffer is still pending.
      * Intent outranks ordinary IMU telemetry so RESET/PREPARE cannot starve.
      */
-    intent_due = !g_hball_mission_client.status_valid
-        ? !telemetry_due
-        : (((now_ms % 50U) == 7U)
-           || ((now_ms % 50U) == 8U));
+    intent_due = ((now_ms % 50U) == 7U)
+        || ((now_ms % 50U) == 8U);
     chassis_due = ((now_ms % 20U) == 9U);
     if ((g_hball_can_stats.bus_off != 0U)
         || (!telemetry_due && !intent_due && !chassis_due))
@@ -565,17 +607,35 @@ static void hball_can_record_rx(const DL_MCAN_RxBufElement *message)
             g_hball_can_stats.mission_ui_invalid++;
         }
     }
+    else if ((message->xtd == 0U) && (id == HBALL_CAN_ID_MISSION_SETUP))
+    {
+        hball_mission_setup_t setup;
+
+        hball_rx_element_to_mission_frame(id, message, &mission_frame);
+        if (hball_mission_decode_setup(&mission_frame, &setup)
+            && (setup.epoch == g_hball_mission_client.candidate_epoch))
+        {
+            g_hball_mission_client.latest_setup = setup;
+            g_hball_mission_client.setup_valid = true;
+            g_hball_can_stats.mission_setup_rx++;
+        }
+        else
+        {
+            g_hball_can_stats.mission_setup_invalid++;
+        }
+    }
 }
 
-static void hball_can_drain_fifo0(void)
+static void hball_can_drain_fifo0(uint8_t max_frames)
 {
     DL_MCAN_RxBufElement message;
     DL_MCAN_RxFIFOStatus fifo_status;
+    uint8_t drained = 0U;
 
     memset(&fifo_status, 0, sizeof(fifo_status));
     fifo_status.num = DL_MCAN_RX_FIFO_NUM_0;
     DL_MCAN_getRxFIFOStatus(MCAN0_INST, &fifo_status);
-    while (fifo_status.fillLvl != 0U)
+    while ((fifo_status.fillLvl != 0U) && (drained < max_frames))
     {
         DL_MCAN_readMsgRam(
             MCAN0_INST,
@@ -587,7 +647,12 @@ static void hball_can_drain_fifo0(void)
         DL_MCAN_writeRxFIFOAck(
             MCAN0_INST, fifo_status.num, fifo_status.getIdx);
         hball_can_record_rx(&message);
+        drained++;
         DL_MCAN_getRxFIFOStatus(MCAN0_INST, &fifo_status);
+    }
+    if (fifo_status.fillLvl != 0U)
+    {
+        g_hball_can_stats.rx_budget_exhausted++;
     }
 }
 
@@ -608,7 +673,7 @@ void MCAN0_INST_IRQHandler(void)
 
     if ((interrupt_status & (MCAN_IR_RF0N_MASK | MCAN_IR_RF0F_MASK)) != 0U)
     {
-        hball_can_drain_fifo0();
+        hball_can_drain_fifo0(HBALL_CAN_RX_BUDGET_PER_SERVICE);
     }
     if ((interrupt_status & MCAN_IR_TC_MASK) != 0U)
     {

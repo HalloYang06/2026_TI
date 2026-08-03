@@ -20,6 +20,51 @@ def test_msp_can_port_carries_only_mission_control_frames() -> None:
     assert "memcpy(element->data" not in source
 
 
+def test_chassis_route_events_are_latched_only_from_observed_facts() -> None:
+    header = (PROJECT / "Drivers" / "CAN" / "hball_can_port.h").read_text(
+        encoding="utf-8"
+    )
+    source = (PROJECT / "Drivers" / "CAN" / "hball_can_port.c").read_text(
+        encoding="utf-8"
+    )
+    start = source[
+        source.index("void hball_can_mission_chassis_start") :
+        source.index("void hball_can_mission_chassis_latch_events")
+    ]
+    latch = source[
+        source.index("void hball_can_mission_chassis_latch_events") :
+        source.index("void hball_can_mission_chassis_finish")
+    ]
+    finish = source[
+        source.index("void hball_can_mission_chassis_finish") :
+        source.index("static void hball_can_update_wit_freshness")
+    ]
+
+    assert "hball_can_mission_chassis_latch_events(uint8_t event_flags)" in header
+    assert "HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE" in start
+    assert "HBALL_MISSION_CHASSIS_EVENT_LEFT_A" not in start
+    assert "g_hball_chassis_events | event_flags" in latch
+    assert "g_hball_chassis_phase" not in latch
+    assert "g_hball_chassis_events | event_flags" in finish
+    assert "HBALL_MISSION_CHASSIS_EVENT_STOPPED" in finish
+    assert (
+        "(uint8_t)~HBALL_MISSION_CHASSIS_EVENT_CONTROL_ACTIVE" in finish
+    )
+
+
+def test_mission_intent_slots_cannot_be_starved_by_imu_telemetry() -> None:
+    source = (PROJECT / "Drivers" / "CAN" / "hball_can_port.c").read_text(
+        encoding="utf-8"
+    )
+    service = source[
+        source.index("void hball_can_port_tick_1ms") :
+        source.index("static void hball_can_record_rx")
+    ]
+
+    assert "intent_due = ((now_ms % 50U) == 7U)" in service
+    assert "? !telemetry_due" not in service
+
+
 def test_target_startup_does_not_request_semihosted_argv() -> None:
     main = (PROJECT / "main.c").read_text(encoding="utf-8")
 

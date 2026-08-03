@@ -53,6 +53,7 @@ elif integrated_shadow:
         os.path.join(cwd, 'src', 'hball_usb_probe.c'),
         os.path.join(cwd, 'src', 'hball_vision_protocol.c'),
         os.path.join(cwd, 'rtthread', 'hball_bench_app.c'),
+        os.path.join(cwd, 'rtthread', 'missions', 'hball_m33_q456.c'),
         os.path.join(cwd, 'rtthread', 'hball_m33_control_guard.c'),
         os.path.join(cwd, 'rtthread', 'hball_m33_inputs.c'),
         os.path.join(cwd, 'rtthread', 'hball_usb_cdc.c'),
@@ -81,6 +82,7 @@ else:
         os.path.join(cwd, 'src', 'hball_mission_arbiter.c'),
         os.path.join(cwd, 'src', 'hball_rate_meter.c'),
         os.path.join(cwd, 'rtthread', 'hball_bench_app.c'),
+        os.path.join(cwd, 'rtthread', 'missions', 'hball_m33_q456.c'),
         os.path.join(cwd, 'rtthread', 'main.c'),
         os.path.join(mission_protocol_root, 'hball_mission_can.c'),
     ]

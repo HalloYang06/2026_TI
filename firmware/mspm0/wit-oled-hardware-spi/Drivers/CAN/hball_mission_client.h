@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define HBALL_MISSION_STATUS_FRESH_MS 150U
+#define HBALL_MISSION_STATUS_FRESH_MS 500U
 
 typedef struct
 {
@@ -23,8 +23,11 @@ typedef struct
     uint32_t accepted_status_total;
     uint32_t duplicate_status_total;
     uint32_t out_of_order_status_total;
+    uint32_t status_resync_total;
     uint32_t epoch_mismatch_total;
+    hball_mission_setup_t latest_setup;
     bool status_valid;
+    bool setup_valid;
     bool start_requested;
 } hball_mission_client_t;
 
@@ -45,6 +48,15 @@ bool hball_mission_client_ready(
     const hball_mission_client_t *client, uint32_t now_ms
 );
 bool hball_mission_client_request_start(
+    hball_mission_client_t *client, uint32_t now_ms
+);
+bool hball_mission_client_request_level(
+    hball_mission_client_t *client, uint32_t now_ms
+);
+bool hball_mission_client_request_abort(
+    hball_mission_client_t *client, uint32_t now_ms
+);
+void hball_mission_client_force_reset(
     hball_mission_client_t *client, uint32_t now_ms
 );
 bool hball_mission_client_make_intent(

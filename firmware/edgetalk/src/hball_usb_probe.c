@@ -153,3 +153,58 @@ size_t hball_usb_format_ready(
     }
     return (size_t)written;
 }
+
+bool hball_usb_parse_tune(
+    const char *line, size_t length, hball_usb_tune_t *tune
+)
+{
+    char buffer[HBALL_USB_LINE_CAPACITY];
+    char extra;
+
+    if ((line == NULL) || (tune == NULL) || (length == 0U)
+        || (length >= sizeof(buffer)))
+    {
+        return false;
+    }
+    length = hball_usb_trim_line_end(line, length);
+    memcpy(buffer, line, length);
+    buffer[length] = '\0';
+    return sscanf(
+        buffer,
+        "HBALL_TUNE %" SCNu32 " %31s %f %c",
+        &tune->sequence,
+        tune->name,
+        &tune->value,
+        &extra
+    ) == 3;
+}
+
+size_t hball_usb_format_tune_ack(
+    char *destination,
+    size_t capacity,
+    const hball_usb_tune_t *tune,
+    bool accepted
+)
+{
+    int written;
+
+    if ((destination == NULL) || (capacity == 0U) || (tune == NULL))
+    {
+        return 0U;
+    }
+    written = snprintf(
+        destination,
+        capacity,
+        "HBALL_TUNE_ACK %" PRIu32 " %s %.6g %s\n",
+        tune->sequence,
+        tune->name,
+        (double)tune->value,
+        accepted ? "OK" : "REJECT"
+    );
+    if ((written < 0) || ((size_t)written >= capacity))
+    {
+        destination[0] = '\0';
+        return 0U;
+    }
+    return (size_t)written;
+}

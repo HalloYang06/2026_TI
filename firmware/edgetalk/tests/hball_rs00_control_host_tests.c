@@ -52,12 +52,22 @@ static void test_csp_mode_limits_and_position_are_exactly_encoded(void)
     ));
     assert(frame.data[0] == 0x17U && frame.data[1] == 0x70U);
     assert(fabsf(hball_load_float_le(frame.data + 4U) - 0.5F) < 1.0e-7F);
+    assert(hball_rs00_control_make_speed_limit(
+        HBALL_RS00_MOTOR_ID, 5.0F, &frame
+    ));
+    assert(fabsf(hball_load_float_le(frame.data + 4U) - 5.0F) < 1.0e-7F);
 
     assert(hball_rs00_control_make_current_limit(
-        HBALL_RS00_MOTOR_ID, 0.8F, &frame
+        HBALL_RS00_MOTOR_ID, 2.0F, &frame
     ));
     assert(frame.data[0] == 0x18U && frame.data[1] == 0x70U);
-    assert(fabsf(hball_load_float_le(frame.data + 4U) - 0.8F) < 1.0e-7F);
+    assert(fabsf(hball_load_float_le(frame.data + 4U) - 2.0F) < 1.0e-7F);
+
+    assert(hball_rs00_control_make_position_kp(
+        HBALL_RS00_MOTOR_ID, 120.0F, &frame
+    ));
+    assert(frame.data[0] == 0x1EU && frame.data[1] == 0x70U);
+    assert(fabsf(hball_load_float_le(frame.data + 4U) - 120.0F) < 1.0e-7F);
 
     assert(hball_rs00_control_make_position_reference(
         HBALL_RS00_MOTOR_ID, 1.887F, &frame
@@ -72,10 +82,13 @@ static void test_every_command_fails_closed_outside_bench_limits(void)
 
     assert(!hball_rs00_control_make_enable(0U, &frame));
     assert(!hball_rs00_control_make_speed_limit(
-        HBALL_RS00_MOTOR_ID, 3.1F, &frame
+        HBALL_RS00_MOTOR_ID, 5.1F, &frame
     ));
     assert(!hball_rs00_control_make_current_limit(
         HBALL_RS00_MOTOR_ID, 2.1F, &frame
+    ));
+    assert(!hball_rs00_control_make_position_kp(
+        HBALL_RS00_MOTOR_ID, 200.1F, &frame
     ));
     assert(!hball_rs00_control_make_position_reference(
         HBALL_RS00_MOTOR_ID, NAN, &frame
@@ -125,7 +138,8 @@ static void test_bench_step_is_tiny_bounded_and_returnable(void)
     assert(!hball_rs00_bench_make_step(&bench, 0.021F, 4U, &target));
     assert(hball_rs00_bench_make_step(&bench, 0.010F, 4U, &target));
     assert(fabsf(target - 1.897F) < 1.0e-6F);
-    assert(bench.state == HBALL_RS00_BENCH_SMALL_STEP);
+    assert(bench.state == HBALL_RS00_BENCH_ARMED);
+    assert(!hball_rs00_bench_watchdog_expired(&bench, 10000U));
     assert(hball_rs00_bench_make_return(&bench, 5U, &target));
     assert(fabsf(target - 1.887F) < 1.0e-6F);
     assert(bench.state == HBALL_RS00_BENCH_RETURNING);

@@ -37,6 +37,11 @@ typedef struct
     float current_time_s;
     float integral_error_m_s;
     float previous_pipe_command_rad;
+    hball_deployment_input_t conditioned_input;
+    float longitudinal_accel_bias_mps2;
+    float lateral_accel_bias_mps2;
+    float body_pitch_bias_rad;
+    bool imu_conditioner_initialized;
     uint32_t accepted_camera_updates;
     uint32_t rejected_camera_updates;
     uint32_t too_old_camera_updates;
@@ -46,6 +51,22 @@ typedef struct
 void hball_deployment_controller_init(
     hball_deployment_controller_t *controller,
     float initial_position_m
+);
+void hball_deployment_controller_relock_position(
+    hball_deployment_controller_t *controller,
+    float measured_position_m
+);
+bool hball_deployment_controller_set_gains(
+    float position_gain,
+    float velocity_gain,
+    float integral_gain
+);
+bool hball_deployment_controller_set_lateral_accel_coupling(float coupling);
+bool hball_deployment_controller_seed_imu_bias(
+    hball_deployment_controller_t *controller,
+    float longitudinal_accel_mps2,
+    float lateral_accel_mps2,
+    float body_pitch_rad
 );
 void hball_deployment_controller_predict(
     hball_deployment_controller_t *controller,

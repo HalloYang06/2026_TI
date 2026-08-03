@@ -199,6 +199,11 @@ bool hball_motor_monitor_parameters_fresh(
     uint32_t now_ms,
     uint32_t timeout_ms
 );
+bool hball_motor_monitor_motion_parameters_fresh(
+    const hball_motor_monitor_t *monitor,
+    uint32_t now_ms,
+    uint32_t timeout_ms
+);
 bool hball_motor_parameters_fresh(
     const hball_motor_parameters_t *parameters,
     uint32_t now_ms,

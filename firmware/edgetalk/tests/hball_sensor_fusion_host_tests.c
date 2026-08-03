@@ -96,6 +96,8 @@ static void test_snapshot_combines_fresh_usb_can_and_motor_sources(void)
     assert(snapshot.imu_age_ms == 20U);
     assert(snapshot.motor_age_ms == 11U);
     assert(fabsf(snapshot.ball_position_m - 0.025F) < 1.0e-7F);
+    assert(fabsf(snapshot.longitudinal_accel_mps2 - (-0.2F)) < 1.0e-7F);
+    assert(fabsf(snapshot.lateral_accel_mps2 - 0.4F) < 1.0e-7F);
     assert(fabsf(snapshot.body_pitch_rad - (-0.03F)) < 1.0e-7F);
     assert(fabsf(snapshot.yaw_rate_rad_s - 0.6F) < 1.0e-7F);
     assert(fabsf(snapshot.motor_angle_rad - 0.1F) < 1.0e-7F);
@@ -180,6 +182,23 @@ static void test_invalid_vision_flags_never_enter_valid_snapshot(void)
     assert((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) == 0U);
 }
 
+static void test_invalid_vision_does_not_erase_recent_valid_position(void)
+{
+    hball_sensor_fusion_t fusion = make_populated_fusion();
+    hball_sensor_snapshot_t snapshot;
+    hball_vision_measurement_t invalid;
+
+    memset(&invalid, 0, sizeof(invalid));
+    invalid.sequence = 13U;
+    hball_sensor_fusion_set_vision(&fusion, &invalid, 105U);
+    hball_sensor_fusion_snapshot(&fusion, 110U, &snapshot);
+
+    assert((snapshot.valid_flags & HBALL_SENSOR_VALID_VISION) != 0U);
+    assert(snapshot.vision_sequence == 12U);
+    assert(snapshot.vision_receive_age_ms == 10U);
+    assert(fabsf(snapshot.ball_position_m - 0.025F) < 1.0e-7F);
+}
+
 static void test_mspm0_imu_health_bit_gates_fresh_samples(void)
 {
     hball_sensor_fusion_t fusion = make_populated_fusion();
@@ -200,6 +219,7 @@ int main(void)
     test_fresh_full_feedback_has_priority_over_parameter_kinematics();
     test_snapshot_expires_each_source_by_its_own_deadline();
     test_invalid_vision_flags_never_enter_valid_snapshot();
+    test_invalid_vision_does_not_erase_recent_valid_position();
     test_mspm0_imu_health_bit_gates_fresh_samples();
     return 0;
 }

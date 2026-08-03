@@ -51,6 +51,8 @@ typedef struct
     uint32_t duplicate_vision_skips;
     uint32_t low_confidence_vision_skips;
     uint32_t rejected_vision_measurements;
+    uint32_t vision_relocks;
+    uint8_t consecutive_vision_rejects;
     bool vision_sequence_initialized;
     bool linkage_calibrated;
 } hball_control_pipeline_t;

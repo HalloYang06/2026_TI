@@ -35,6 +35,17 @@
 #include "stdio.h"
 #include "string.h"
 #include "hball_can_port.h"
+#include "hball_mission_run_guard.h"
+#include "hball_mission_policy.h"
+#include "hball_runtime_services.h"
+#include "hball_runtime_target.h"
+#include "chassis_motion_profile.h"
+#include "line_follower.h"
+#include "line_sensor_port.h"
+#include "line_snapshot.h"
+#include "motion_intent.h"
+#include "route_marker_detector.h"
+#include "wheel_control.h"
 
 /*
  * There is no process command line on the target. Avoid Arm C library
@@ -66,9 +77,24 @@ _Static_assert(
 #define CAR_TASK_LAP_STOP        1U
 #define CAR_TASK_TIMED_RUN       2U
 #define CAR_TASK_STABLE_LAP      3U
-#define SPEED_PID_DISABLED 0U
-#define SPEED_PID_ENABLED  1U
 #define GYRO_LCD_REFRESH_MS 100U
+#define HBALL_MISSION_MENU_RENDER_MIN_MS 1000U
+#define HBALL_MISSION_START_LATCH_MS 5000U
+#define HBALL_MISSION_START_ACK_TIMEOUT_MS 1500U
+#define HBALL_MISSION_ABORT_ACK_TIMEOUT_MS 500U
+#define HBALL_Q4_SOFT_START_MS 1200U
+#define HBALL_Q4_SOFT_STOP_MS 800U
+#define HBALL_Q4_DUTY_SLEW_STEP 5
+#define HBALL_Q5_SOFT_START_MS 1200U
+#define HBALL_Q6_SOFT_START_MS 1200U
+#define HBALL_Q6_SOFT_START_MAX_MS 1800U
+#define HBALL_Q6_POSITIVE_START_MS_PER_MM 5U
+#define HBALL_Q6_NEGATIVE_START_MS_PER_MM 4U
+#define HBALL_Q56_SOFT_STOP_MS 900U
+#define HBALL_Q56_STOP_SPEED_THRESHOLD 2
+#define HBALL_Q56_STOP_SETTLE_MS 300U
+#define HBALL_Q56_WHEEL_SAMPLE_STALE_MS (WHEEL_CONTROL_PERIOD_MS * 2U)
+#define HBALL_Q56_STOP_FALLBACK_MS 600U
 #define MOTOR_TEST_DUTY 20.0f
 
 uint8_t oled_buffer[64];
@@ -84,19 +110,25 @@ static void encoder_test(void);
 static void format_encoder_count(char label, int32_t count, char text[10]);
 static void format_edge_count(char encoder, char phase, uint32_t count, char text[10]);
 static void track_sensor_test(void);
-static uint8_t read_track_raw(void);
 static void format_track_error(int16_t error, char text[7]);
 static void track_motor_test(void);
 static void track_ground_test(void);
 static void lap_test(void);
 static void lap_test_once(void);
+static void competition_runtime_wait_ms(uint32_t duration_ms);
+static void mission_lcd_fill_serviced(
+    unsigned int xsta,
+    unsigned int ysta,
+    unsigned int xend,
+    unsigned int yend,
+    unsigned int color
+);
 static uint8_t select_car_task(void);
 static void render_mission_menu(
     const hball_mission_menu_view_t *view
 );
 static void format_hex16(uint16_t value, char text[5]);
 static void format_lap_time(uint32_t elapsed_ms, char text[8]);
-static int16_t approach_pwm(int16_t current, int16_t target, int16_t step);
 static void speed_calibration_test(void);
 static void telemetry_send_string(const char *text);
 static uint8_t speed_calibration_start_requested(void);
@@ -164,15 +196,10 @@ int round_number=1;
 volatile int start=0;
 int quetion_num=0;
 float now_yaw=0;
-volatile uint8_t speed_pid_enabled=SPEED_PID_DISABLED;
-
-int pwm1_out=0;
-int pwm2_out=0;
 char huidu_char;
 
 extern PID_t LEFT;
 extern PID_t RIGHT;
-extern PID_t ANGLE;
 volatile int32_t Get_Encoder_countA=0;
 volatile int32_t Get_Encoder_countB=0;
 int32_t encoderA_cnt=0;
@@ -183,6 +210,10 @@ int32_t Get_Encoder_countB_LAST=0;
 
 int main(void){
     SYSCFG_DL_init();
+#if APP_MODE == APP_MODE_LAP_TEST
+    /* Complete the LCD's blocking reset delays before accepting IMU bytes. */
+    lcd_init();
+#endif
     /*
      * Several APP_MODE handlers intentionally never return. Start the WIT
      * UART/DMA before dispatching to them so CAN telemetry carries real
@@ -190,13 +221,14 @@ int main(void){
      */
     WIT_Init();
     hball_can_port_init();
+    hball_runtime_target_init();
 #if (APP_MODE != APP_MODE_GYRO_LCD_TEST) && (APP_MODE != APP_MODE_ENCODER_TEST)
     SysTick_Init();
 #endif
 
 #if APP_MODE == APP_MODE_LCD_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     lcd_self_test();
 #elif APP_MODE == APP_MODE_GYRO_LCD_TEST
@@ -204,59 +236,58 @@ int main(void){
      * 独立测试模式只启用 LCD 和 WIT。电机驱动保持待机，避免桌面测试时
      * 车轮意外动作。把 APP_MODE 改为 APP_MODE_CAR 即可恢复小车程序。
      */
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     gyro_lcd_screen_init();
     gyro_lcd_test();
 #elif APP_MODE == APP_MODE_MOTOR_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     motor_test();
 #elif APP_MODE == APP_MODE_ENCODER_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     encoder_test();
 #elif APP_MODE == APP_MODE_TRACK_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     track_sensor_test();
 #elif APP_MODE == APP_MODE_TRACK_MOTOR_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     track_motor_test();
 #elif APP_MODE == APP_MODE_TRACK_GROUND_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     track_ground_test();
 #elif APP_MODE == APP_MODE_LAP_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-    lcd_init();
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lap_test();
 #elif APP_MODE == APP_MODE_SPEED_CAL_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     speed_calibration_test();
 #elif APP_MODE == APP_MODE_SPEED_PI_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     speed_pi_test();
 #elif APP_MODE == APP_MODE_PWM_SWEEP_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     pwm_sweep_test();
 #elif APP_MODE == APP_MODE_MOTOR_MAP_TEST
-    motor_stop();
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_disable();
     lcd_init();
     motor_encoder_map_test();
 #endif
@@ -273,10 +304,10 @@ int main(void){
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
     NVIC_EnableIRQ(TIMER_0_INST_INT_IRQN);
-    motor_init();
-   
+    chassis_actuator_init();
+
     // 将STBY置为高电平
-    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_enable();
 
     LCD_ShowString(0, 0, (const unsigned char *)"the_car_is_ready", BLUE, WHITE, 32, 0);
 
@@ -463,27 +494,27 @@ static void motor_test_step(const char *label, float left_pwm, float right_pwm)
     LCD_Fill(0, 64, 180, 104, BLACK);
     LCD_ShowString(4, 70, (const unsigned char *)label, YELLOW, BLACK, 32, 0);
 
-    motor_pwm_set(left_pwm, right_pwm);
+    chassis_actuator_set_pwm(left_pwm, right_pwm);
     delay_cycles(CPUCLK_FREQ * 2U);
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
     delay_cycles(CPUCLK_FREQ);
 }
 
 static void motor_test(void)
 {
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     LCD_ShowString(4, 4, (const unsigned char *)"MOTOR", WHITE, BLACK, 32, 0);
     LCD_ShowString(4, 38, (const unsigned char *)"20", CYAN, BLACK, 24, 0);
 
-    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_enable();
 
     /*
      * Calibrated from the individual-wheel test:
@@ -492,10 +523,10 @@ static void motor_test(void)
     motor_test_step("FWD", -MOTOR_TEST_DUTY, MOTOR_TEST_DUTY);
     motor_test_step("REV", MOTOR_TEST_DUTY, -MOTOR_TEST_DUTY);
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_Fill(0, 64, 180, 104, BLACK);
     LCD_ShowString(4, 70, (const unsigned char *)"END", GREEN, BLACK, 32, 0);
@@ -595,22 +626,6 @@ static void format_edge_count(char encoder, char phase, uint32_t count, char tex
     text[8] = '\0';
 }
 
-static uint8_t read_track_raw(void)
-{
-    uint8_t sensors = 0U;
-
-    if (DL_GPIO_readPins(track_PIN_0_PORT, track_PIN_0_PIN) != 0U) sensors |= (1U << 0);
-    if (DL_GPIO_readPins(track_PIN_1_PORT, track_PIN_1_PIN) != 0U) sensors |= (1U << 1);
-    if (DL_GPIO_readPins(track_PIN_2_PORT, track_PIN_2_PIN) != 0U) sensors |= (1U << 2);
-    if (DL_GPIO_readPins(track_PIN_3_PORT, track_PIN_3_PIN) != 0U) sensors |= (1U << 3);
-    if (DL_GPIO_readPins(track_PIN_4_PORT, track_PIN_4_PIN) != 0U) sensors |= (1U << 4);
-    if (DL_GPIO_readPins(track_PIN_5_PORT, track_PIN_5_PIN) != 0U) sensors |= (1U << 5);
-    if (DL_GPIO_readPins(track_PIN_6_PORT, track_PIN_6_PIN) != 0U) sensors |= (1U << 6);
-    if (DL_GPIO_readPins(track_PIN_7_PORT, track_PIN_7_PIN) != 0U) sensors |= (1U << 7);
-
-    return sensors;
-}
-
 static void format_track_error(int16_t error, char text[7])
 {
     uint16_t magnitude;
@@ -650,7 +665,7 @@ static void track_sensor_test(void)
 
     while (1)
     {
-        raw = read_track_raw();
+        raw = line_sensor_port_read_raw();
         if (raw != last_raw)
         {
             active_count = 0U;
@@ -709,20 +724,20 @@ static void track_motor_test(void)
     char bits[9];
     char error_text[7];
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     LCD_ShowString(4, 4, (const unsigned char *)"TRACK MOTOR", WHITE, BLACK, 24, 0);
     LCD_ShowString(4, 42, (const unsigned char *)"12345678", CYAN, BLACK, 32, 0);
 
-    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_enable();
 
     while (1)
     {
-        raw = read_track_raw();
+        raw = line_sensor_port_read_raw();
         if ((uint16_t)raw != last_raw)
         {
             active_count = 0U;
@@ -744,16 +759,16 @@ static void track_motor_test(void)
 
             if (active_count == 0U)
             {
-                motor_stop();
-                set_motor_speed(0.0f, (uint8_t)left_motor);
-                set_motor_speed(0.0f, (uint8_t)right_motor);
+                chassis_actuator_stop();
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
                 LCD_ShowString(4, 130, (const unsigned char *)"LOST", RED, BLACK, 32, 0);
             }
             else if (active_count >= 6U)
             {
-                motor_stop();
-                set_motor_speed(0.0f, (uint8_t)left_motor);
-                set_motor_speed(0.0f, (uint8_t)right_motor);
+                chassis_actuator_stop();
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+                chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
                 LCD_ShowString(4, 130, (const unsigned char *)"STOP", GREEN, BLACK, 32, 0);
             }
             else
@@ -763,7 +778,7 @@ static void track_motor_test(void)
                 left_duty = base_duty + correction;
                 right_duty = base_duty - correction;
 
-                motor_pwm_set((float)left_duty, (float)right_duty);
+                chassis_actuator_set_pwm((float)left_duty, (float)right_duty);
                 format_track_error(error, error_text);
                 LCD_ShowString(4, 130, (const unsigned char *)error_text, GREEN, BLACK, 32, 0);
             }
@@ -790,10 +805,10 @@ static void track_ground_test(void)
     int16_t right_duty;
     uint32_t run_start_ms;
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
@@ -803,7 +818,7 @@ static void track_ground_test(void)
 
     mspm0_delay_ms(2000U);
 
-    raw = read_track_raw();
+    raw = line_sensor_port_read_raw();
     line_mask = (uint8_t)(~raw);
     if ((line_mask == 0U) || (line_mask == 0xFFU))
     {
@@ -814,14 +829,14 @@ static void track_ground_test(void)
         }
     }
 
-    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_enable();
     run_start_ms = tick_ms;
     LCD_Fill(0, 48, 220, 150, BLACK);
     LCD_ShowString(4, 68, (const unsigned char *)"RUN", GREEN, BLACK, 32, 0);
 
     while ((uint32_t)(tick_ms - run_start_ms) < 5000U)
     {
-        raw = read_track_raw();
+        raw = line_sensor_port_read_raw();
         line_mask = (uint8_t)(~raw);
         active_count = 0U;
         weighted_sum = 0;
@@ -837,10 +852,10 @@ static void track_ground_test(void)
 
         if ((active_count == 0U) || (active_count >= 6U))
         {
-            motor_stop();
-            set_motor_speed(0.0f, (uint8_t)left_motor);
-            set_motor_speed(0.0f, (uint8_t)right_motor);
-            DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
             LCD_Fill(0, 48, 220, 150, BLACK);
             if (active_count == 0U) {
                 LCD_ShowString(4, 68, (const unsigned char *)"LOST STOP", RED, BLACK, 32, 0);
@@ -856,15 +871,15 @@ static void track_ground_test(void)
         correction = error / 3;
         left_duty = base_duty + correction;
         right_duty = base_duty - correction;
-        motor_pwm_set((float)left_duty, (float)right_duty);
+        chassis_actuator_set_pwm((float)left_duty, (float)right_duty);
 
         delay_cycles(CPUCLK_FREQ / 100U);
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
     LCD_Fill(0, 48, 220, 150, BLACK);
     LCD_ShowString(4, 68, (const unsigned char *)"TIME STOP", GREEN, BLACK, 32, 0);
 
@@ -891,6 +906,42 @@ static void format_lap_time(uint32_t elapsed_ms, char text[8])
     text[6] = '\0';
 }
 
+static void competition_runtime_wait_ms(uint32_t duration_ms)
+{
+    const uint32_t start_ms = tick_ms;
+
+    while ((uint32_t)(tick_ms - start_ms) < duration_ms)
+    {
+        hball_runtime_target_poll(tick_ms);
+        __WFI();
+    }
+    hball_runtime_target_poll(tick_ms);
+}
+
+static void mission_lcd_fill_serviced(
+    unsigned int xsta,
+    unsigned int ysta,
+    unsigned int xend,
+    unsigned int yend,
+    unsigned int color
+)
+{
+    unsigned int row = ysta;
+
+    while (row < yend)
+    {
+        unsigned int next_row = row + 8U;
+
+        if (next_row > yend)
+        {
+            next_row = yend;
+        }
+        LCD_Fill(xsta, row, xend, next_row, color);
+        hball_runtime_target_poll(tick_ms);
+        row = next_row;
+    }
+}
+
 static uint8_t select_car_task(void)
 {
     hball_mission_client_t snapshot;
@@ -900,24 +951,75 @@ static uint8_t select_car_task(void)
     hball_mission_menu_result_t result;
     task_key_event_t key_event;
     bool last_view_valid = false;
+    bool start_key_latched = false;
+    uint32_t last_render_ms = 0U;
+    uint32_t start_key_latched_ms = 0U;
 
-    LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
+    mission_lcd_fill_serviced(0, 0, LCD_W, LCD_H, BLACK);
 
     while (1)
     {
+        hball_runtime_target_poll(tick_ms);
         if (hball_can_mission_get_snapshot(&snapshot)
             && hball_mission_menu_make_view(&snapshot, tick_ms, &view)
+            && (!last_view_valid
+                || ((uint32_t)(tick_ms - last_render_ms)
+                    >= HBALL_MISSION_MENU_RENDER_MIN_MS))
             && (!last_view_valid
                 || !hball_mission_menu_view_equal(&last_view, &view)))
         {
             render_mission_menu(&view);
             last_view = view;
             last_view_valid = true;
+            last_render_ms = tick_ms;
         }
         key_event = get_task_key_event();
+        if (hball_can_mission_get_snapshot(&snapshot)
+            && (snapshot.selected_mission
+                >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+            && (get_q3_level_key_event() != 0U))
+        {
+            if (hball_can_mission_request_level(tick_ms))
+            {
+                beep();
+            }
+            continue;
+        }
+        if (key_event == TASK_KEY_EVENT_SELECT)
+        {
+            start_key_latched = false;
+        }
+        else if (key_event == TASK_KEY_EVENT_EXECUTE)
+        {
+            start_key_latched = true;
+            start_key_latched_ms = tick_ms;
+            telemetry_send_string("MISSION_SW1,LATCH\r\n");
+            beep();
+        }
+        if (start_key_latched)
+        {
+            if ((uint32_t)(tick_ms - start_key_latched_ms)
+                > HBALL_MISSION_START_LATCH_MS)
+            {
+                start_key_latched = false;
+                telemetry_send_string("MISSION_SW1,READY_TIMEOUT\r\n");
+                beep();
+                continue;
+            }
+            if (!hball_can_mission_get_snapshot(&snapshot)
+                || ((snapshot.selected_mission
+                        >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+                    && !hball_mission_client_ready(&snapshot, tick_ms)))
+            {
+                competition_runtime_wait_ms(5U);
+                continue;
+            }
+            key_event = TASK_KEY_EVENT_EXECUTE;
+            start_key_latched = false;
+        }
         if (key_event == TASK_KEY_EVENT_NONE)
         {
-            delay_cycles(CPUCLK_FREQ / 200U);
+            competition_runtime_wait_ms(5U);
             continue;
         }
         if (key_event == TASK_KEY_EVENT_SELECT)
@@ -937,28 +1039,49 @@ static uint8_t select_car_task(void)
         {
             beep();
         }
-        else if (result == HBALL_MISSION_MENU_START_ACCEPTED)
+        else if (result == HBALL_MISSION_MENU_LOCAL_START_ACCEPTED)
         {
-            uint8_t selected_mission;
-
             beep();
             delay_cycles(CPUCLK_FREQ / 20U);
+            beep();
+            return HBALL_MISSION_Q2_FAST_LAP;
+        }
+        else if (result == HBALL_MISSION_MENU_START_ACCEPTED)
+        {
+            hball_mission_policy_t policy;
+            uint8_t selected_mission;
+            bool abort_requested = false;
+            bool remote_started = false;
+            uint32_t abort_request_ms = 0U;
+            const uint32_t start_wait_ms = tick_ms;
+
+            telemetry_send_string("MISSION_SW1,START_ACCEPTED\r\n");
+            beep();
+            competition_runtime_wait_ms(50U);
             beep();
             if (!hball_can_mission_get_snapshot(&snapshot))
             {
                 continue;
             }
             selected_mission = snapshot.selected_mission;
+            if (!hball_mission_policy_get(selected_mission, &policy))
+            {
+                continue;
+            }
             while (1)
             {
+                const task_key_event_t wait_key = get_task_key_event();
+
                 if (hball_can_mission_get_snapshot(&snapshot)
                     && snapshot.status_valid
                     && (snapshot.latest_status.global_state
-                        == HBALL_MISSION_STATE_RUNNING)
-                    && (selected_mission
-                        != HBALL_MISSION_Q3_BALL_SEQUENCE))
+                        == HBALL_MISSION_STATE_RUNNING))
                 {
-                    return selected_mission;
+                    remote_started = true;
+                    if (policy.chassis_allowed)
+                    {
+                        return selected_mission;
+                    }
                 }
                 if (hball_can_mission_get_snapshot(&snapshot)
                     && snapshot.status_valid
@@ -972,7 +1095,29 @@ static uint8_t select_car_task(void)
                     );
                     break;
                 }
-                delay_cycles(CPUCLK_FREQ / 200U);
+                if (!abort_requested && !remote_started
+                    && ((wait_key == TASK_KEY_EVENT_SELECT)
+                        || ((uint32_t)(tick_ms - start_wait_ms)
+                            > HBALL_MISSION_START_ACK_TIMEOUT_MS)))
+                {
+                    telemetry_send_string(
+                        "MISSION_SW1,START_WAIT_ABORT\r\n"
+                    );
+                    (void)hball_can_mission_request_abort(tick_ms);
+                    abort_requested = true;
+                    abort_request_ms = tick_ms;
+                }
+                if (abort_requested
+                    && ((uint32_t)(tick_ms - abort_request_ms)
+                        > HBALL_MISSION_ABORT_ACK_TIMEOUT_MS))
+                {
+                    hball_can_mission_force_reset(tick_ms);
+                    hball_can_mission_chassis_finish(
+                        HBALL_MISSION_CHASSIS_EVENT_STOPPED, tick_ms
+                    );
+                    break;
+                }
+                competition_runtime_wait_ms(5U);
             }
         }
         else if ((result == HBALL_MISSION_MENU_START_BLOCKED)
@@ -988,6 +1133,8 @@ static void render_mission_menu(
 )
 {
     char ready_text[5];
+    int32_t motor_mrad;
+    int32_t target_cm;
 
     if (view == NULL)
     {
@@ -995,21 +1142,21 @@ static void render_mission_menu(
     }
     format_hex16(view->ready_mask, ready_text);
 
-    LCD_Fill(0, 0, LCD_W, 39, BLACK);
+    mission_lcd_fill_serviced(0, 0, LCD_W, 39, BLACK);
     LCD_ShowString(
         4, 4,
         (const unsigned char *)view->mission_label,
         GREEN, BLACK, 32, 0
     );
-    LCD_Fill(0, 40, LCD_W, 71, BLACK);
+    mission_lcd_fill_serviced(0, 40, LCD_W, 71, BLACK);
     LCD_ShowString(
         4, 44, (const unsigned char *)view->state_label,
-        (view->status_fresh
+        ((view->local_execution || view->status_fresh)
          && (view->global_state == HBALL_MISSION_STATE_READY))
             ? GREEN : CYAN,
         BLACK, 24, 0
     );
-    LCD_Fill(0, 72, LCD_W, 103, BLACK);
+    mission_lcd_fill_serviced(0, 72, LCD_W, 103, BLACK);
     LCD_ShowString(4, 76, (const unsigned char *)"E:", WHITE, BLACK, 24, 0);
     LCD_ShowIntNum(36, 76, view->epoch, 4, WHITE, BLACK, 24);
     LCD_ShowString(116, 76, (const unsigned char *)"R:", WHITE, BLACK, 24, 0);
@@ -1017,23 +1164,52 @@ static void render_mission_menu(
         148, 76, (const unsigned char *)ready_text,
         WHITE, BLACK, 24, 0
     );
-    LCD_Fill(0, 104, LCD_W, 135, BLACK);
+    mission_lcd_fill_serviced(0, 104, LCD_W, 135, BLACK);
     LCD_ShowString(4, 108, (const unsigned char *)"MISS:", YELLOW, BLACK, 24, 0);
     LCD_ShowString(
         76, 108, (const unsigned char *)view->missing_label,
         (view->missing_label[0] == 'A') ? GREEN : YELLOW,
         BLACK, 24, 0
     );
-    LCD_Fill(0, 136, LCD_W, 203, BLACK);
-    if (view->start_requested)
+    mission_lcd_fill_serviced(0, 136, LCD_W, LCD_H, BLACK);
+    if (view->setup_valid
+        && ((view->setup_flags & HBALL_MISSION_SETUP_MOTOR_VALID) != 0U))
     {
-        LCD_ShowString(4, 140, (const unsigned char *)"START SENT", MAGENTA, BLACK, 24, 0);
-        LCD_ShowString(4, 172, (const unsigned char *)"SHADOW ONLY", YELLOW, BLACK, 24, 0);
+        motor_mrad = view->motor_angle_mrad;
+        LCD_ShowString(4, 140, (const unsigned char *)"M:", WHITE, BLACK, 24, 0);
+        LCD_ShowString(
+            28, 140,
+            (const unsigned char *)((motor_mrad < 0) ? "-" : "+"),
+            CYAN, BLACK, 24, 0
+        );
+        if (motor_mrad < 0)
+        {
+            motor_mrad = -motor_mrad;
+        }
+        LCD_ShowIntNum(40, 140, (uint32_t)(motor_mrad / 1000), 1, CYAN, BLACK, 24);
+        LCD_ShowString(56, 140, (const unsigned char *)".", CYAN, BLACK, 24, 0);
+        LCD_ShowIntNum(68, 140, (uint32_t)(motor_mrad % 1000), 3, CYAN, BLACK, 24);
+        LCD_ShowString(116, 140, (const unsigned char *)"RAD", WHITE, BLACK, 24, 0);
     }
     else
     {
-        LCD_ShowString(4, 140, (const unsigned char *)"SW3 SELECT", WHITE, BLACK, 24, 0);
-        LCD_ShowString(4, 172, (const unsigned char *)"SW1 EXECUTE", WHITE, BLACK, 24, 0);
+        LCD_ShowString(4, 140, (const unsigned char *)"M: ---.--- RAD", YELLOW, BLACK, 24, 0);
+    }
+    if (view->mission_id == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+    {
+        target_cm = view->target_position_mm / 10;
+        LCD_ShowString(176, 140, (const unsigned char *)"T:", WHITE, BLACK, 24, 0);
+        LCD_ShowString(
+            200, 140,
+            (const unsigned char *)((target_cm < 0) ? "-" : "+"),
+            GREEN, BLACK, 24, 0
+        );
+        if (target_cm < 0)
+        {
+            target_cm = -target_cm;
+        }
+        LCD_ShowIntNum(212, 140, (uint32_t)target_cm, 2, GREEN, BLACK, 24);
+        LCD_ShowString(236, 140, (const unsigned char *)"CM", WHITE, BLACK, 24, 0);
     }
 }
 
@@ -1048,26 +1224,6 @@ static void format_hex16(uint16_t value, char text[5])
         text[index] = digits[(value >> shift) & 0x0FU];
     }
     text[4] = '\0';
-}
-
-static int16_t approach_pwm(int16_t current, int16_t target, int16_t step)
-{
-    if (current < target)
-    {
-        current += step;
-        if (current > target) {
-            current = target;
-        }
-    }
-    else if (current > target)
-    {
-        current -= step;
-        if (current < target) {
-            current = target;
-        }
-    }
-
-    return current;
 }
 
 static void speed_calibration_test(void)
@@ -1098,10 +1254,10 @@ static void speed_calibration_test(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
@@ -1114,8 +1270,8 @@ static void speed_calibration_test(void)
     Get_Encoder_countB = 0;
     previous_left = 0;
     previous_right = 0;
-    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-    motor_pwm_set(30.0f, 30.0f);
+    chassis_actuator_enable();
+    chassis_actuator_set_pwm(30.0f, 30.0f);
     test_start_ms = tick_ms;
     last_sample_ms = test_start_ms;
     LCD_Fill(0, 38, 260, 165, BLACK);
@@ -1149,10 +1305,10 @@ static void speed_calibration_test(void)
         delay_cycles(CPUCLK_FREQ / 1000U);
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     __disable_irq();
     current_left = Get_Encoder_countA;
@@ -1198,10 +1354,10 @@ static void motor_encoder_map_test(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
@@ -1212,9 +1368,9 @@ static void motor_encoder_map_test(void)
 
     for (i = 0U; i < 2U; i++)
     {
-        set_motor_speed(0.0f, (uint8_t)left_motor);
-        set_motor_speed(0.0f, (uint8_t)right_motor);
-        DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+        chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+        chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+        chassis_actuator_disable();
         mspm0_delay_ms(600U);
 
         __disable_irq();
@@ -1222,11 +1378,11 @@ static void motor_encoder_map_test(void)
         Get_Encoder_countB = 0;
         __enable_irq();
 
-        DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+        chassis_actuator_enable();
         if (i == 0U) {
-            motor_pwm_set(25.0f, 0.0f);
+            chassis_actuator_set_pwm(25.0f, 0.0f);
         } else {
-            motor_pwm_set(0.0f, 25.0f);
+            chassis_actuator_set_pwm(0.0f, 25.0f);
         }
 
         stage_start_ms = tick_ms;
@@ -1241,10 +1397,10 @@ static void motor_encoder_map_test(void)
         __enable_irq();
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
     LCD_Fill(0, 50, 250, 120, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"MAP DONE", GREEN, BLACK, 32, 0);
 
@@ -1267,8 +1423,10 @@ static void motor_encoder_map_test(void)
 
 static void pwm_sweep_test(void)
 {
-    enum { SWEEP_POINTS = 5 };
-    static const uint8_t duty_points[SWEEP_POINTS] = {20U, 25U, 30U, 35U, 40U};
+    enum { SWEEP_POINTS = 9 };
+    static const uint8_t duty_points[SWEEP_POINTS] = {
+        12U, 15U, 18U, 20U, 22U, 25U, 30U, 35U, 40U
+    };
     static int32_t left_counts[SWEEP_POINTS];
     static int32_t right_counts[SWEEP_POINTS];
     const uint32_t settle_time_ms = 400U;
@@ -1287,26 +1445,30 @@ static void pwm_sweep_test(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
     LCD_ShowString(4, 4, (const unsigned char *)"PWM SWEEP", WHITE, BLACK, 32, 0);
-    LCD_ShowString(4, 58, (const unsigned char *)"AUTO 2 SEC", CYAN, BLACK, 24, 0);
-    telemetry_send_string("SWEEP_READY,AUTO_START_2S\r\n");
-    mspm0_delay_ms(2000U);
+    LCD_ShowString(4, 58, (const unsigned char *)"SW1 OR G", CYAN, BLACK, 24, 0);
+    telemetry_send_string("SWEEP_READY,SEND_G_OR_PRESS_SW1\r\n");
+    while (!speed_calibration_start_requested())
+    {
+        hball_runtime_target_poll(tick_ms);
+        __WFI();
+    }
 
     LCD_Fill(0, 50, 240, 110, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"RUNNING", GREEN, BLACK, 32, 0);
 
     for (i = 0U; i < SWEEP_POINTS; i++)
     {
-        set_motor_speed(0.0f, (uint8_t)left_motor);
-        set_motor_speed(0.0f, (uint8_t)right_motor);
-        DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+        chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+        chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+        chassis_actuator_disable();
         mspm0_delay_ms(settle_time_ms);
 
         __disable_irq();
@@ -1314,8 +1476,8 @@ static void pwm_sweep_test(void)
         Get_Encoder_countB = 0;
         __enable_irq();
 
-        DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-        motor_pwm_set((float)duty_points[i], (float)duty_points[i]);
+        chassis_actuator_enable();
+        chassis_actuator_set_pwm((float)duty_points[i], (float)duty_points[i]);
         stage_start_ms = tick_ms;
         while ((uint32_t)(tick_ms - stage_start_ms) < measure_time_ms)
         {
@@ -1323,15 +1485,16 @@ static void pwm_sweep_test(void)
         }
 
         __disable_irq();
-        left_counts[i] = Get_Encoder_countA;
-        right_counts[i] = Get_Encoder_countB;
+        /* Output 1/left is paired with countB; output 2/right with countA. */
+        left_counts[i] = Get_Encoder_countB;
+        right_counts[i] = Get_Encoder_countA;
         __enable_irq();
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
     LCD_Fill(0, 50, 250, 120, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"SWEEP DONE", GREEN, BLACK, 32, 0);
 
@@ -1356,30 +1519,28 @@ static void pwm_sweep_test(void)
 
 static void speed_pi_test(void)
 {
-    enum { PI_LOG_SAMPLES = 50 };
+    enum { PI_LOG_SAMPLES = 40 };
+    static uint16_t log_time_ms[PI_LOG_SAMPLES];
+    static uint16_t log_scale_permille[PI_LOG_SAMPLES];
     static int16_t log_target[PI_LOG_SAMPLES];
     static int16_t log_left_speed[PI_LOG_SAMPLES];
     static int16_t log_right_speed[PI_LOG_SAMPLES];
     static int16_t log_left_duty[PI_LOG_SAMPLES];
     static int16_t log_right_duty[PI_LOG_SAMPLES];
-    const uint32_t control_period_ms = 100U;
-    const uint32_t test_time_ms = 5000U;
-    const float speed_target = 60.0f;
-    const float base_duty_left = 31.0f;
-    const float base_duty_right = 29.0f;
+    const uint32_t test_time_ms = 3300U;
+    const uint32_t brake_start_ms = 2500U;
+    const int16_t cruise_target = 50;
+    chassis_motion_profile_t speed_profile;
+    wheel_control_t wheel_control;
+    motion_intent_t intent;
+    wheel_control_output_t output;
     uint32_t test_start_ms;
-    uint32_t last_control_ms;
+    uint32_t elapsed_ms;
     uint16_t log_index = 0U;
-    int32_t previous_left = 0;
-    int32_t previous_right = 0;
-    int32_t current_left;
-    int32_t current_right;
-    int32_t delta_left = 0;
-    int32_t delta_right = 0;
-    int16_t commanded_left = 15;
-    int16_t commanded_right = 15;
-    int16_t target_duty_left;
-    int16_t target_duty_right;
+    int32_t current_left_count;
+    int32_t current_right_count;
+    float speed_scale = 0.0F;
+    bool braking = false;
 
     Get_Encoder_countA = 0;
     Get_Encoder_countB = 0;
@@ -1392,112 +1553,106 @@ static void speed_pi_test(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    LEFT.Kp = 0.18f;
-    LEFT.Ki = 0.02f;
-    LEFT.Kd = 0.0f;
-    LEFT.OutMin = -12.0f;
-    LEFT.OutMax = 12.0f;
-    LEFT.Error0 = 0.0f;
-    LEFT.Error1 = 0.0f;
-    LEFT.ErrorInt = 0.0f;
-
-    RIGHT.Kp = 0.18f;
-    RIGHT.Ki = 0.02f;
-    RIGHT.Kd = 0.0f;
-    RIGHT.OutMin = -12.0f;
-    RIGHT.OutMax = 12.0f;
-    RIGHT.Error0 = 0.0f;
-    RIGHT.Error1 = 0.0f;
-    RIGHT.ErrorInt = 0.0f;
-
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
     LCD_BLK_Set();
     LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
-    LCD_ShowString(4, 4, (const unsigned char *)"SPEED PI", WHITE, BLACK, 32, 0);
-    LCD_ShowString(4, 58, (const unsigned char *)"AUTO 2 SEC", CYAN, BLACK, 24, 0);
-    telemetry_send_string("PI_READY,AUTO_START_2S\r\n");
-
-    mspm0_delay_ms(2000U);
-    Get_Encoder_countA = 0;
-    Get_Encoder_countB = 0;
-    DL_GPIO_setPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-    test_start_ms = tick_ms;
-    last_control_ms = test_start_ms;
-    LCD_Fill(0, 50, 240, 110, BLACK);
-    LCD_ShowString(4, 58, (const unsigned char *)"RUN 5 SEC", GREEN, BLACK, 32, 0);
-
-    while ((uint32_t)(tick_ms - test_start_ms) < test_time_ms)
+    LCD_ShowString(4, 4, (const unsigned char *)"S CURVE", WHITE, BLACK, 32, 0);
+    LCD_ShowString(4, 58, (const unsigned char *)"SW1 OR G", CYAN, BLACK, 24, 0);
+    telemetry_send_string("SCURVE_READY,SEND_G_OR_PRESS_SW1\r\n");
+    while (!speed_calibration_start_requested())
     {
-        if ((uint32_t)(tick_ms - last_control_ms) >= control_period_ms)
-        {
-            __disable_irq();
-            /*
-             * Motor output 1 is physically paired with encoder E1A/countB;
-             * motor output 2 is paired with encoder E2A/countA.
-             */
-            current_left = Get_Encoder_countB;
-            current_right = Get_Encoder_countA;
-            __enable_irq();
-            delta_left = current_left - previous_left;
-            delta_right = current_right - previous_right;
-            previous_left = current_left;
-            previous_right = current_right;
-
-            LEFT.Target = speed_target;
-            LEFT.Actual = (float)delta_left;
-            RIGHT.Target = speed_target;
-            RIGHT.Actual = (float)delta_right;
-            PID_Update(&LEFT);
-            PID_Update(&RIGHT);
-
-            if (LEFT.ErrorInt > 100.0f) LEFT.ErrorInt = 100.0f;
-            if (LEFT.ErrorInt < -100.0f) LEFT.ErrorInt = -100.0f;
-            if (RIGHT.ErrorInt > 100.0f) RIGHT.ErrorInt = 100.0f;
-            if (RIGHT.ErrorInt < -100.0f) RIGHT.ErrorInt = -100.0f;
-
-            target_duty_left = (int16_t)(base_duty_left + LEFT.Out);
-            target_duty_right = (int16_t)(base_duty_right + RIGHT.Out);
-            if (target_duty_left < 15) target_duty_left = 15;
-            if (target_duty_left > 45) target_duty_left = 45;
-            if (target_duty_right < 15) target_duty_right = 15;
-            if (target_duty_right > 45) target_duty_right = 45;
-
-            commanded_left = approach_pwm(commanded_left, target_duty_left, 2);
-            commanded_right = approach_pwm(commanded_right, target_duty_right, 2);
-            motor_pwm_set((float)commanded_left, (float)commanded_right);
-            last_control_ms += control_period_ms;
-
-            if (log_index < PI_LOG_SAMPLES)
-            {
-                log_target[log_index] = (int16_t)speed_target;
-                log_left_speed[log_index] = (int16_t)delta_left;
-                log_right_speed[log_index] = (int16_t)delta_right;
-                log_left_duty[log_index] = commanded_left;
-                log_right_duty[log_index] = commanded_right;
-                log_index++;
-            }
-        }
-
-        delay_cycles(CPUCLK_FREQ / 2000U);
+        hball_runtime_target_poll(tick_ms);
+        __WFI();
     }
 
-    motor_stop();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    LCD_Fill(0, 50, 240, 110, BLACK);
+    LCD_ShowString(4, 58, (const unsigned char *)"RUN 3.3 SEC", GREEN, BLACK, 24, 0);
+    Get_Encoder_countA = 0;
+    Get_Encoder_countB = 0;
+    chassis_actuator_start_synchronized(0.0F, 0.0F);
+    test_start_ms = tick_ms;
+    wheel_control_init(&wheel_control, test_start_ms, 0, 0);
+    chassis_motion_profile_start(
+        &speed_profile, 0.0F, 1.0F, test_start_ms, HBALL_Q4_SOFT_START_MS
+    );
+    memset(&intent, 0, sizeof(intent));
+    intent.valid = true;
+    intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
+    while ((uint32_t)(tick_ms - test_start_ms) < test_time_ms)
+    {
+        elapsed_ms = (uint32_t)(tick_ms - test_start_ms);
+        if (!braking && (elapsed_ms >= brake_start_ms))
+        {
+            braking = true;
+            chassis_motion_profile_start(
+                &speed_profile,
+                speed_scale,
+                0.0F,
+                tick_ms,
+                HBALL_Q4_SOFT_STOP_MS
+            );
+        }
+        speed_scale = chassis_motion_profile_sample(&speed_profile, tick_ms);
+        intent.timestamp_ms = tick_ms;
+        intent.requested_speed_left = chassis_motion_profile_scale_i16(
+            cruise_target, speed_scale
+        );
+        intent.requested_speed_right = intent.requested_speed_left;
+
+        if (wheel_control_due(&wheel_control, tick_ms))
+        {
+            __disable_irq();
+            current_left_count = Get_Encoder_countB;
+            current_right_count = Get_Encoder_countA;
+            __enable_irq();
+            if (wheel_control_step(
+                    &wheel_control,
+                    tick_ms,
+                    current_left_count,
+                    current_right_count,
+                    &intent,
+                    &output))
+            {
+                chassis_actuator_set_pwm(
+                    (float)output.duty_left, (float)output.duty_right
+                );
+                if (log_index < PI_LOG_SAMPLES)
+                {
+                    log_time_ms[log_index] = (uint16_t)elapsed_ms;
+                    log_scale_permille[log_index] =
+                        (uint16_t)(speed_scale * 1000.0F);
+                    log_target[log_index] = intent.requested_speed_left;
+                    log_left_speed[log_index] =
+                        (int16_t)output.measured_left_speed;
+                    log_right_speed[log_index] =
+                        (int16_t)output.measured_right_speed;
+                    log_left_duty[log_index] = output.duty_left;
+                    log_right_duty[log_index] = output.duty_right;
+                    log_index++;
+                }
+            }
+        }
+        competition_runtime_wait_ms(10U);
+    }
+
+    chassis_actuator_stop();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
     LCD_Fill(0, 50, 250, 120, BLACK);
     LCD_ShowString(4, 58, (const unsigned char *)"PI DONE", GREEN, BLACK, 32, 0);
 
-    telemetry_send_string("PI_LOG_BEGIN\r\n");
+    telemetry_send_string("SCURVE_LOG_BEGIN,t,scale,target,left,dl,right,dr\r\n");
     for (uint16_t i = 0U; i < log_index; i++)
     {
         snprintf((char *)uart_send, sizeof(uart_send),
-                 "P,%u,T=%d,L=%d,DL=%d,R=%d,DR=%d\r\n",
-                 (unsigned)i,
+                 "C,%u,%u,%d,%d,%d,%d,%d\r\n",
+                 (unsigned)log_time_ms[i],
+                 (unsigned)log_scale_permille[i],
                  (int)log_target[i],
                  (int)log_left_speed[i],
                  (int)log_left_duty[i],
@@ -1505,7 +1660,7 @@ static void speed_pi_test(void)
                  (int)log_right_duty[i]);
         telemetry_send_string((char *)uart_send);
     }
-    telemetry_send_string("PI_LOG_END\r\n");
+    telemetry_send_string("SCURVE_LOG_END\r\n");
 
     while (1)
     {
@@ -1524,12 +1679,6 @@ static void lap_test(void)
 static void lap_test_once(void)
 {
     enum { LAP_LOG_SAMPLES = 350 };
-    enum {
-        TRACK_PHASE_STRAIGHT = 0,
-        TRACK_PHASE_CURVE,
-        TRACK_PHASE_EXIT_RAMP
-    };
-    static const int8_t weights[8] = {-35, -25, -15, -5, 5, 15, 25, 35};
     static uint16_t log_time_ms[LAP_LOG_SAMPLES];
     static uint8_t log_line_mask[LAP_LOG_SAMPLES];
     static int8_t log_error[LAP_LOG_SAMPLES];
@@ -1539,148 +1688,147 @@ static void lap_test_once(void)
     static int16_t log_actual_right[LAP_LOG_SAMPLES];
     static uint8_t log_duty_left[LAP_LOG_SAMPLES];
     static uint8_t log_duty_right[LAP_LOG_SAMPLES];
-    /* Task 2 needs enough margin to pass B within eight seconds. */
-    int16_t base_speed = 50;
-    const int16_t min_speed = 10;
-    int16_t max_speed = 70;
-    int16_t recovery_inner_speed = 14;
-    int16_t recovery_outer_speed = 52;
-    float weighted_position_kp = 0.50f;
-    int16_t steering_limit = 20;
-    int16_t steering_slew_step = 2;
-    const uint32_t speed_control_period_ms = 100U;
-    const uint32_t lost_timeout_ms = 700U;
-    const uint32_t start_line_clear_confirm_ms = 120U;
-    uint32_t finish_line_min_run_ms = 10000U;
-    const int16_t task1_curve_speed = 55;
-    const int16_t curve_enter_error = 15;
-    const int16_t curve_exit_error = 6;
-    const uint32_t curve_enter_confirm_ms = 20U;
-    const uint32_t curve_exit_confirm_ms = 80U;
-    const uint32_t curve_exit_ramp_ms = 250U;
-    const int16_t task3_start_speed = 28;
-    const int16_t task3_curve_min_speed = 40;
-    const uint32_t task3_start_ramp_ms = 1000U;
+    hball_mission_client_t mission_snapshot;
+    hball_mission_policy_t mission_policy;
+    hball_mission_run_decision_t run_decision;
+    task_key_event_t run_key_event;
+    static line_follower_t line_follower;
+    static route_marker_detector_t route_marker_detector;
+    static wheel_control_t wheel_control;
+    chassis_motion_profile_t q4_speed_profile;
+    line_follower_output_t follower_output;
+    line_follower_profile_t follower_profile;
+    motion_intent_t wheel_intent;
+    route_marker_detector_config_t marker_config;
+    route_marker_detector_output_t marker_output;
+    wheel_control_output_t wheel_output;
+    uint8_t mission_id;
     uint8_t selected_task;
-    uint8_t finish_line_enabled;
-    uint8_t finish_active_threshold = 3U;
+    uint8_t finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
+    bool local_marker_stop_enabled;
+    bool q4_braking = false;
+    bool q56_braking = false;
+    bool q56_stop_profile_complete = false;
+    bool q56_stop_settle_active = false;
+    bool q56_stop_complete = false;
+    bool wheel_sample_valid = false;
+    uint16_t mission_epoch;
     uint32_t run_timeout_ms;
-    uint8_t raw;
+    line_snapshot_t line_sample;
     uint8_t line_mask;
-    uint8_t index;
-    uint8_t active_count;
-    uint8_t finish_armed = 0U;
-    uint8_t wide_finish_pattern;
-    uint8_t finish_stop_confirmed = 0U;
-    uint8_t line_was_lost = 0U;
-    uint8_t line_reacquired = 0U;
     uint16_t log_index = 0U;
-    int16_t weighted_sum;
     int16_t error = 0;
-    int16_t error_magnitude = 0;
-    int16_t steering_error = 0;
-    int16_t control_base_speed;
-    int16_t task3_ramped_base_speed = base_speed;
-    int16_t task3_curve_floor;
-    int16_t task3_filtered_error = 0;
-    int16_t task3_steering_command = 0;
-    int16_t task3_curve_feedforward = 0;
-    uint8_t task3_filter_ready = 0U;
-    int8_t last_line_side = 0;
-    uint8_t track_phase = TRACK_PHASE_STRAIGHT;
-    int16_t target_steering = 0;
-    int16_t desired_speed_left = base_speed;
-    int16_t desired_speed_right = base_speed;
-    int16_t requested_speed_left = base_speed;
-    int16_t requested_speed_right = base_speed;
-    int16_t target_duty_left;
-    int16_t target_duty_right;
     int16_t commanded_duty_left = 15;
     int16_t commanded_duty_right = 15;
-    int16_t stop_start_duty_left;
-    int16_t stop_start_duty_right;
-    int16_t duty_slew_step;
-    int16_t stop_step;
-    int32_t previous_left_count = 0;
-    int32_t previous_right_count = 0;
     int32_t current_left_count;
     int32_t current_right_count;
     int32_t left_speed;
     int32_t right_speed;
+    float q4_speed_scale = 1.0F;
+    float q56_speed_scale = 0.0F;
     uint32_t run_start_ms;
     uint32_t elapsed_ms;
-    uint32_t timeout_trigger_ms;
+    uint32_t q56_stop_profile_complete_ms = 0U;
+    uint32_t q56_stop_settle_start_ms = 0U;
+    uint32_t q56_soft_start_ms = HBALL_Q5_SOFT_START_MS;
+    uint32_t last_wheel_sample_ms = 0U;
     uint32_t finish_elapsed_ms = 0U;
-    uint32_t last_speed_control_ms = 0U;
-    uint32_t speed_control_elapsed_ms;
-    uint32_t lost_start_ms = 0U;
-    uint32_t lost_elapsed_ms = 0U;
-    uint32_t curve_enter_start_ms = 0U;
-    uint32_t curve_exit_start_ms = 0U;
-    uint32_t curve_ramp_start_ms = 0U;
-    uint32_t start_line_clear_start_ms = 0U;
-    uint32_t finish_candidate_start_ms = 0U;
     char time_text[8];
 
-    motor_init();
-    set_motor_speed(0.0f, (uint8_t)left_motor);
-    set_motor_speed(0.0f, (uint8_t)right_motor);
-    DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+    chassis_actuator_init();
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+    chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+    chassis_actuator_disable();
 
+    hball_runtime_services_enter_menu();
     LCD_BLK_Set();
     selected_task = select_car_task();
+    mission_id = selected_task;
+    if (!hball_mission_policy_get(mission_id, &mission_policy)
+        || !hball_can_mission_get_snapshot(&mission_snapshot)
+        || (mission_snapshot.selected_mission != mission_id))
+    {
+        hball_runtime_services_apply_policy(NULL);
+        return;
+    }
+    mission_epoch = mission_snapshot.candidate_epoch;
+    hball_runtime_services_apply_policy(&mission_policy);
+    marker_config.marker_active_threshold = 3U;
+    marker_config.marker_adjacent_width = 0U;
+    marker_config.start_clear_max_active = 4U;
+    marker_config.start_clear_confirm_ms = 120U;
+    marker_config.marker_min_elapsed_ms = 10000U;
+    marker_config.marker_confirm_ms = 0U;
     if (selected_task == HBALL_MISSION_Q2_FAST_LAP)
     {
         selected_task = CAR_TASK_LAP_STOP;
-        base_speed = 63;
-        max_speed = 80;
-        recovery_inner_speed = 24;
-        recovery_outer_speed = 52;
-        weighted_position_kp = 0.65f;
-        steering_limit = 28;
-        steering_slew_step = 5;
-        finish_line_enabled = 1U;
-        finish_active_threshold = 3U;
-        finish_line_min_run_ms = 18000U;
+        follower_profile = LINE_FOLLOWER_PROFILE_Q2_FAST_LAP;
+        local_marker_stop_enabled = true;
+        marker_config.marker_active_threshold = 3U;
+        marker_config.marker_adjacent_width = 3U;
+        marker_config.marker_min_elapsed_ms = 18000U;
+        marker_config.marker_confirm_ms = 20U;
         run_timeout_ms = 0U;
     }
     else if (selected_task == HBALL_MISSION_Q4_A_TO_B)
     {
         selected_task = CAR_TASK_TIMED_RUN;
-        finish_line_enabled = 0U;
+        follower_profile = LINE_FOLLOWER_PROFILE_Q4_TIMED_RUN;
+        local_marker_stop_enabled = false;
         run_timeout_ms = 7800U;
     }
     else
     {
         selected_task = CAR_TASK_STABLE_LAP;
-        base_speed = 46;
-        max_speed = 65;
-        steering_slew_step = 3;
-        finish_line_enabled = 0U;
-        finish_active_threshold = 4U;
-        finish_line_min_run_ms = 23000U;
-        run_timeout_ms = 28000U;
+        follower_profile = LINE_FOLLOWER_PROFILE_STABLE_LAP;
+        local_marker_stop_enabled = true;
+        marker_config.marker_active_threshold = 4U;
+        marker_config.marker_adjacent_width = 4U;
+        marker_config.marker_min_elapsed_ms = 23000U;
+        marker_config.marker_confirm_ms = 20U;
+        run_timeout_ms = 0U;
     }
-    desired_speed_left = base_speed;
-    desired_speed_right = base_speed;
-    requested_speed_left = base_speed;
-    requested_speed_right = base_speed;
-    if (selected_task == CAR_TASK_STABLE_LAP) {
-        desired_speed_left = task3_start_speed;
-        desired_speed_right = task3_start_speed;
-        requested_speed_left = task3_start_speed;
-        requested_speed_right = task3_start_speed;
+    if (mission_id == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+    {
+        q56_soft_start_ms = HBALL_Q6_SOFT_START_MS;
     }
+    if ((mission_id == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+        && mission_snapshot.setup_valid
+        && ((mission_snapshot.latest_setup.flags
+                & HBALL_MISSION_SETUP_TARGET_SET) != 0U))
+    {
+        int32_t target_mm = mission_snapshot.latest_setup.target_position_mm;
+        uint32_t target_abs_mm;
 
-    raw = read_track_raw();
-    line_mask = (uint8_t)(~raw);
+        if (target_mm < 0)
+        {
+            target_mm = -target_mm;
+        }
+        target_abs_mm = (uint32_t)target_mm;
+        q56_soft_start_ms += target_abs_mm
+            * (mission_snapshot.latest_setup.target_position_mm < 0
+                ? HBALL_Q6_NEGATIVE_START_MS_PER_MM
+                : HBALL_Q6_POSITIVE_START_MS_PER_MM);
+        if (q56_soft_start_ms > HBALL_Q6_SOFT_START_MAX_MS)
+        {
+            q56_soft_start_ms = HBALL_Q6_SOFT_START_MAX_MS;
+        }
+    }
+    line_sample = line_snapshot_decode(line_sensor_port_read_raw(), tick_ms);
+    line_mask = line_sample.line_mask;
     if (line_mask == 0U)
     {
-        LCD_Fill(0, 48, 240, 150, BLACK);
+        mission_lcd_fill_serviced(0, 48, 240, 150, BLACK);
         LCD_ShowString(4, 68, (const unsigned char *)"NO LINE", RED, BLACK, 32, 0);
-        while (1) {
-            __WFI();
-        }
+        (void)hball_can_mission_request_abort(tick_ms);
+        hball_can_mission_chassis_finish(
+            HBALL_MISSION_CHASSIS_EVENT_STOPPED
+                | HBALL_MISSION_CHASSIS_EVENT_LINE_LOST
+                | HBALL_MISSION_CHASSIS_EVENT_LOCAL_FAULT,
+            tick_ms
+        );
+        competition_runtime_wait_ms(500U);
+        return;
     }
 
     /*
@@ -1698,30 +1846,32 @@ static void lap_test_once(void)
     NVIC_EnableIRQ(ENCODERA_INT_IRQN);
     NVIC_EnableIRQ(ENCODERB_INT_IRQN);
 
-    LEFT.Kp = 0.18f;
-    LEFT.Ki = 0.005f;
-    LEFT.Kd = 0.0f;
-    LEFT.OutMin = -10.0f;
-    LEFT.OutMax = 10.0f;
-    LEFT.Error0 = 0.0f;
-    LEFT.Error1 = 0.0f;
-    LEFT.ErrorInt = 0.0f;
+    (void)hball_can_mission_get_snapshot(&mission_snapshot);
+    run_decision = hball_mission_run_guard_evaluate(
+        &mission_policy,
+        mission_id,
+        mission_epoch,
+        &mission_snapshot,
+        tick_ms
+    );
+    if (run_decision != HBALL_MISSION_RUN_CONTINUE)
+    {
+        LCD_Fill(0, 48, 280, 100, BLACK);
+        if (run_decision == HBALL_MISSION_RUN_STOP_REMOTE_COMPLETE) {
+            LCD_ShowString(4, 58, (const unsigned char *)"M33 DONE", GREEN, BLACK, 32, 0);
+        } else if (run_decision == HBALL_MISSION_RUN_STOP_REMOTE_ABORT) {
+            LCD_ShowString(4, 58, (const unsigned char *)"M33 ABORT", RED, BLACK, 32, 0);
+        } else if (run_decision
+                   == HBALL_MISSION_RUN_STOP_REMOTE_UNAVAILABLE) {
+            LCD_ShowString(4, 58, (const unsigned char *)"M33 LOST", RED, BLACK, 32, 0);
+        }
+        hball_can_mission_chassis_finish(
+            HBALL_MISSION_CHASSIS_EVENT_STOPPED, tick_ms
+        );
+        return;
+    }
 
-    RIGHT.Kp = 0.18f;
-    RIGHT.Ki = 0.005f;
-    RIGHT.Kd = 0.0f;
-    RIGHT.OutMin = -10.0f;
-    RIGHT.OutMax = 10.0f;
-    RIGHT.Error0 = 0.0f;
-    RIGHT.Error1 = 0.0f;
-    RIGHT.ErrorInt = 0.0f;
-
-    motor_start_synchronized((float)commanded_duty_left,
-                             (float)commanded_duty_right);
-    run_start_ms = tick_ms;
-    hball_can_mission_chassis_start(run_start_ms);
-    last_speed_control_ms = run_start_ms;
-    LCD_Fill(0, 0, LCD_W, LCD_H, BLACK);
+    mission_lcd_fill_serviced(0, 0, LCD_W, LCD_H, BLACK);
     if (selected_task == CAR_TASK_LAP_STOP) {
         LCD_ShowString(4, 4, (const unsigned char *)"TASK1 RUN", GREEN, BLACK, 32, 0);
     } else if (selected_task == CAR_TASK_TIMED_RUN) {
@@ -1731,48 +1881,108 @@ static void lap_test_once(void)
     }
     LCD_ShowString(4, 106, (const unsigned char *)"T:00.0", YELLOW, BLACK, 32, 0);
 
+    if ((selected_task == CAR_TASK_TIMED_RUN)
+        || (selected_task == CAR_TASK_STABLE_LAP))
+    {
+        commanded_duty_left = 0;
+        commanded_duty_right = 0;
+    }
+    chassis_actuator_start_synchronized((float)commanded_duty_left, (float)commanded_duty_right);
+    run_start_ms = tick_ms;
+    chassis_motion_profile_start(
+        &q4_speed_profile,
+        selected_task == CAR_TASK_LAP_STOP ? 1.0F : 0.0F,
+        1.0F,
+        run_start_ms,
+        selected_task == CAR_TASK_TIMED_RUN
+            ? HBALL_Q4_SOFT_START_MS
+            : (selected_task == CAR_TASK_STABLE_LAP
+                ? q56_soft_start_ms : 0U)
+    );
+    line_follower_init(&line_follower, follower_profile, run_start_ms);
+    (void)route_marker_detector_init(
+        &route_marker_detector, &marker_config, run_start_ms);
+    wheel_control_init(
+        &wheel_control,
+        run_start_ms,
+        commanded_duty_left,
+        commanded_duty_right
+    );
+    hball_can_mission_chassis_start(run_start_ms);
+
     while (1)
     {
         elapsed_ms = (uint32_t)(tick_ms - run_start_ms);
-        timeout_trigger_ms = run_timeout_ms;
-        if ((selected_task == CAR_TASK_STABLE_LAP) &&
-            (run_timeout_ms >= 500U)) {
-            timeout_trigger_ms = run_timeout_ms - 500U;
-        }
-        task3_ramped_base_speed = base_speed;
-        if ((selected_task == CAR_TASK_STABLE_LAP) &&
-            (elapsed_ms < task3_start_ramp_ms))
+        run_key_event = get_task_key_event();
+        if (run_key_event == TASK_KEY_EVENT_EXECUTE)
         {
-            task3_ramped_base_speed =
-                task3_start_speed +
-                (int16_t)(((int32_t)(base_speed - task3_start_speed) *
-                           (int32_t)elapsed_ms) /
-                          (int32_t)task3_start_ramp_ms);
+            (void)hball_can_mission_request_abort(tick_ms);
+            finish_elapsed_ms = elapsed_ms;
+            finish_event_flags =
+                HBALL_MISSION_CHASSIS_EVENT_STOPPED
+                | HBALL_MISSION_CHASSIS_EVENT_LOCAL_FAULT;
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
+            LCD_Fill(0, 48, 280, 100, BLACK);
+            LCD_ShowString(
+                4, 58, (const unsigned char *)"SW1 CANCEL",
+                RED, BLACK, 32, 0);
+            break;
         }
-        if ((run_timeout_ms != 0U) && (elapsed_ms >= timeout_trigger_ms))
+        (void)hball_can_mission_get_snapshot(&mission_snapshot);
+        run_decision = hball_mission_run_guard_evaluate(
+            &mission_policy,
+            mission_id,
+            mission_epoch,
+            &mission_snapshot,
+            tick_ms
+        );
+        if (run_decision != HBALL_MISSION_RUN_CONTINUE)
+        {
+            finish_elapsed_ms = elapsed_ms;
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
+            LCD_Fill(0, 48, 280, 100, BLACK);
+            if (run_decision == HBALL_MISSION_RUN_STOP_REMOTE_COMPLETE) {
+                LCD_ShowString(4, 58, (const unsigned char *)"M33 DONE", GREEN, BLACK, 32, 0);
+            } else if (run_decision == HBALL_MISSION_RUN_STOP_REMOTE_ABORT) {
+                LCD_ShowString(4, 58, (const unsigned char *)"M33 ABORT", RED, BLACK, 32, 0);
+            } else if (run_decision
+                       == HBALL_MISSION_RUN_STOP_REMOTE_UNAVAILABLE) {
+                LCD_ShowString(4, 58, (const unsigned char *)"M33 LOST", RED, BLACK, 32, 0);
+            }
+            break;
+        }
+        if ((selected_task == CAR_TASK_TIMED_RUN)
+            && !q4_braking
+            && (elapsed_ms >= (run_timeout_ms - HBALL_Q4_SOFT_STOP_MS)))
+        {
+            q4_braking = true;
+            chassis_motion_profile_start(
+                &q4_speed_profile,
+                q4_speed_scale,
+                0.0F,
+                tick_ms,
+                HBALL_Q4_SOFT_STOP_MS
+            );
+        }
+        if ((run_timeout_ms != 0U) && (elapsed_ms >= run_timeout_ms))
         {
             finish_elapsed_ms = run_timeout_ms;
-            if (selected_task == CAR_TASK_STABLE_LAP)
-            {
-                stop_start_duty_left = commanded_duty_left;
-                stop_start_duty_right = commanded_duty_right;
-                for (stop_step = 24; stop_step >= 0; stop_step--)
-                {
-                    commanded_duty_left =
-                        (int16_t)(((int32_t)stop_start_duty_left *
-                                   stop_step) / 25);
-                    commanded_duty_right =
-                        (int16_t)(((int32_t)stop_start_duty_right *
-                                   stop_step) / 25);
-                    motor_pwm_set((float)commanded_duty_left,
-                                  (float)commanded_duty_right);
-                    delay_cycles(CPUCLK_FREQ / 50U);
-                }
-            }
-            motor_stop();
-            set_motor_speed(0.0f, (uint8_t)left_motor);
-            set_motor_speed(0.0f, (uint8_t)right_motor);
-            DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_DETECTED_B;
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
             LCD_Fill(0, 48, 280, 100, BLACK);
             if (selected_task == CAR_TASK_TIMED_RUN) {
                 LCD_ShowString(4, 58, (const unsigned char *)"TASK2 DONE", GREEN, BLACK, 32, 0);
@@ -1782,507 +1992,230 @@ static void lap_test_once(void)
             break;
         }
 
-        raw = read_track_raw();
-        line_mask = (uint8_t)(~raw);
-        active_count = 0U;
-        weighted_sum = 0;
+        line_sample = line_snapshot_decode(line_sensor_port_read_raw(), tick_ms);
+        line_mask = line_sample.line_mask;
+        (void)route_marker_detector_step(
+            &route_marker_detector, &line_sample, &marker_output);
 
-        for (index = 0U; index < 8U; index++)
+        if (marker_output.start_cleared_event)
         {
-            if ((line_mask & (1U << index)) != 0U)
+            hball_can_mission_chassis_latch_events(
+                HBALL_MISSION_CHASSIS_EVENT_LEFT_A);
+        }
+        if (marker_output.marker_confirmed_event)
+        {
+            hball_can_mission_chassis_latch_events(
+                HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A);
+        }
+
+        if (local_marker_stop_enabled && marker_output.marker_confirmed_event)
+        {
+            if (selected_task == CAR_TASK_STABLE_LAP)
             {
-                active_count++;
-                weighted_sum += weights[index];
-            }
-        }
-
-        /*
-         * Task 1 uses three active sensors and task 3 uses four. Start-line
-         * clearing and the minimum run time prevent an immediate start stop.
-         */
-        wide_finish_pattern =
-            (active_count >= finish_active_threshold) ? 1U : 0U;
-
-        if ((selected_task == CAR_TASK_LAP_STOP) &&
-            (wide_finish_pattern != 0U))
-        {
-            /*
-             * Task 1 finish line must cover three adjacent channels.
-             * Elapsed time and a short confirmation suppress start-line and
-             * single-sample false detections.
-             */
-            if ((line_mask & (uint8_t)(line_mask >> 1) &
-                 (uint8_t)(line_mask >> 2)) == 0U) {
-                wide_finish_pattern = 0U;
-            }
-        }
-        if ((selected_task == CAR_TASK_STABLE_LAP) &&
-            (wide_finish_pattern != 0U))
-        {
-            /*
-             * Task 3 accepts only four adjacent sensors.  This rejects
-             * sparse multi-sensor patterns that occur during a bend.
-             */
-            if ((line_mask & (uint8_t)(line_mask >> 1) &
-                 (uint8_t)(line_mask >> 2) &
-                 (uint8_t)(line_mask >> 3)) == 0U) {
-                wide_finish_pattern = 0U;
-            }
-        }
-
-        /*
-         * The car starts on the same transverse line.  Arm finish detection
-         * only after a normal-width line has been observed continuously.
-         */
-        if (finish_armed == 0U)
-        {
-            if ((active_count > 0U) &&
-                (active_count <= 4U) &&
-                (wide_finish_pattern == 0U))
-            {
-                if (start_line_clear_start_ms == 0U) {
-                    start_line_clear_start_ms = tick_ms;
-                } else if ((uint32_t)(tick_ms - start_line_clear_start_ms) >=
-                           start_line_clear_confirm_ms) {
-                    finish_armed = 1U;
-                }
+                q56_braking = true;
+                chassis_motion_profile_start(
+                    &q4_speed_profile,
+                    q56_speed_scale,
+                    0.0F,
+                    tick_ms,
+                    HBALL_Q56_SOFT_STOP_MS
+                );
             }
             else
             {
-                start_line_clear_start_ms = 0U;
+                finish_elapsed_ms = elapsed_ms;
+                finish_event_flags =
+                    HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;
+                chassis_actuator_stop();
+                chassis_actuator_set_wheel_speed(
+                    0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+                chassis_actuator_set_wheel_speed(
+                    0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+                chassis_actuator_disable();
+                LCD_Fill(0, 48, 280, 100, BLACK);
+                LCD_ShowString(
+                    4, 58, (const unsigned char *)"LAP STOP",
+                    GREEN, BLACK, 32, 0);
+                break;
             }
         }
 
-        finish_stop_confirmed = 0U;
-        if ((wide_finish_pattern != 0U) &&
-            (finish_line_enabled != 0U) &&
-            (finish_armed != 0U) &&
-            (elapsed_ms >= finish_line_min_run_ms))
+        (void)line_follower_step(
+            &line_follower,
+            &line_sample,
+            marker_output.force_straight,
+            &follower_output
+        );
+        wheel_intent = follower_output.intent;
+        if (selected_task == CAR_TASK_TIMED_RUN)
         {
-            if ((selected_task == CAR_TASK_LAP_STOP) ||
-                (selected_task == CAR_TASK_STABLE_LAP)) {
-                if (finish_candidate_start_ms == 0U) {
-                    finish_candidate_start_ms = tick_ms;
-                } else if ((uint32_t)(tick_ms - finish_candidate_start_ms) >=
-                           20U) {
-                    finish_stop_confirmed = 1U;
-                }
-            } else {
-                finish_stop_confirmed = 1U;
-            }
+            q4_speed_scale = chassis_motion_profile_sample(
+                &q4_speed_profile, tick_ms
+            );
+            wheel_intent.requested_speed_left =
+                chassis_motion_profile_scale_i16(
+                    wheel_intent.requested_speed_left, q4_speed_scale
+                );
+            wheel_intent.requested_speed_right =
+                chassis_motion_profile_scale_i16(
+                    wheel_intent.requested_speed_right, q4_speed_scale
+                );
+            wheel_intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
         }
-        else
+        else if (selected_task == CAR_TASK_STABLE_LAP)
         {
-            finish_candidate_start_ms = 0U;
-        }
-
-        if (finish_stop_confirmed != 0U)
-        {
-            finish_elapsed_ms = elapsed_ms;
-            if (selected_task == CAR_TASK_STABLE_LAP)
+            q56_speed_scale = chassis_motion_profile_sample(
+                &q4_speed_profile, tick_ms
+            );
+            wheel_intent.requested_speed_left =
+                chassis_motion_profile_scale_i16(
+                    wheel_intent.requested_speed_left, q56_speed_scale
+                );
+            wheel_intent.requested_speed_right =
+                chassis_motion_profile_scale_i16(
+                    wheel_intent.requested_speed_right, q56_speed_scale
+                );
+            wheel_intent.duty_slew_step = HBALL_Q4_DUTY_SLEW_STEP;
+            if (q56_braking
+                && !q4_speed_profile.active
+                && !q56_stop_profile_complete)
             {
-                /*
-                 * Reduce both PWM commands by one count every 20 ms.  This
-                 * gives a roughly 0.4-0.5 s coast-down from normal duty.
-                 */
-                while ((commanded_duty_left > 0) ||
-                       (commanded_duty_right > 0))
-                {
-                    commanded_duty_left =
-                        approach_pwm(commanded_duty_left, 0, 1);
-                    commanded_duty_right =
-                        approach_pwm(commanded_duty_right, 0, 1);
-                    motor_pwm_set((float)commanded_duty_left,
-                                  (float)commanded_duty_right);
-                    delay_cycles(CPUCLK_FREQ / 50U);
-                }
+                q56_stop_profile_complete = true;
+                q56_stop_profile_complete_ms = tick_ms;
             }
-            motor_stop();
-            set_motor_speed(0.0f, (uint8_t)left_motor);
-            set_motor_speed(0.0f, (uint8_t)right_motor);
-            DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
+        }
+        error = follower_output.error;
+
+        if (follower_output.reset_wheel_integrators)
+        {
+            wheel_control_reset_integrators(&wheel_control);
+        }
+        if (follower_output.lost_timeout)
+        {
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_STOPPED
+                | HBALL_MISSION_CHASSIS_EVENT_LINE_LOST
+                | HBALL_MISSION_CHASSIS_EVENT_LOCAL_FAULT;
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
             LCD_Fill(0, 48, 280, 100, BLACK);
-            LCD_ShowString(4, 58, (const unsigned char *)"LAP STOP", GREEN, BLACK, 32, 0);
+            LCD_ShowString(
+                4, 58, (const unsigned char *)"LOST STOP",
+                RED, BLACK, 32, 0);
             break;
         }
 
-        if ((wide_finish_pattern != 0U) && (finish_armed == 0U))
+        if (wheel_control_due(&wheel_control, tick_ms))
         {
-            /* Starting on A's transverse line: drive straight until it is cleared. */
-            target_steering = 0;
-            desired_speed_left =
-                (selected_task == CAR_TASK_STABLE_LAP) ?
-                task3_ramped_base_speed : base_speed;
-            desired_speed_right = desired_speed_left;
-            requested_speed_left =
-                approach_pwm(requested_speed_left, desired_speed_left,
-                             (line_reacquired != 0U) ? 15 : 2);
-            requested_speed_right =
-                approach_pwm(requested_speed_right, desired_speed_right,
-                             (line_reacquired != 0U) ? 15 : 2);
-            line_was_lost = 0U;
-            lost_start_ms = 0U;
-        }
-        else if (active_count == 0U)
-        {
-            line_was_lost = 1U;
-            curve_enter_start_ms = 0U;
-            curve_exit_start_ms = 0U;
-            if (selected_task == CAR_TASK_LAP_STOP) {
-                track_phase = TRACK_PHASE_CURVE;
-            }
-            if (lost_start_ms == 0U) {
-                lost_start_ms = tick_ms;
-                lost_elapsed_ms = 0U;
-            } else {
-                lost_elapsed_ms = (uint32_t)(tick_ms - lost_start_ms);
-            }
-
-            /*
-             * Task 1 must finish the lap.  A fast curve exit can hide the
-             * line for longer than the old 700 ms limit, so keep searching
-             * instead of ending the run.  Other tasks retain the safety stop.
-             */
-            if ((selected_task != CAR_TASK_LAP_STOP) &&
-                (lost_elapsed_ms >= lost_timeout_ms)) {
-                motor_stop();
-                set_motor_speed(0.0f, (uint8_t)left_motor);
-                set_motor_speed(0.0f, (uint8_t)right_motor);
-                DL_GPIO_clearPins(motor_gpio_PORT, motor_gpio_STBY_PIN);
-                LCD_Fill(0, 48, 280, 100, BLACK);
-                LCD_ShowString(4, 58, (const unsigned char *)"LOST STOP", RED, BLACK, 32, 0);
-                break;
-            }
-
-            /*
-             * Search toward the side where the line was last observed.
-             * This recovers the brief line loss that can occur at a curve
-             * entrance while still stopping on a genuine departure.
-            */
-            if ((selected_task == CAR_TASK_STABLE_LAP) &&
-                (lost_elapsed_ms < 40U)) {
-                /*
-                 * The log shows isolated 0x00 samples at curve transitions.
-                 * Hold the previous wheel request briefly so a single sensor
-                 * dropout cannot produce a 52/14 speed jump.
-                 */
-            } else if (selected_task == CAR_TASK_STABLE_LAP) {
-                /* A genuine loss uses a gentler search than the fast task. */
-                if (last_line_side < 0) {
-                    requested_speed_left = 20;
-                    requested_speed_right = 50;
-                } else if (last_line_side > 0) {
-                    requested_speed_left = 50;
-                    requested_speed_right = 20;
-                } else {
-                    requested_speed_left = 36;
-                    requested_speed_right = 36;
-                }
-            } else if ((selected_task == CAR_TASK_LAP_STOP) &&
-                (lost_elapsed_ms >= 300U)) {
-                /* Slow down and tighten the turn until a sensor sees the line. */
-                if (last_line_side < 0) {
-                    requested_speed_left = 8;
-                    requested_speed_right = 44;
-                } else if (last_line_side > 0) {
-                    requested_speed_left = 44;
-                    requested_speed_right = 8;
-                } else {
-                    requested_speed_left = 30;
-                    requested_speed_right = 30;
-                }
-            } else if (last_line_side < 0) {
-                requested_speed_left = recovery_inner_speed;
-                requested_speed_right = recovery_outer_speed;
-            } else if (last_line_side > 0) {
-                requested_speed_left = recovery_outer_speed;
-                requested_speed_right = recovery_inner_speed;
-            } else {
-                requested_speed_left = 42;
-                requested_speed_right = 42;
-            }
-        }
-        else
-        {
-            if (line_was_lost != 0U) {
-                line_reacquired = 1U;
-                line_was_lost = 0U;
-                LEFT.ErrorInt = 0.0f;
-                RIGHT.ErrorInt = 0.0f;
-            }
-            lost_start_ms = 0U;
-            error = weighted_sum / (int16_t)active_count;
-            error_magnitude =
-                (error < 0) ? (int16_t)(-error) : error;
-            steering_error = error;
-            control_base_speed = base_speed;
-
-            if (selected_task == CAR_TASK_LAP_STOP)
-            {
-                if (track_phase == TRACK_PHASE_STRAIGHT)
-                {
-                    if (error_magnitude >= curve_enter_error)
-                    {
-                        if (curve_enter_start_ms == 0U) {
-                            curve_enter_start_ms = tick_ms;
-                        } else if ((uint32_t)(tick_ms - curve_enter_start_ms) >=
-                                   curve_enter_confirm_ms) {
-                            track_phase = TRACK_PHASE_CURVE;
-                            curve_enter_start_ms = 0U;
-                            curve_exit_start_ms = 0U;
-                        }
-                    }
-                    else
-                    {
-                        curve_enter_start_ms = 0U;
-                    }
-                }
-
-                if (track_phase == TRACK_PHASE_CURVE)
-                {
-                    control_base_speed = task1_curve_speed;
-                    if (error_magnitude <= curve_exit_error)
-                    {
-                        if (curve_exit_start_ms == 0U) {
-                            curve_exit_start_ms = tick_ms;
-                        } else if ((uint32_t)(tick_ms - curve_exit_start_ms) >=
-                                   curve_exit_confirm_ms) {
-                            track_phase = TRACK_PHASE_EXIT_RAMP;
-                            curve_ramp_start_ms = tick_ms;
-                            curve_exit_start_ms = 0U;
-                        }
-                    }
-                    else
-                    {
-                        curve_exit_start_ms = 0U;
-                    }
-                }
-                else if (track_phase == TRACK_PHASE_EXIT_RAMP)
-                {
-                    uint32_t ramp_elapsed_ms =
-                        (uint32_t)(tick_ms - curve_ramp_start_ms);
-
-                    if (error_magnitude >= curve_enter_error)
-                    {
-                        track_phase = TRACK_PHASE_CURVE;
-                        control_base_speed = task1_curve_speed;
-                        curve_exit_start_ms = 0U;
-                    }
-                    else if (ramp_elapsed_ms >= curve_exit_ramp_ms)
-                    {
-                        track_phase = TRACK_PHASE_STRAIGHT;
-                        control_base_speed = base_speed;
-                    }
-                    else
-                    {
-                        control_base_speed =
-                            task1_curve_speed +
-                            (int16_t)(((int32_t)(base_speed - task1_curve_speed) *
-                                       (int32_t)ramp_elapsed_ms) /
-                                      (int32_t)curve_exit_ramp_ms);
-                    }
-                }
-            }
-            else if (selected_task == CAR_TASK_STABLE_LAP)
-            {
-                /*
-                 * Smooth the discrete eight-sensor position changes without
-                 * adding a straight/curve state transition.  A newly found
-                 * line is accepted immediately; normal samples use a 0.4
-                 * low-pass coefficient.
-                 */
-                if ((task3_filter_ready == 0U) ||
-                    (line_reacquired != 0U)) {
-                    task3_filtered_error = error;
-                    task3_filter_ready = 1U;
-                } else {
-                    task3_filtered_error =
-                        (int16_t)(((int32_t)task3_filtered_error * 3 +
-                                   (int32_t)error * 2) / 5);
-                }
-
-                steering_error = task3_filtered_error;
-                error_magnitude =
-                    (steering_error < 0) ?
-                    (int16_t)(-steering_error) : steering_error;
-
-                /*
-                 * Eight sensors have no single center channel.  Treat either
-                 * middle channel (error -5 or +5) as centered so the car does
-                 * not hunt back and forth between 0x08 and 0x10.
-                 */
-                if (error_magnitude <= 5) {
-                    steering_error = 0;
-                }
-
-                /*
-                 * Raw error leads the filtered error at curve entry.  Use
-                 * their difference as a small continuous preview term to
-                 * turn earlier without introducing a hard mode switch.
-                 */
-                task3_curve_feedforward =
-                    (int16_t)(((int32_t)(error - task3_filtered_error) * 3) /
-                              10);
-                if (task3_curve_feedforward > 4) {
-                    task3_curve_feedforward = 4;
-                }
-                if (task3_curve_feedforward < -4) {
-                    task3_curve_feedforward = -4;
-                }
-
-                /*
-                 * Keep the ramped task-3 speed on a straight and reduce it
-                 * continuously toward 40 as the curve grows.
-                 */
-                control_base_speed =
-                    task3_ramped_base_speed -
-                    (int16_t)(error_magnitude / 4);
-                task3_curve_floor =
-                    (task3_ramped_base_speed < task3_curve_min_speed) ?
-                    task3_ramped_base_speed : task3_curve_min_speed;
-                if (control_base_speed < task3_curve_floor) {
-                    control_base_speed = task3_curve_floor;
-                }
-            }
-
-            /*
-             * Weighted-position proportional steering.
-             * The weights are ten times the sensor-slot offset, therefore
-             * Kp=0.50 produces about 5 counts/100 ms of steering per slot.
-             * There is no straight/curve mode switch and no speed step.
-             */
-            target_steering =
-                (int16_t)(weighted_position_kp * (float)steering_error);
-            if (selected_task == CAR_TASK_STABLE_LAP) {
-                target_steering += task3_curve_feedforward;
-            }
-            if (target_steering > steering_limit) {
-                target_steering = steering_limit;
-            }
-            if (target_steering < -steering_limit) {
-                target_steering = (int16_t)(-steering_limit);
-            }
-
-            if (selected_task == CAR_TASK_STABLE_LAP)
-            {
-                task3_steering_command =
-                    approach_pwm(task3_steering_command, target_steering,
-                                 (line_reacquired != 0U) ? 4 : 2);
-                target_steering = task3_steering_command;
-            }
-
-            desired_speed_left = control_base_speed + target_steering;
-            desired_speed_right = control_base_speed - target_steering;
-            if (desired_speed_left < min_speed) desired_speed_left = min_speed;
-            if (desired_speed_left > max_speed) desired_speed_left = max_speed;
-            if (desired_speed_right < min_speed) desired_speed_right = min_speed;
-            if (desired_speed_right > max_speed) desired_speed_right = max_speed;
-
-            requested_speed_left =
-                approach_pwm(requested_speed_left, desired_speed_left,
-                             (line_reacquired != 0U) ?
-                             ((selected_task == CAR_TASK_STABLE_LAP) ? 5 : 15) :
-                             steering_slew_step);
-            requested_speed_right =
-                approach_pwm(requested_speed_right, desired_speed_right,
-                             (line_reacquired != 0U) ?
-                             ((selected_task == CAR_TASK_STABLE_LAP) ? 5 : 15) :
-                             steering_slew_step);
-
-            /*
-             * During task 3 recovery, keep the original search direction
-             * through the first reacquired control period.  This rejects a
-             * single opposite-edge sensor glitch that previously reversed
-             * the search turn and caused LOST STOP.
-             */
-            if (!((selected_task == CAR_TASK_STABLE_LAP) &&
-                  (line_reacquired != 0U))) {
-                if (error < -3) {
-                    last_line_side = -1;
-                } else if (error > 3) {
-                    last_line_side = 1;
-                }
-            }
-        }
-
-        if ((uint32_t)(tick_ms - last_speed_control_ms) >= speed_control_period_ms)
-        {
-            speed_control_elapsed_ms =
-                (uint32_t)(tick_ms - last_speed_control_ms);
             __disable_irq();
             current_left_count = Get_Encoder_countB;
             current_right_count = Get_Encoder_countA;
             __enable_irq();
 
             /*
-             * Convert every sample to counts/100 ms. This prevents an LCD or
-             * interrupt delay from looking like a sudden wheel-speed spike.
+             * WheelControl preserves the measured feed-forward, PID gains,
+             * 100 ms normalization, integral bounds, and output slew.  This
+             * caller owns only the atomic encoder snapshot and final actuation.
              */
-            left_speed =
-                ((current_left_count - previous_left_count) * 100) /
-                (int32_t)speed_control_elapsed_ms;
-            right_speed =
-                ((current_right_count - previous_right_count) * 100) /
-                (int32_t)speed_control_elapsed_ms;
-            previous_left_count = current_left_count;
-            previous_right_count = current_right_count;
-
-            LEFT.Target = (float)requested_speed_left;
-            LEFT.Actual = (float)left_speed;
-            RIGHT.Target = (float)requested_speed_right;
-            RIGHT.Actual = (float)right_speed;
-            PID_Update(&LEFT);
-            PID_Update(&RIGHT);
-
-            if (LEFT.ErrorInt > 80.0f) LEFT.ErrorInt = 80.0f;
-            if (LEFT.ErrorInt < -80.0f) LEFT.ErrorInt = -80.0f;
-            if (RIGHT.ErrorInt > 80.0f) RIGHT.ErrorInt = 80.0f;
-            if (RIGHT.ErrorInt < -80.0f) RIGHT.ErrorInt = -80.0f;
-
-            /* Feed-forward comes from the measured 20-40% PWM sweep. */
-            target_duty_left =
-                (int16_t)(((int32_t)requested_speed_left * 12) / 25 + 2 + (int16_t)LEFT.Out);
-            target_duty_right =
-                (int16_t)(((int32_t)requested_speed_right * 9) / 20 + 2 + (int16_t)RIGHT.Out);
-            if (target_duty_left < 6) target_duty_left = 6;
-            if (target_duty_left > 50) target_duty_left = 50;
-            if (target_duty_right < 6) target_duty_right = 6;
-            if (target_duty_right > 50) target_duty_right = 50;
-
-            /*
-             * Straight running stays gentle; a real bend must build the wheel
-             * speed difference quickly enough to avoid leaving the line.
-             */
-            duty_slew_step =
-                (line_reacquired != 0U) ?
-                ((selected_task == CAR_TASK_STABLE_LAP) ? 6 : 15) :
-                ((active_count == 0U) ? 10 :
-                 (((selected_task == CAR_TASK_LAP_STOP) &&
-                   (error_magnitude >= curve_enter_error)) ? 8 : 3));
-            commanded_duty_left =
-                approach_pwm(commanded_duty_left, target_duty_left, duty_slew_step);
-            commanded_duty_right =
-                approach_pwm(commanded_duty_right, target_duty_right, duty_slew_step);
-            motor_pwm_set((float)commanded_duty_left, (float)commanded_duty_right);
-
-            if (log_index < LAP_LOG_SAMPLES)
+            if (wheel_control_step(
+                &wheel_control,
+                tick_ms,
+                current_left_count,
+                current_right_count,
+                &wheel_intent,
+                &wheel_output
+            ))
             {
-                log_time_ms[log_index] = (uint16_t)elapsed_ms;
-                log_line_mask[log_index] = line_mask;
-                log_error[log_index] = (int8_t)error;
-                log_target_left[log_index] = (uint8_t)requested_speed_left;
-                log_target_right[log_index] = (uint8_t)requested_speed_right;
-                log_actual_left[log_index] = (int16_t)left_speed;
-                log_actual_right[log_index] = (int16_t)right_speed;
-                log_duty_left[log_index] = (uint8_t)commanded_duty_left;
-                log_duty_right[log_index] = (uint8_t)commanded_duty_right;
-                log_index++;
+                left_speed = wheel_output.measured_left_speed;
+                right_speed = wheel_output.measured_right_speed;
+                wheel_sample_valid = true;
+                last_wheel_sample_ms = tick_ms;
+                commanded_duty_left = wheel_output.duty_left;
+                commanded_duty_right = wheel_output.duty_right;
+                chassis_actuator_set_pwm((float)commanded_duty_left,
+                                         (float)commanded_duty_right);
+
+                if (log_index < LAP_LOG_SAMPLES)
+                {
+                    log_time_ms[log_index] = (uint16_t)elapsed_ms;
+                    log_line_mask[log_index] = line_mask;
+                    log_error[log_index] = (int8_t)error;
+                    log_target_left[log_index] =
+                        (uint8_t)wheel_intent.requested_speed_left;
+                    log_target_right[log_index] =
+                        (uint8_t)wheel_intent.requested_speed_right;
+                    log_actual_left[log_index] = (int16_t)left_speed;
+                    log_actual_right[log_index] = (int16_t)right_speed;
+                    log_duty_left[log_index] = (uint8_t)commanded_duty_left;
+                    log_duty_right[log_index] = (uint8_t)commanded_duty_right;
+                    log_index++;
+                }
+                line_follower_ack_motion_applied(&line_follower);
+
+                if (q56_stop_profile_complete)
+                {
+                    /* Wheel speed is encoder counts per 100 ms. */
+                    if ((left_speed >= -HBALL_Q56_STOP_SPEED_THRESHOLD)
+                        && (left_speed <= HBALL_Q56_STOP_SPEED_THRESHOLD)
+                        && (right_speed >= -HBALL_Q56_STOP_SPEED_THRESHOLD)
+                        && (right_speed <= HBALL_Q56_STOP_SPEED_THRESHOLD))
+                    {
+                        if (!q56_stop_settle_active)
+                        {
+                            q56_stop_settle_active = true;
+                            q56_stop_settle_start_ms = tick_ms;
+                        }
+                        else if ((uint32_t)(tick_ms -
+                                      q56_stop_settle_start_ms)
+                                 >= HBALL_Q56_STOP_SETTLE_MS)
+                        {
+                            q56_stop_complete = true;
+                        }
+                    }
+                    else
+                    {
+                        q56_stop_settle_active = false;
+                    }
+                }
             }
-            line_reacquired = 0U;
-            last_speed_control_ms = tick_ms;
         }
 
-        delay_cycles(CPUCLK_FREQ / 100U);
+        if (q56_stop_profile_complete)
+        {
+            /* The profile has reached zero; keep the chassis unpowered. */
+            chassis_actuator_set_pwm(0.0F, 0.0F);
+        }
+        if (q56_stop_profile_complete && !q56_stop_complete
+            && (!wheel_sample_valid
+                || ((uint32_t)(tick_ms - last_wheel_sample_ms)
+                    > HBALL_Q56_WHEEL_SAMPLE_STALE_MS))
+            && ((uint32_t)(tick_ms - q56_stop_profile_complete_ms)
+                >= HBALL_Q56_STOP_FALLBACK_MS))
+        {
+            /* Profile is already at zero; this bounds a missing sample. */
+            q56_stop_complete = true;
+        }
+        if (q56_stop_complete)
+        {
+            finish_elapsed_ms = elapsed_ms;
+            finish_event_flags = HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A;
+            chassis_actuator_stop();
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_LEFT);
+            chassis_actuator_set_wheel_speed(
+                0.0f, (uint8_t)CHASSIS_WHEEL_RIGHT);
+            chassis_actuator_disable();
+            LCD_Fill(0, 48, 280, 100, BLACK);
+            LCD_ShowString(
+                4, 58, (const unsigned char *)"LAP STOP",
+                GREEN, BLACK, 32, 0);
+            break;
+        }
+
+        competition_runtime_wait_ms(10U);
     }
 
     if (finish_elapsed_ms == 0U) {
@@ -2307,12 +2240,7 @@ static void lap_test_once(void)
         telemetry_send_string((char *)uart_send);
     }
     telemetry_send_string("LAP_LOG_END\r\n");
-    hball_can_mission_chassis_finish(
-        (selected_task == CAR_TASK_TIMED_RUN)
-            ? HBALL_MISSION_CHASSIS_EVENT_DETECTED_B
-            : HBALL_MISSION_CHASSIS_EVENT_REACQUIRED_A,
-        tick_ms
-    );
+    hball_can_mission_chassis_finish(finish_event_flags, tick_ms);
 }
     
 
@@ -2331,25 +2259,6 @@ void TIMER_0_INST_IRQHandler(void)
     Get_Encoder_countA_LAST = encoder_a_snapshot;
     encoderB_cnt = encoder_b_snapshot - Get_Encoder_countB_LAST;
     Get_Encoder_countB_LAST = encoder_b_snapshot;
-
-    LEFT.Actual = (float)encoderA_cnt;
-    RIGHT.Actual = (float)encoderB_cnt;
-
-    /*
-     * 巡线阶段由 track.c 直接控制电机。只有完成速度 PID 调参并显式
-     * 打开 speed_pid_enabled 后，才允许定时器接管电机输出，避免两套
-     * 控制器互相覆盖。
-     */
-    if (speed_pid_enabled == SPEED_PID_ENABLED)
-    {
-        ANGLE.Actual = wit_data.yaw;
-        PID_Update(&LEFT);
-        PID_Update(&RIGHT);
-        PID_Update(&ANGLE);
-        pwm1_out = RIGHT.Out + ANGLE.Out;
-        pwm2_out = LEFT.Out - ANGLE.Out;
-        motor_pwm_set(pwm1_out, pwm2_out);
-    }
 }
 
 void TIMER_1_INST_IRQHandler(void)
@@ -2374,8 +2283,6 @@ void TIMER_1_INST_IRQHandler(void)
       // LCD_ShowString(100,32,oled_buffer,BLUE,WHITE,32,0);
       // sprintf((char *)oled_buffer, "%d", encoderB_cnt);
       // LCD_ShowString(100,64,oled_buffer,BLUE,WHITE,32,0);
-      // sprintf((char *)oled_buffer, "%d", pwm1_out);
-      // LCD_ShowString(100,96,oled_buffer,BLUE,WHITE,32,0);
       // sprintf((char *)oled_buffer, "%.2f", RIGHT.Actual);
       // LCD_ShowString(100,128,oled_buffer,BLUE,WHITE,32,0);
       // float temp=wit_data.yaw;

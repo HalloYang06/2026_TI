@@ -1,4 +1,5 @@
 #include "hball_mission_menu.h"
+#include "hball_mission_policy.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -37,6 +38,16 @@ hball_mission_menu_result_t hball_mission_menu_handle(
     }
     if (event == HBALL_MISSION_MENU_EXECUTE)
     {
+        hball_mission_policy_t policy;
+
+        if (!hball_mission_policy_get(client->selected_mission, &policy))
+        {
+            return HBALL_MISSION_MENU_START_BLOCKED;
+        }
+        if (policy.local_start)
+        {
+            return HBALL_MISSION_MENU_LOCAL_START_ACCEPTED;
+        }
         return hball_mission_client_request_start(client, now_ms)
             ? HBALL_MISSION_MENU_START_ACCEPTED
             : HBALL_MISSION_MENU_START_BLOCKED;
@@ -57,6 +68,15 @@ uint16_t hball_mission_menu_required_mask(uint8_t mission_id)
     if (mission_id != HBALL_MISSION_Q3_BALL_SEQUENCE)
     {
         required |= HBALL_MISSION_READY_IMU;
+    }
+    if ((mission_id >= HBALL_MISSION_Q3_BALL_SEQUENCE)
+        && (mission_id <= HBALL_MISSION_Q5_CENTER_LAP))
+    {
+        required |= HBALL_MISSION_READY_START_GEOMETRY;
+    }
+    else if (mission_id == HBALL_MISSION_Q6_HOLD_POSITION_LAP)
+    {
+        required |= HBALL_MISSION_READY_BALL_PRECONDITION;
     }
     return required;
 }
@@ -135,8 +155,15 @@ const char *hball_mission_menu_missing_label(
     const hball_mission_client_t *client, uint32_t now_ms
 )
 {
+    hball_mission_policy_t policy;
     uint16_t missing;
 
+    if ((client != NULL)
+        && hball_mission_policy_get(client->selected_mission, &policy)
+        && policy.local_start)
+    {
+        return "MSP LOCAL";
+    }
     if ((client == NULL)
         || !client->status_valid
         || ((uint32_t)(now_ms - client->last_status_ms)
@@ -165,6 +192,8 @@ bool hball_mission_menu_make_view(
     hball_mission_menu_view_t *view
 )
 {
+    hball_mission_policy_t policy;
+
     if ((client == NULL) || (view == NULL))
     {
         return false;
@@ -173,14 +202,31 @@ bool hball_mission_menu_make_view(
     view->mission_label = hball_mission_menu_mission_label(
         client->selected_mission
     );
+    view->mission_id = client->selected_mission;
     view->state_label = "NO STATUS";
     view->missing_label = hball_mission_menu_missing_label(client, now_ms);
     view->epoch = client->candidate_epoch;
     view->start_requested = client->start_requested;
+    view->setup_valid = client->setup_valid
+        && (client->latest_setup.epoch == client->candidate_epoch);
+    if (view->setup_valid)
+    {
+        view->motor_angle_mrad = client->latest_setup.motor_angle_mrad;
+        view->target_position_mm = client->latest_setup.target_position_mm;
+        view->setup_flags = client->latest_setup.flags;
+    }
+    view->local_execution =
+        hball_mission_policy_get(client->selected_mission, &policy)
+        && policy.local_start;
     view->status_fresh = client->status_valid
         && ((uint32_t)(now_ms - client->last_status_ms)
             <= HBALL_MISSION_STATUS_FRESH_MS);
-    if (view->status_fresh)
+    if (view->local_execution)
+    {
+        view->global_state = HBALL_MISSION_STATE_READY;
+        view->state_label = "LOCAL READY";
+    }
+    else if (view->status_fresh)
     {
         view->global_state = client->latest_status.global_state;
         view->state_label = hball_mission_menu_state_label(
@@ -201,10 +247,16 @@ bool hball_mission_menu_view_equal(
         return false;
     }
     return (left->epoch == right->epoch)
+        && (left->mission_id == right->mission_id)
         && (left->ready_mask == right->ready_mask)
         && (left->global_state == right->global_state)
+        && (left->local_execution == right->local_execution)
         && (left->status_fresh == right->status_fresh)
         && (left->start_requested == right->start_requested)
+        && (left->setup_valid == right->setup_valid)
+        && (left->motor_angle_mrad == right->motor_angle_mrad)
+        && (left->target_position_mm == right->target_position_mm)
+        && (left->setup_flags == right->setup_flags)
         && (strcmp(left->mission_label, right->mission_label) == 0)
         && (strcmp(left->state_label, right->state_label) == 0)
         && (strcmp(left->missing_label, right->missing_label) == 0);

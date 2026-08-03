@@ -65,7 +65,7 @@ bool hball_mission_encode_intent(
         || (message->epoch == 0U)
         || !hball_mission_id_valid(message->mission_id)
         || (message->command < HBALL_MISSION_COMMAND_PREPARE)
-        || (message->command > HBALL_MISSION_COMMAND_RESET))
+        || (message->command > HBALL_MISSION_COMMAND_LEVEL))
     {
         return false;
     }
@@ -97,7 +97,7 @@ bool hball_mission_decode_intent(
     if ((decoded.epoch == 0U)
         || !hball_mission_id_valid(decoded.mission_id)
         || (decoded.command < HBALL_MISSION_COMMAND_PREPARE)
-        || (decoded.command > HBALL_MISSION_COMMAND_RESET))
+        || (decoded.command > HBALL_MISSION_COMMAND_LEVEL))
     {
         return false;
     }
@@ -235,6 +235,49 @@ bool hball_mission_decode_chassis_status(
     decoded.chassis_phase = frame->data[2];
     decoded.event_flags = frame->data[3];
     decoded.elapsed_ms = hball_load_u32(frame->data + 4U);
+    if (decoded.epoch == 0U)
+    {
+        return false;
+    }
+    *message = decoded;
+    return true;
+}
+
+bool hball_mission_encode_setup(
+    const hball_mission_setup_t *message,
+    hball_mission_can_frame_t *frame
+)
+{
+    if ((message == NULL) || (frame == NULL) || (message->epoch == 0U))
+    {
+        return false;
+    }
+    hball_frame_init(frame, HBALL_CAN_ID_MISSION_SETUP);
+    hball_store_u16(frame->data, message->epoch);
+    hball_store_u16(frame->data + 2U, (uint16_t)message->motor_angle_mrad);
+    hball_store_u16(frame->data + 4U, (uint16_t)message->target_position_mm);
+    frame->data[6] = message->flags;
+    frame->data[7] = message->sequence;
+    return true;
+}
+
+bool hball_mission_decode_setup(
+    const hball_mission_can_frame_t *frame,
+    hball_mission_setup_t *message
+)
+{
+    hball_mission_setup_t decoded;
+
+    if ((message == NULL)
+        || !hball_frame_valid(frame, HBALL_CAN_ID_MISSION_SETUP))
+    {
+        return false;
+    }
+    decoded.epoch = hball_load_u16(frame->data);
+    decoded.motor_angle_mrad = (int16_t)hball_load_u16(frame->data + 2U);
+    decoded.target_position_mm = (int16_t)hball_load_u16(frame->data + 4U);
+    decoded.flags = frame->data[6];
+    decoded.sequence = frame->data[7];
     if (decoded.epoch == 0U)
     {
         return false;
