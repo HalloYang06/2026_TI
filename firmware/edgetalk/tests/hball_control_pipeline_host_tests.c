@@ -1,4 +1,5 @@
 #include "hball_control_pipeline.h"
+#include "hball_imu_compensation.h"
 
 #include <assert.h>
 #include <math.h>
@@ -58,6 +59,53 @@ static void test_200_hz_pipeline_fuses_each_120_hz_vision_sequence_once(void)
     assert(isfinite(output.motor_target_rad));
     assert(output.shadow_command_rad * output.motor_target_rad < 0.0F);
     assert(fabsf(output.shadow_command_rad) <= 0.104720F);
+}
+
+static void test_imu_specific_force_compensation_removes_gravity_projection(void)
+{
+    const float pitch_rad = 0.05F;
+    const float vehicle_accel_mps2 = 0.70F;
+    const float specific_force_mps2 = vehicle_accel_mps2 * cosf(pitch_rad)
+        + HBALL_IMU_GRAVITY_MPS2 * sinf(pitch_rad);
+
+    assert(fabsf(
+        hball_imu_specific_force_to_vehicle_accel(
+            HBALL_IMU_GRAVITY_MPS2 * sinf(pitch_rad), pitch_rad
+        )
+    ) < 1.0e-5F);
+    assert(fabsf(
+        hball_imu_specific_force_to_vehicle_accel(
+            specific_force_mps2, pitch_rad
+        ) - vehicle_accel_mps2
+    ) < 1.0e-5F);
+}
+
+static void test_planar_acceleration_projection_keeps_turning_terms_separate(void)
+{
+    hball_deployment_controller_t controller;
+    hball_deployment_input_t input;
+
+    memset(&input, 0, sizeof(input));
+    hball_deployment_controller_init(&controller, 0.0F);
+    input.longitudinal_accel_mps2 = 1.0F;
+    input.lateral_accel_mps2 = 2.0F;
+    input.pipe_heading_offset_rad = 0.0F;
+    assert(fabsf(
+        hball_deployment_controller_accel_along_pipe(
+            &controller, &input
+        ) - 1.0F
+    ) < 1.0e-6F);
+
+    input.pipe_heading_offset_rad = 1.570796327F;
+    assert(fabsf(
+        hball_deployment_controller_accel_along_pipe(
+            &controller, &input
+        ) - 2.0F
+    ) < 1.0e-5F);
+    assert(fabsf(
+        hball_deployment_estimate_lateral_centripetal_mps2(0.5F, 0.6F)
+            - 0.3F
+    ) < 1.0e-6F);
 }
 
 static void test_pipeline_degrades_by_vision_age_without_refusing_model_prediction(void)
@@ -136,6 +184,8 @@ static void test_read_only_motor_parameters_remain_shadow_only(void)
 
 int main(void)
 {
+    test_imu_specific_force_compensation_removes_gravity_projection();
+    test_planar_acceleration_projection_keeps_turning_terms_separate();
     test_200_hz_pipeline_fuses_each_120_hz_vision_sequence_once();
     test_pipeline_degrades_by_vision_age_without_refusing_model_prediction();
     test_estop_motor_fault_or_low_confidence_blocks_safety_eligibility();

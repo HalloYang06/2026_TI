@@ -14,8 +14,12 @@ typedef struct
 {
     float pipe_angle_rad;
     float body_pitch_rad;
+    /* Body +Y is forward; body +X is lateral on the current IMU mount. */
     float longitudinal_accel_mps2;
     float lateral_accel_mps2;
+    /* Horizontal yaw of the pipe axis relative to body +Y. */
+    float pipe_heading_offset_rad;
+    float body_speed_mps;
     float yaw_rate_rad_s;
 } hball_deployment_input_t;
 
@@ -51,6 +55,16 @@ void hball_deployment_controller_predict(
     hball_deployment_controller_t *controller,
     float dt_s,
     const hball_deployment_input_t *input
+);
+/* Effective acceleration along the pipe, including the pipe-point yaw term. */
+float hball_deployment_controller_accel_along_pipe(
+    const hball_deployment_controller_t *controller,
+    const hball_deployment_input_t *input
+);
+/* Signed lateral centripetal acceleration estimate: v * yaw_rate. */
+float hball_deployment_estimate_lateral_centripetal_mps2(
+    float body_speed_mps,
+    float yaw_rate_rad_s
 );
 bool hball_deployment_controller_update_delayed_position(
     hball_deployment_controller_t *controller,

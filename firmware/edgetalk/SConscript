@@ -45,6 +45,7 @@ elif integrated_shadow:
         os.path.join(cwd, 'src', 'hball_dualcore_platform.c'),
         os.path.join(cwd, 'src', 'hball_fourbar.c'),
         os.path.join(cwd, 'src', 'hball_hold_controller.c'),
+        os.path.join(cwd, 'src', 'hball_imu_compensation.c'),
         os.path.join(cwd, 'src', 'hball_lqg.c'),
         os.path.join(cwd, 'src', 'hball_rate_meter.c'),
         os.path.join(cwd, 'src', 'hball_log_protocol.c'),

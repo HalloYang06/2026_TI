@@ -56,14 +56,32 @@ static void test_forward_acceleration_commands_positive_compensation(void)
     hball_hold_controller_output_t output;
 
     hball_hold_controller_default_config(&config);
-    config.accel_feedforward_gain = 1.0F;
     config.command_rate_limit_rad_s = 100.0F;
-    input.longitudinal_accel_mps2 = 1.0F;
+    input.along_pipe_accel_mps2 = 1.0F;
     hball_hold_controller_reset(&controller, 0.0F, 0.0F, 0.0F);
     assert(hball_hold_controller_step(&config, &controller, &input, &output));
     assert(output.filtered_accel_mps2 > 0.0F);
     assert(output.feedforward_rad > 0.0F);
     assert(output.command_rad > 0.0F);
+    assert((output.flags & HBALL_HOLD_OUTPUT_FEEDFORWARD_ACTIVE) != 0U);
+}
+
+static void test_visual_disturbance_estimate_adds_compensation(void)
+{
+    hball_hold_controller_config_t config;
+    hball_hold_controller_t controller;
+    hball_hold_controller_input_t input = make_input();
+    hball_hold_controller_output_t output;
+
+    hball_hold_controller_default_config(&config);
+    config.accel_feedforward_gain = 0.0F;
+    config.disturbance_filter_tau_s = 0.0F;
+    config.command_rate_limit_rad_s = 100.0F;
+    input.estimated_disturbance_mps2 = 0.70F;
+    hball_hold_controller_reset(&controller, 0.0F, 0.0F, 0.0F);
+    assert(hball_hold_controller_step(&config, &controller, &input, &output));
+    assert(output.feedforward_rad < -0.040F);
+    assert(output.command_rad < 0.0F);
     assert((output.flags & HBALL_HOLD_OUTPUT_FEEDFORWARD_ACTIVE) != 0U);
 }
 
@@ -76,14 +94,14 @@ static void test_reset_bias_removes_static_imu_offsets(void)
 
     hball_hold_controller_default_config(&config);
     config.accel_feedforward_gain = 1.0F;
-    input.longitudinal_accel_mps2 = 0.35F;
+    input.along_pipe_accel_mps2 = 0.35F;
     input.body_pitch_rad = 0.02F;
     hball_hold_controller_reset(&controller, 0.35F, 0.02F, 0.0F);
     assert(hball_hold_controller_step(&config, &controller, &input, &output));
     assert(fabsf(output.feedforward_rad) < 1.0e-7F);
 }
 
-static void test_raw_gravity_projection_is_cancelled_by_pitch(void)
+static void test_forward_acceleration_and_pitch_cancel(void)
 {
     hball_hold_controller_config_t config;
     hball_hold_controller_t controller;
@@ -94,7 +112,7 @@ static void test_raw_gravity_projection_is_cancelled_by_pitch(void)
     hball_hold_controller_default_config(&config);
     config.accel_feedforward_gain = 1.0F;
     config.accel_filter_tau_s = 0.0F;
-    input.longitudinal_accel_mps2 = 9.80665F * tanf(pitch_rad);
+    input.along_pipe_accel_mps2 = 9.80665F * tanf(pitch_rad);
     input.body_pitch_rad = pitch_rad;
     hball_hold_controller_reset(&controller, 0.0F, 0.0F, 0.0F);
     assert(hball_hold_controller_step(&config, &controller, &input, &output));
@@ -140,8 +158,9 @@ int main(void)
     test_zero_state_holds_level();
     test_arbitrary_target_reuses_same_controller();
     test_forward_acceleration_commands_positive_compensation();
+    test_visual_disturbance_estimate_adds_compensation();
     test_reset_bias_removes_static_imu_offsets();
-    test_raw_gravity_projection_is_cancelled_by_pitch();
+    test_forward_acceleration_and_pitch_cancel();
     test_angle_rate_limit_and_anti_windup();
     test_invalid_dt_is_rejected_without_state_change();
     return 0;

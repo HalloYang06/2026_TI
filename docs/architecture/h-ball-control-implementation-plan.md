@@ -142,11 +142,11 @@ P95 1.442 ms、最大1.591 ms，分辨率640x480。当前Simulink的视觉噪声
 正式算法只接受车辆坐标系：
 
 ```text
-+X_vehicle = 水管正方向
-+Y_vehicle = 车辆左侧
++Y_vehicle = 水管正方向/车辆前进方向
++X_vehicle = 车辆横向
 +Z_vehicle = 向上
-positive pipe angle = 球沿 +X 加速
-positive ball position = 与 +X 相同
+positive pipe angle = 球沿 +Y 加速
+positive ball position = 与 +Y 相同
 ```
 
 必须用一个固定的3x3带符号置换矩阵把IMU板坐标变到车辆坐标，矩阵、安装朝向和固件
@@ -163,8 +163,8 @@ theta_world = theta_linkage(q) + pitch_vehicle
 或水管相对车身的真实偏角。若这些误差超过标定预算，应在C轴增加直接角度编码器；不应
 把车身IMU当作水管角传感器。
 
-加速度计给出的是specific force，不能一边直接把原始`ax`当车辆惯性加速度，一边又用
-pitch加入重力项，否则会重复补偿重力。部署输入`a_vehicle_x`必须明确为经过姿态旋转、
+加速度计给出的是specific force，不能一边直接把原始`ay`当车辆惯性加速度，一边又用
+pitch加入重力项，否则会重复补偿重力。部署输入`a_vehicle_y`必须明确为经过姿态旋转、
 静态偏置和重力处理后的车辆轴向加速度；用静止水平、静止±已知坡度和直线加速三组
 实验验证符号与幅值。
 
@@ -175,14 +175,14 @@ pitch加入重力项，否则会重复补偿重力。部署输入`a_vehicle_x`�
 在纯滚动小角度附近：
 
 ```text
-x_ddot ≈ (5/7) g theta_pipe - a_vehicle_x + d
+x_ddot ≈ (5/7) g theta_pipe - a_pipe + d
 ```
 
 完整仿真保留正弦、滚动/滑动、Stribeck摩擦、滚阻、黏性/二次阻力、垂向冲击和机构
 动态。前馈只补偿可靠可测的车辆加速度与pitch：
 
 ```text
-theta_ff = a_vehicle_x/g - pitch - d_hat/((5/7)g)
+theta_ff = atan2(a_pipe, g) - pitch - d_hat/((5/7)g)
 ```
 
 `d_hat`补偿必须低带宽和限幅，不能把视觉延迟造成的创新全部当作新扰动。

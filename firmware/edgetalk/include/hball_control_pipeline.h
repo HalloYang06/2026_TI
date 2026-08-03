@@ -34,6 +34,9 @@ typedef struct
     float estimated_position_m;
     float estimated_velocity_mps;
     float estimated_disturbance_mps2;
+    float along_pipe_accel_mps2;
+    float turning_centripetal_accel_mps2;
+    float longitudinal_accel_mps2;
     float actual_pipe_angle_rad;
     float motor_target_rad;
     bool linkage_valid;

@@ -65,5 +65,14 @@ def test_q3_is_frozen_while_q4_to_q6_share_the_hold_core():
     assert "#define HBALL_BALL_PID_KD 0.35F" in source
     assert "else if (g_hball_ball_mode != 1U)" in source
     assert "hball_hold_controller_step(" in source
+    assert "HBALL_BALL_HOLD_KP" in source
+    assert "HBALL_BALL_HOLD_INTEGRAL_LIMIT" in source
+    first_start = source.index("static int hball_hold_start_common")
+    hold_start = source.index(
+        "static int hball_hold_start_common", first_start + 1
+    )
+    assert "HBALL_BALL_PID_INTEGRAL_LIMIT" not in source[
+        hold_start : source.index("static int hball_hold_center5")
+    ]
     assert 'hball_hold_start_common(\n                    2U, 0.0F, "center"' in source
     assert "3U, snapshot.ball_position_m, \"latched\"" in source

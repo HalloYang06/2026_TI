@@ -52,6 +52,13 @@ def test_can_isr_uses_project_startup_with_one_kibibyte_stack() -> None:
     assert "'startup_mspm0g350x_uvision.s'" in build
 
 
+def test_can_tx_pending_has_a_bounded_cancellation_recovery() -> None:
+    port = (CAN_DIR / "hball_can_port.c").read_text(encoding="utf-8")
+
+    assert "now_ms - g_hball_tx_pending_since_ms) >= 20U" in port
+    assert "DL_MCAN_txBufCancellationReq(" in port
+
+
 def test_wit_dma_completion_and_uart_timeout_share_stream_parser() -> None:
     interrupt = (PROJECT / "Drivers" / "MSPM0" / "interrupt.c").read_text(
         encoding="utf-8"

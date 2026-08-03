@@ -19,6 +19,7 @@ SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_deployment_controller.c
 SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_dualcore_ipc.c
 SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_dualcore_platform.c
 SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_fourbar.c
+SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_imu_compensation.c
 SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_lqg.c
 SOURCES+=$(HBALL_EDGETALK_ROOT)/src/hball_m55_ipc.c
 

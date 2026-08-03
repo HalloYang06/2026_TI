@@ -12,6 +12,7 @@ src = [
     os.path.join(cwd, 'src', 'hball_lqg.c'),
     os.path.join(cwd, 'src', 'hball_deployment_controller.c'),
     os.path.join(cwd, 'src', 'hball_fourbar.c'),
+    os.path.join(cwd, 'src', 'hball_imu_compensation.c'),
     os.path.join(cwd, 'src', 'hball_control_pipeline.c'),
     os.path.join(cwd, 'src', 'hball_m55_ipc.c'),
     os.path.join(cwd, 'rtthread', 'hball_m55_shadow_app.c'),

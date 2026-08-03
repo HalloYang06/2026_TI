@@ -23,6 +23,8 @@ typedef struct
     float integral_limit_m_s;
     float accel_feedforward_gain;
     float pitch_feedforward_gain;
+    float disturbance_feedforward_gain;
+    float disturbance_filter_tau_s;
     float accel_filter_tau_s;
     float command_limit_rad;
     float command_rate_limit_rad_s;
@@ -34,6 +36,7 @@ typedef struct
     float accel_bias_mps2;
     float pitch_bias_rad;
     float filtered_accel_mps2;
+    float filtered_disturbance_mps2;
     float previous_command_rad;
     bool initialized;
 } hball_hold_controller_t;
@@ -43,8 +46,10 @@ typedef struct
     float target_position_m;
     float estimated_position_m;
     float estimated_velocity_mps;
-    float longitudinal_accel_mps2;
+    /* Effective specific-force compensated acceleration along the pipe. */
+    float along_pipe_accel_mps2;
     float body_pitch_rad;
+    float estimated_disturbance_mps2;
     float dt_s;
     bool feedback_enabled;
     bool feedforward_enabled;

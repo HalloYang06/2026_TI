@@ -18,6 +18,7 @@ def test_can_frames_flow_through_snapshot_into_lqg_shadow(tmp_path: Path):
         "hball_sensor_fusion.c",
         "hball_deployment_controller.c",
         "hball_fourbar.c",
+        "hball_imu_compensation.c",
         "hball_control_pipeline.c",
     ]
     command = [

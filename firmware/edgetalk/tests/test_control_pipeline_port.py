@@ -24,6 +24,7 @@ def test_m55_control_pipeline_consumes_multirate_snapshots_safely(tmp_path: Path
         str(ROOT / "firmware" / "edgetalk" / "include"),
         str(ROOT / "firmware" / "edgetalk" / "src" / "hball_deployment_controller.c"),
         str(ROOT / "firmware" / "edgetalk" / "src" / "hball_fourbar.c"),
+        str(ROOT / "firmware" / "edgetalk" / "src" / "hball_imu_compensation.c"),
         str(ROOT / "firmware" / "edgetalk" / "src" / "hball_control_pipeline.c"),
         str(ROOT / "firmware" / "edgetalk" / "tests" / "hball_control_pipeline_host_tests.c"),
         "-lm",

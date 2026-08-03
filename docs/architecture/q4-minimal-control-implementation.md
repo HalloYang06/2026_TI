@@ -31,7 +31,8 @@ firmware/edgetalk/src/hball_hold_controller.c
 - RT-Thread适配层负责读取快照、四连杆换算、RS00 CSP发送和安全停机。
 - MSPM0底盘保持关闭时，现有`hball_hold_center5`就是隔离稳定性测试入口。
 
-当前纵向加速度前馈默认增益为0，第一次上板先验证纯PID；停机状态下可执行：
+当前保持模式默认启用全量纵向加速度前馈（增益1.0），并以视觉观测器的等效扰动状态做
+0.5倍补偿；停机状态下仍可用命令从0到1逐级调节加速度前馈：
 
 ```text
 hball_hold_ff_gain5 0
@@ -41,7 +42,39 @@ hball_hold_ff_gain5 750
 hball_hold_ff_gain5 1000
 ```
 
-`hball_q3_status5`在保持模式下额外显示加速度零偏、滤波加速度、反馈/前馈/最终摆角和限幅标志。Q3仍走原有PID/LQI分支，不调用这个新模块。
+保持控制目标固定为`x=0`时，控制周期按实际5 ms间隔运行，RS00 CSP目标最高以200 Hz
+刷新。视觉位置经延迟观测器融合为位置/速度/等效扰动，IMU只负责底盘平面加速度和车体
+俯仰前馈；两套反馈不会叠加成两个独立滚球控制器。当前WIT `0x51`发布的是含重力投影
+的specific force，EdgeTalk先用俯仰把body-Y转换成车辆前向惯性加速度，再按摆杆轴做投影，
+同时送入观测器和前馈，避免两处重复补偿。摆杆沿车体前进方向时，投影角`delta=0`，
+所以X轴横向量不能直接加到Y轴；转弯向心量单独按`a_c=v*omega=v^2/R`计算，距转动中心
+为`s`的摆杆点再使用沿杆的`omega^2*s`项。
+
+`hball_q3_status5`在保持模式下额外显示IMU X/Y、沿杆加速度、`v*omega`向心估计、加速度零偏、滤波加速度、反馈/前馈/最终摆角和限幅标志。Q3仍走原有PID/LQI分支，不调用这个新模块。
+
+### 1.2 估计器与控制器的取舍
+
+首版采用“200 Hz三状态Kalman/OOSM + 200 Hz受限PD/I + IMU加速度前馈”的结构：
+
+```text
+x_hat = [球位置, 球速度, 未建模球加速度]
+a_forward = (specific_force_y - g*sin(pitch)) / cos(pitch)
+a_pipe_base = a_y*cos(delta) + a_x*sin(delta)
+a_pipe = a_pipe_base - omega^2*s
+theta_ff = atan2(a_pipe, g) - pitch
+theta_cmd = theta_ff - Kp*(x_hat - target)
+                    - Kd*v_hat - Ki*integral(x_hat - target)
+```
+
+Kalman是必要的：视觉约100 Hz且有曝光/传输延迟，不能直接差分位置做电机跟踪；当前
+观测器已保留32个5 ms历史节点，可做延迟位置更新和重放。LADRC不放进第一版实时主环：
+它的ESO若按视觉误差高带宽运行，容易把视觉延迟和测量噪声当成快速扰动，与Kalman的
+`未建模加速度`重复估计。等静止、启停、转弯日志稳定后，再用同一日志离线比较LADRC的
+扰动估计；只有它在延迟、饱和和噪声包线下明显优于Kalman，才考虑作为可替换估计器。
+
+最终调参顺序固定为：先确认IMU坐标/符号、`v*omega`向心符号和静止零偏，再调`Kff_accel`，然后调`Kp/Kd`，
+最后只加消除静态偏差所需的`Ki`。Q4/Q5目标传入0，Q6目标由任务层锁存；Q3的目标序列
+仍由任务层管理，控制器不认识Q号。
 
 当前无板验证结果：
 
@@ -253,13 +286,13 @@ theta_fb = Kp * e + Ki * integral(e) - Kd * v_est
 简化滚球动力学为：
 
 ```text
-x_ddot ~= k * (g * theta_world - a_forward)
+x_ddot ~= k * (g * theta_world - a_pipe)
 ```
 
 已知向前加速使球向视觉负方向运动，因此为了保持`x=0`，管体需要产生使球向视觉正方向的分量：
 
 ```text
-theta_ff = Kff_accel * atan2(a_forward_filtered, 9.80665) - Kff_pitch * body_pitch
+theta_ff = Kff_accel * atan2(a_pipe_filtered, 9.80665) - Kff_pitch * body_pitch
 theta_cmd = theta_fb + theta_ff
 ```
 
@@ -268,7 +301,7 @@ theta_cmd = theta_fb + theta_ff
 实施要求：
 
 - IMU静止时先估计纵向零偏。
-- 纵向加速度使用约5~8 Hz低通，禁止直接使用高频原始噪声。
+- 沿摆杆加速度使用约5~8 Hz低通，禁止直接使用高频原始噪声。
 - 第一轮`Kff_accel = 0`，确认纯Q3 PID配合平滑底盘是否已经满足要求。
 - 再按`0.25 -> 0.5 -> 0.75 -> 1.0`逐级增加前馈比例。
 - 每级至少跑3次，选择钢球峰值误差更小且不造成反向超调的值。

@@ -7,7 +7,6 @@
 
 #define HBALL_GRAVITY_MPS2 9.80665F
 #define HBALL_ROLLING_FACTOR (5.0F / 7.0F)
-#define HBALL_BEAM_MISALIGNMENT_RAD 0.0F
 #define HBALL_VISCOUS_DAMPING 0.20F
 #define HBALL_CAMERA_NOISE_STD_M 0.0015F
 #define HBALL_INNOVATION_GATE_SIGMA 6.0F
@@ -25,6 +24,52 @@
 #define HBALL_PIPE_RATE_LIMIT_RAD_S 0.35F
 #define HBALL_MAX_VALID_DT_S 0.020F
 #define HBALL_MAX_CAMERA_DELAY_S 0.150F
+
+static float hball_base_accel_along_pipe(
+    const hball_deployment_input_t *input
+)
+{
+    const float pipe_heading = input->pipe_heading_offset_rad;
+
+    return input->longitudinal_accel_mps2 * cosf(pipe_heading)
+        + input->lateral_accel_mps2 * sinf(pipe_heading);
+}
+
+float hball_deployment_estimate_lateral_centripetal_mps2(
+    float body_speed_mps,
+    float yaw_rate_rad_s
+)
+{
+    if (!isfinite(body_speed_mps) || !isfinite(yaw_rate_rad_s))
+    {
+        return 0.0F;
+    }
+    return body_speed_mps * yaw_rate_rad_s;
+}
+
+float hball_deployment_controller_accel_along_pipe(
+    const hball_deployment_controller_t *controller,
+    const hball_deployment_input_t *input
+)
+{
+    float lever_arm_m;
+
+    if ((controller == NULL) || (input == NULL)
+        || !isfinite(controller->state[0])
+        || !isfinite(input->longitudinal_accel_mps2)
+        || !isfinite(input->lateral_accel_mps2)
+        || !isfinite(input->pipe_heading_offset_rad)
+        || !isfinite(input->yaw_rate_rad_s))
+    {
+        return 0.0F;
+    }
+    lever_arm_m = HBALL_DEPLOYMENT_HINGE_TO_VISION_ZERO_M
+        + controller->state[0];
+    /* The lateral v*r term is perpendicular to a forward pipe when offset=0.
+     * The point on the pipe contributes the signed -omega^2*s term. */
+    return hball_base_accel_along_pipe(input)
+        - input->yaw_rate_rad_s * input->yaw_rate_rad_s * lever_arm_m;
+}
 
 static float hball_clampf(float value, float minimum, float maximum)
 {
@@ -109,9 +154,8 @@ static void hball_predict_core(
     const float acceleration = HBALL_ROLLING_FACTOR
         * (
             HBALL_GRAVITY_MPS2 * sinf(world_pipe_angle)
-            - input->longitudinal_accel_mps2 * cosf(world_pipe_angle)
+            - hball_base_accel_along_pipe(input) * cosf(world_pipe_angle)
             + input->yaw_rate_rad_s * input->yaw_rate_rad_s * lever_arm_m
-            - input->lateral_accel_mps2 * sinf(HBALL_BEAM_MISALIGNMENT_RAD)
         )
         - HBALL_VISCOUS_DAMPING * state[1]
         + state[2];
@@ -329,16 +373,8 @@ static float hball_feedforward(
     const hball_deployment_input_t *input
 )
 {
-    const float centripetal = input->yaw_rate_rad_s
-        * input->yaw_rate_rad_s
-        * (
-            HBALL_DEPLOYMENT_HINGE_TO_VISION_ZERO_M
-            + controller->state[0]
-        );
-    const float lateral = input->lateral_accel_mps2
-        * sinf(HBALL_BEAM_MISALIGNMENT_RAD);
     const float effective_accel =
-        input->longitudinal_accel_mps2 - centripetal + lateral;
+        hball_deployment_controller_accel_along_pipe(controller, input);
 
     return atan2f(effective_accel, HBALL_GRAVITY_MPS2)
         - input->body_pitch_rad

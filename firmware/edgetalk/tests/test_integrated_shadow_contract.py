@@ -51,6 +51,20 @@ def test_can_diagnostics_identify_the_integrated_shadow_image():
     assert 'HBALL_BENCH_VERSION "0.6.0-q4-isolated-hold"' in can
 
 
+def test_ball_control_limits_final_rs00_target_to_three_degrees():
+    can = CAN.read_text(encoding="utf-8")
+
+    assert "HBALL_BALL_MOTOR_OFFSET_LIMIT_RAD 0.052359878F" in can
+    assert "HBALL_BALL_COMMISSION_TX_PERIOD_MS 5U" in can
+    assert "HBALL_BALL_HOLD_ACCEL_FF_GAIN 1.0F" in can
+    assert "estimated_disturbance_mps2" in can
+    assert "a_pipe_mm_s2" in can
+    assert "turn_centripetal_mm_s2" in can
+    assert "dt_s = (float)elapsed_ms * 0.001F" in can
+    assert "HBALL_BALL_COMMISSION_LEVEL_RAD\n            + HBALL_BALL_MOTOR_OFFSET_LIMIT_RAD" in can
+    assert "HBALL_BALL_COMMISSION_LEVEL_RAD\n            - HBALL_BALL_MOTOR_OFFSET_LIMIT_RAD" in can
+
+
 def test_m33_input_hub_uses_mutex_and_200_hz_read_only_snapshots():
     source = INPUTS.read_text(encoding="utf-8")
 
@@ -80,6 +94,7 @@ def test_m33_observes_m55_shadow_at_1khz_without_any_actuator_path():
 
     assert "hball_control_guard.c" in sconscript
     assert "hball_hold_controller.c" in sconscript
+    assert "hball_imu_compensation.c" in sconscript
     assert "hball_m33_control_guard.c" in sconscript
     assert "#define HBALL_M33_GUARD_PERIOD_MS 1U" in source
     assert "rt_thread_delay_until(" in source

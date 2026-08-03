@@ -5,7 +5,9 @@
 #include <string.h>
 
 #define HBALL_HOLD_GRAVITY_MPS2 9.80665F
+#define HBALL_HOLD_ROLLING_FACTOR (5.0F / 7.0F)
 #define HBALL_HOLD_MAX_DT_S 0.050F
+#define HBALL_HOLD_MAX_DISTURBANCE_MPS2 2.0F
 
 static float hball_hold_clampf(float value, float minimum, float maximum)
 {
@@ -30,6 +32,8 @@ static bool hball_hold_finite_config(
         && isfinite(config->integral_limit_m_s)
         && isfinite(config->accel_feedforward_gain)
         && isfinite(config->pitch_feedforward_gain)
+        && isfinite(config->disturbance_feedforward_gain)
+        && isfinite(config->disturbance_filter_tau_s)
         && isfinite(config->accel_filter_tau_s)
         && isfinite(config->command_limit_rad)
         && isfinite(config->command_rate_limit_rad_s);
@@ -47,8 +51,10 @@ void hball_hold_controller_default_config(
     config->ki_rad_per_m_s = 0.15F;
     config->kd_rad_per_mps = 0.35F;
     config->integral_limit_m_s = 0.050F;
-    config->accel_feedforward_gain = 0.0F;
+    config->accel_feedforward_gain = 1.0F;
     config->pitch_feedforward_gain = 1.0F;
+    config->disturbance_feedforward_gain = 0.5F;
+    config->disturbance_filter_tau_s = 0.050F;
     config->accel_filter_tau_s = 0.030F;
     config->command_limit_rad = 0.052359878F;
     config->command_rate_limit_rad_s = 0.35F;
@@ -66,6 +72,8 @@ bool hball_hold_controller_config_valid(
         && (config->integral_limit_m_s >= 0.0F)
         && (config->accel_feedforward_gain >= 0.0F)
         && (config->pitch_feedforward_gain >= 0.0F)
+        && (config->disturbance_feedforward_gain >= 0.0F)
+        && (config->disturbance_filter_tau_s >= 0.0F)
         && (config->accel_filter_tau_s >= 0.0F)
         && (config->command_limit_rad > 0.0F)
         && (config->command_rate_limit_rad_s > 0.0F);
@@ -103,8 +111,9 @@ static bool hball_hold_input_valid(
         && isfinite(input->target_position_m)
         && isfinite(input->estimated_position_m)
         && isfinite(input->estimated_velocity_mps)
-        && isfinite(input->longitudinal_accel_mps2)
+        && isfinite(input->along_pipe_accel_mps2)
         && isfinite(input->body_pitch_rad)
+        && isfinite(input->estimated_disturbance_mps2)
         && isfinite(input->dt_s)
         && (input->dt_s > 0.0F)
         && (input->dt_s <= HBALL_HOLD_MAX_DT_S);
@@ -135,6 +144,10 @@ bool hball_hold_controller_step(
     float requested_rad;
     float limited_rad;
     float maximum_change_rad;
+    bool integral_advanced = false;
+    const float previous_command_rad = controller != NULL
+        ? controller->previous_command_rad
+        : 0.0F;
 
     if (!hball_hold_controller_config_valid(config)
         || (controller == NULL)
@@ -151,7 +164,7 @@ bool hball_hold_controller_step(
 
     if (input->feedforward_enabled)
     {
-        const float unbiased_accel = input->longitudinal_accel_mps2
+        const float unbiased_accel = input->along_pipe_accel_mps2
             - controller->accel_bias_mps2;
         const float alpha = config->accel_filter_tau_s > 0.0F
             ? input->dt_s / (config->accel_filter_tau_s + input->dt_s)
@@ -168,6 +181,26 @@ bool hball_hold_controller_step(
                 * (input->body_pitch_rad - controller->pitch_bias_rad);
         output->flags |= HBALL_HOLD_OUTPUT_FEEDFORWARD_ACTIVE;
     }
+    if (config->disturbance_feedforward_gain > 0.0F)
+    {
+        const float disturbance = hball_hold_clampf(
+            input->estimated_disturbance_mps2,
+            -HBALL_HOLD_MAX_DISTURBANCE_MPS2,
+            HBALL_HOLD_MAX_DISTURBANCE_MPS2
+        );
+        const float alpha = config->disturbance_filter_tau_s > 0.0F
+            ? input->dt_s / (
+                config->disturbance_filter_tau_s + input->dt_s
+            )
+            : 1.0F;
+
+        controller->filtered_disturbance_mps2 += alpha
+            * (disturbance - controller->filtered_disturbance_mps2);
+        feedforward_rad -= config->disturbance_feedforward_gain
+            * controller->filtered_disturbance_mps2
+            / (HBALL_HOLD_ROLLING_FACTOR * HBALL_HOLD_GRAVITY_MPS2);
+        output->flags |= HBALL_HOLD_OUTPUT_FEEDFORWARD_ACTIVE;
+    }
 
     candidate_integral = controller->integral_error_m_s;
     if (input->feedback_enabled)
@@ -177,6 +210,8 @@ bool hball_hold_controller_step(
             -config->integral_limit_m_s,
             config->integral_limit_m_s
         );
+        integral_advanced = candidate_integral
+            != controller->integral_error_m_s;
         feedback_rad = hball_hold_feedback(
             config,
             output->position_error_m,
@@ -202,6 +237,7 @@ bool hball_hold_controller_step(
         if (input->feedback_enabled && (pushes_high || pushes_low))
         {
             candidate_integral = controller->integral_error_m_s;
+            integral_advanced = false;
             feedback_rad = hball_hold_feedback(
                 config,
                 output->position_error_m,
@@ -219,15 +255,24 @@ bool hball_hold_controller_step(
 
     controller->integral_error_m_s = candidate_integral;
     maximum_change_rad = config->command_rate_limit_rad_s * input->dt_s;
-    output->command_rad = controller->previous_command_rad
+    output->command_rad = previous_command_rad
         + hball_hold_clampf(
-            limited_rad - controller->previous_command_rad,
+            limited_rad - previous_command_rad,
             -maximum_change_rad,
             maximum_change_rad
         );
     if (output->command_rad != limited_rad)
     {
         output->flags |= HBALL_HOLD_OUTPUT_RATE_LIMITED;
+        if (input->feedback_enabled && integral_advanced
+            && (((limited_rad > previous_command_rad)
+                    && (output->position_error_m > 0.0F))
+                || ((limited_rad < previous_command_rad)
+                    && (output->position_error_m < 0.0F))))
+        {
+            controller->integral_error_m_s =
+                candidate_integral - output->position_error_m * input->dt_s;
+        }
     }
     controller->previous_command_rad = output->command_rad;
     output->filtered_accel_mps2 = controller->filtered_accel_mps2;

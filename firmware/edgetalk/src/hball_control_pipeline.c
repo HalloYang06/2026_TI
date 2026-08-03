@@ -1,5 +1,6 @@
 #include "hball_control_pipeline.h"
 #include "hball_deployment_config.h"
+#include "hball_imu_compensation.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -62,11 +63,17 @@ static hball_deployment_input_t hball_pipeline_make_input(
         );
     }
     input.pipe_angle_rad = *actual_pipe_angle_rad;
+    input.pipe_heading_offset_rad = 0.0F;
     if ((snapshot->valid_flags & HBALL_SENSOR_VALID_IMU) != 0U)
     {
         input.body_pitch_rad = snapshot->body_pitch_rad;
-        input.longitudinal_accel_mps2 = snapshot->longitudinal_accel_mps2;
+        input.longitudinal_accel_mps2 =
+            hball_imu_specific_force_to_vehicle_accel(
+                snapshot->longitudinal_accel_mps2,
+                snapshot->body_pitch_rad
+            );
         input.lateral_accel_mps2 = snapshot->lateral_accel_mps2;
+        input.body_speed_mps = snapshot->body_speed_mps;
         input.yaw_rate_rad_s = snapshot->yaw_rate_rad_s;
     }
     return input;
@@ -202,6 +209,16 @@ void hball_control_pipeline_step(
     output->estimated_position_m = pipeline->controller.state[0];
     output->estimated_velocity_mps = pipeline->controller.state[1];
     output->estimated_disturbance_mps2 = pipeline->controller.state[2];
+    output->along_pipe_accel_mps2 =
+        hball_deployment_controller_accel_along_pipe(
+            &pipeline->controller, &input
+        );
+    output->turning_centripetal_accel_mps2 =
+        hball_deployment_estimate_lateral_centripetal_mps2(
+            snapshot->body_speed_mps,
+            snapshot->yaw_rate_rad_s
+        );
+    output->longitudinal_accel_mps2 = input.longitudinal_accel_mps2;
     output->actual_pipe_angle_rad = actual_pipe_angle_rad;
     output->linkage_valid = linkage_valid && inverse_valid;
     output->linkage_calibrated = pipeline->linkage_calibrated;

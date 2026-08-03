@@ -41,6 +41,8 @@ static hball_mission_client_t g_hball_mission_client;
 static hball_mission_ui_t g_hball_mission_ui;
 static void hball_can_drain_fifo0(void);
 static volatile uint32_t g_hball_port_now_ms;
+static uint32_t g_hball_tx_pending_since_ms;
+static bool g_hball_tx_pending_tracked;
 static uint32_t g_hball_chassis_start_ms;
 static uint8_t g_hball_chassis_phase;
 static uint8_t g_hball_chassis_events =
@@ -340,6 +342,8 @@ void hball_can_port_init(void)
     g_hball_wit_gyro_seen = false;
     g_hball_wit_attitude_seen = false;
     g_hball_port_now_ms = 0U;
+    g_hball_tx_pending_since_ms = 0U;
+    g_hball_tx_pending_tracked = false;
     g_hball_chassis_start_ms = 0U;
     g_hball_chassis_phase = HBALL_MISSION_STATE_READY;
     g_hball_chassis_events = HBALL_MISSION_CHASSIS_EVENT_STOPPED;
@@ -417,8 +421,21 @@ void hball_can_port_tick_1ms(uint32_t now_ms)
             & (UINT32_C(1) << HBALL_CAN_TX_BUFFER_INDEX)) != 0U)
     {
         g_hball_can_stats.tx_busy++;
+        if (!g_hball_tx_pending_tracked)
+        {
+            g_hball_tx_pending_since_ms = now_ms;
+            g_hball_tx_pending_tracked = true;
+        }
+        else if ((uint32_t)(now_ms - g_hball_tx_pending_since_ms) >= 20U)
+        {
+            (void)DL_MCAN_txBufCancellationReq(
+                MCAN0_INST, HBALL_CAN_TX_BUFFER_INDEX
+            );
+            g_hball_tx_pending_since_ms = now_ms;
+        }
         return;
     }
+    g_hball_tx_pending_tracked = false;
 
     if (intent_due)
     {
